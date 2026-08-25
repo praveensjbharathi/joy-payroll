@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "incremental": false,
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "app/payroll-app.tsx",
+    "lib/access-control.ts",
+    "lib/excel-import.ts",
+    "lib/payroll-calculations.ts",
+    "supabase-frontend/**/*.ts",
+    "supabase-frontend/**/*.tsx",
+    "supabase/functions/payroll-api/**/*.ts",
+    "vite.supabase.config.ts"
+  ],
+  "exclude": ["node_modules"]
+}
