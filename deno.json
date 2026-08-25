@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.112.3",
+    "drizzle-orm": "npm:drizzle-orm@0.45.2",
+    "drizzle-orm/": "npm:/drizzle-orm@0.45.2/",
+    "postgres": "npm:postgres@3.4.7"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
+  }
+}

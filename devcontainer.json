@@ -1,0 +1,20 @@
+{
+  "name": "Joy Client Payroll Manager",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": {
+      "label": "Joy Payroll application",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "npm ci && npm run db:migrate:local",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss"
+      ]
+    }
+  }
+}

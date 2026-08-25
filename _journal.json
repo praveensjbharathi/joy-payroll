@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787640265129,
+      "tag": "0000_superb_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787642214886,
+      "tag": "0001_icy_tony_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787645491228,
+      "tag": "0002_sparkling_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787649581737,
+      "tag": "0003_elite_maginty",
+      "breakpoints": true
+    }
+  ]
+}

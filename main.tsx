@@ -1,0 +1,332 @@
+import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { StrictMode, useEffect, useMemo, useState, type FormEvent } from "react";
+import { createRoot } from "react-dom/client";
+import PayrollApp from "../app/payroll-app";
+import "../app/globals.css";
+import "./login.css";
+
+type JoyPayrollConfig = {
+  supabaseUrl: string;
+  supabasePublishableKey: string;
+  apiUrl?: string;
+};
+
+declare global {
+  interface Window {
+    JOY_PAYROLL_CONFIG?: JoyPayrollConfig;
+  }
+}
+
+function validConfiguration(value: unknown): value is JoyPayrollConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Partial<JoyPayrollConfig>;
+  if (
+    typeof config.supabaseUrl !== "string" ||
+    typeof config.supabasePublishableKey !== "string" ||
+    config.supabaseUrl.includes("YOUR_PROJECT_REF") ||
+    config.supabasePublishableKey.includes("YOUR_SUPABASE_PUBLISHABLE_KEY")
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(config.supabaseUrl);
+    return url.protocol === "https:" && config.supabasePublishableKey.length > 20;
+  } catch {
+    return false;
+  }
+}
+
+function SetupRequired() {
+  return (
+    <main className="joy-login-page">
+      <section className="joy-login-card joy-setup-card">
+        <Brand />
+        <h1>Finish your Supabase connection</h1>
+        <p>
+          Open <strong>config.js</strong> in cPanel File Manager and enter your
+          Supabase project URL and publishable key.
+        </p>
+        <ol>
+          <li>Supabase → Project Settings → API Keys.</li>
+          <li>Copy the Project URL and the publishable key.</li>
+          <li>Edit config.js in your payroll subdomain folder.</li>
+          <li>Save the file and refresh this page.</li>
+        </ol>
+        <aside>
+          Never place a secret key, service-role key, database password, or
+          employee data in config.js.
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="joy-login-brand">
+      <span>J</span>
+      <div>
+        <strong>JOY</strong>
+        <small>Corporate Solutions · Payroll</small>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({
+  supabase,
+  recovery,
+  onRecoveryComplete,
+}: {
+  supabase: SupabaseClient;
+  recovery: boolean;
+  onRecoveryComplete: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      if (recovery) {
+        if (password.length < 12) {
+          throw new Error("Choose a password containing at least 12 characters.");
+        }
+        if (password !== confirmPassword) {
+          throw new Error("The two passwords do not match.");
+        }
+        const { error: updateError } = await supabase.auth.updateUser({ password });
+        if (updateError) throw updateError;
+        setPassword("");
+        setConfirmPassword("");
+        onRecoveryComplete();
+        return;
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (signInError) {
+        throw new Error(
+          signInError.message === "Invalid login credentials"
+            ? "Incorrect email or password. Ask your Super Admin to confirm your account."
+            : signInError.message,
+        );
+      }
+      setPassword("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to sign in.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetPassword() {
+    setError(null);
+    setMessage(null);
+    if (!email.trim()) {
+      setError("Enter your company email before requesting a password reset.");
+      return;
+    }
+    setBusy(true);
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo: window.location.origin },
+    );
+    setBusy(false);
+    if (resetError) {
+      setError(resetError.message);
+      return;
+    }
+    setMessage(
+      "If this email has an authorised account, a password-reset message will arrive shortly.",
+    );
+  }
+
+  return (
+    <main className="joy-login-page">
+      <section className="joy-login-card">
+        <Brand />
+        <span className="joy-login-kicker">CONFIDENTIAL PAYROLL WORKSPACE</span>
+        <h1>{recovery ? "Set your secure password" : "Sign in to Joy Payroll"}</h1>
+        <p>
+          {recovery
+            ? "Create a strong individual password for your payroll account."
+            : "Use the email and password assigned by your Super Admin."}
+        </p>
+
+        <form onSubmit={(event) => void submit(event)}>
+          {!recovery ? (
+            <label>
+              <span>Work email</span>
+              <input
+                autoComplete="username"
+                autoFocus
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@joycorporatesolutions.com"
+                required
+                type="email"
+                value={email}
+              />
+            </label>
+          ) : null}
+
+          <label>
+            <span>{recovery ? "New password" : "Password"}</span>
+            <input
+              autoComplete={recovery ? "new-password" : "current-password"}
+              minLength={recovery ? 12 : 1}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              type="password"
+              value={password}
+            />
+          </label>
+
+          {recovery ? (
+            <label>
+              <span>Confirm new password</span>
+              <input
+                autoComplete="new-password"
+                minLength={12}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                type="password"
+                value={confirmPassword}
+              />
+            </label>
+          ) : null}
+
+          {error ? <div className="joy-login-notice joy-login-error">{error}</div> : null}
+          {message ? <div className="joy-login-notice joy-login-success">{message}</div> : null}
+
+          <button className="joy-login-submit" disabled={busy} type="submit">
+            {busy ? "Please wait…" : recovery ? "Save password" : "Sign in"}
+          </button>
+
+          {!recovery ? (
+            <button
+              className="joy-login-reset"
+              disabled={busy}
+              onClick={() => void resetPassword()}
+              type="button"
+            >
+              Forgot your password?
+            </button>
+          ) : null}
+        </form>
+
+        <footer>
+          Individual access is controlled by your Super Admin. Employee and
+          salary information is protected by Supabase authentication.
+        </footer>
+      </section>
+    </main>
+  );
+}
+
+function SupabasePayroll({ config }: { config: JoyPayrollConfig }) {
+  const supabase = useMemo(
+    () =>
+      createClient(config.supabaseUrl, config.supabasePublishableKey, {
+        auth: {
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          persistSession: true,
+          storageKey: "joy-payroll-auth-session",
+        },
+      }),
+    [config.supabasePublishableKey, config.supabaseUrl],
+  );
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSession(data.session);
+      setLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (!mounted) return;
+      setSession(nextSession);
+      setLoading(false);
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (event === "SIGNED_OUT") setRecovery(false);
+    });
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  if (loading) {
+    return (
+      <main className="joy-login-page">
+        <section className="joy-login-card joy-loading-card">
+          <Brand />
+          <p>Checking your secure payroll session…</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!session || recovery) {
+    return (
+      <LoginScreen
+        supabase={supabase}
+        recovery={recovery}
+        onRecoveryComplete={() => setRecovery(false)}
+      />
+    );
+  }
+
+  const userMetadata = session.user.user_metadata ?? {};
+  const candidate = userMetadata.full_name ?? userMetadata.name;
+  const displayName =
+    typeof candidate === "string" && candidate.trim()
+      ? candidate.trim()
+      : session.user.email ?? "Joy Payroll User";
+  return (
+    <PayrollApp
+      accessToken={session.access_token}
+      apiEndpoint={
+        config.apiUrl?.trim() || `${config.supabaseUrl}/functions/v1/payroll-api`
+      }
+      displayName={displayName}
+      onSignOut={async () => {
+        await supabase.auth.signOut();
+      }}
+      publishableKey={config.supabasePublishableKey}
+    />
+  );
+}
+
+function App() {
+  const config = window.JOY_PAYROLL_CONFIG;
+  return validConfiguration(config) ? (
+    <SupabasePayroll config={config} />
+  ) : (
+    <SetupRequired />
+  );
+}
+
+const root = document.getElementById("root");
+if (!root) throw new Error("The Joy Payroll website root element is missing.");
+
+createRoot(root).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);

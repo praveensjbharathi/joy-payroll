@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Joy Payroll: Start application",
+      "type": "shell",
+      "command": "npm run dev:self-hosted",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Joy Payroll: Reset local database",
+      "type": "shell",
+      "command": "npm run db:migrate:local",
+      "problemMatcher": []
+    },
+    {
+      "label": "Joy Payroll: Test secure login",
+      "type": "shell",
+      "command": "npm run test:self-hosted-auth",
+      "problemMatcher": []
+    },
+    {
+      "label": "Joy Payroll: Run all checks",
+      "type": "shell",
+      "command": "npm test && npm run test:self-hosted-auth",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    }
+  ]
+}

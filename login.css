@@ -1,0 +1,193 @@
+.joy-login-page {
+  min-height: 100vh;
+  padding: 28px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(64, 125, 225, .15), transparent 31%),
+    radial-gradient(circle at 82% 78%, rgba(17, 163, 127, .11), transparent 27%),
+    linear-gradient(160deg, #f2f6fb, #e9eff8);
+}
+
+.joy-login-card {
+  width: min(448px, 100%);
+  padding: 34px;
+  border: 1px solid rgba(164, 185, 213, .44);
+  border-radius: 19px;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 26px 85px rgba(27, 49, 86, .14);
+}
+
+.joy-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 30px;
+}
+
+.joy-login-brand > span {
+  width: 47px;
+  height: 47px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #377ff1, #2355bf);
+  color: white;
+  font-size: 23px;
+  font-weight: 800;
+}
+
+.joy-login-brand > div {
+  display: grid;
+  gap: 3px;
+}
+
+.joy-login-brand strong {
+  color: #1f3657;
+  font-size: 19px;
+  letter-spacing: .09em;
+}
+
+.joy-login-brand small,
+.joy-login-card > p,
+.joy-login-card > footer {
+  color: #66758d;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.joy-login-kicker {
+  color: #3264bc;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .1em;
+}
+
+.joy-login-card > h1 {
+  margin: 8px 0 7px;
+  color: #1c2e4a;
+  font-size: 23px;
+  line-height: 1.22;
+}
+
+.joy-login-card > p {
+  margin: 0;
+}
+
+.joy-login-card form {
+  margin-top: 23px;
+  display: grid;
+  gap: 15px;
+}
+
+.joy-login-card label {
+  display: grid;
+  gap: 6px;
+}
+
+.joy-login-card label > span {
+  color: #40516b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.joy-login-card input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d7dfeb;
+  border-radius: 9px;
+  color: #283850;
+  background: #fff;
+  font-size: 12px;
+}
+
+.joy-login-card input:focus {
+  outline: 2px solid rgba(46, 107, 218, .2);
+  border-color: #3277e4;
+}
+
+.joy-login-submit {
+  height: 45px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #347beb, #245ec8);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.joy-login-submit:disabled,
+.joy-login-reset:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.joy-login-reset {
+  justify-self: center;
+  border: 0;
+  background: none;
+  color: #2b66cf;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.joy-login-notice {
+  padding: 10px 11px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.joy-login-error {
+  color: #a63139;
+  background: #fff0f0;
+}
+
+.joy-login-success {
+  color: #176e52;
+  background: #ebf8f1;
+}
+
+.joy-login-card > footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e9edf3;
+  font-size: 10px;
+}
+
+.joy-setup-card ol {
+  margin: 16px 0;
+  padding-left: 19px;
+  color: #435570;
+  font-size: 11px;
+  line-height: 1.9;
+}
+
+.joy-setup-card aside {
+  padding: 10px 11px;
+  border-radius: 8px;
+  color: #866321;
+  background: #fff8e8;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.joy-loading-card {
+  text-align: center;
+}
+
+.joy-loading-card .joy-login-brand {
+  justify-content: center;
+}
+
+@media (max-width: 500px) {
+  .joy-login-page {
+    padding: 15px;
+  }
+
+  .joy-login-card {
+    padding: 24px 19px;
+  }
+}

@@ -1,0 +1,59 @@
+name: Payroll feature request
+description: Describe a new screen, rule, report, field, or workflow safely.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Overview Dashboard
+        - Payroll Run
+        - Attendance
+        - Employees
+        - Accommodation
+        - Payments & Payslips
+        - Clients & Employers
+        - Shifts & Remarks
+        - Rules & Settings
+        - Users & Access
+        - New module
+    validations:
+      required: true
+  - type: textarea
+    id: business_need
+    attributes:
+      label: What should the application do?
+      description: Explain the present difficulty and the expected result in simple words.
+      placeholder: "Example: Allow HR to upload the weekly shift plan and show conflicts before saving."
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: Who can view, add, edit, approve, or export it?
+      placeholder: "Super Admin: full; Payroll Team: view; HR Team: add/edit; Custom users: no access."
+    validations:
+      required: true
+  - type: textarea
+    id: calculation
+    attributes:
+      label: Calculation or payroll impact
+      description: Include formulas, rounding, effective date, locking, arrears, or statutory impact. Write "None" if it does not affect payroll.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example input and expected output
+      description: Use synthetic information only; do not attach real employee or bank data.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: How will we know it is complete?
+      placeholder: "List the exact screens, actions, messages, exports, and safeguards expected."
+    validations:
+      required: true
