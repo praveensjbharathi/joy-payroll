@@ -16,15 +16,14 @@ if (!projectUrl || !secretKey) {
 const admin = createClient(projectUrl, secretKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const allowedOrigins = new Set(
-  (
-    Deno.env.get("APP_ORIGIN") ??
-    "https://payroll.joycorporatesolutions.com"
-  )
+const allowedOrigins = new Set([
+  "https://payroll.joycorporatesolutions.com",
+  "https://joy-payroll.praveen-red-07.workers.dev",
+  ...(Deno.env.get("APP_ORIGIN") ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
-);
+]);
 
 function responseHeaders(origin: string | null) {
   const firstAllowedOrigin = [...allowedOrigins][0];
