@@ -228,7 +228,7 @@ async function enforceActionScope(db: Db, access: AppAccess, action: string, pay
 function actionPermission(action: string, payload: Payload): { module: AccessModule; level: "manage" } | null {
   if (action === "save-app-user" || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "app_user")) return { module: "users", level: "manage" };
   if (["create-vendor", "save-client", "create-unit", "save-unit"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["client", "unit"].includes(String(payload.entityType)))) return { module: "clients", level: "manage" };
-  if (action === "save-employee" || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "employee")) return { module: "employees", level: "manage" };
+  if (["save-employee", "mark-employee-left", "reactivate-employee"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "employee")) return { module: "employees", level: "manage" };
   if (["save-shift", "save-remark", "save-accommodation-type"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["shift", "remark", "accommodation_type"].includes(String(payload.entityType)))) return { module: "masters", level: "manage" };
   if (["save-attendance", "delete-attendance"].includes(action)) return { module: "attendance", level: "manage" };
   if (["save-accommodation", "delete-accommodation", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
@@ -707,6 +707,24 @@ function runPeriodValues(period: string, payload: Record<string, unknown>, defau
   return { periodStart, periodEnd, workingDays };
 }
 
+function unitCycleRange(period: string, startDay: number, endDay: number) {
+  const [year, month] = period.split("-").map(Number);
+  const dayInMonth = (targetYear: number, targetMonth: number, day: number) => {
+    const maximum = new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate();
+    return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(Math.min(day, maximum)).padStart(2, "0")}`;
+  };
+  if (startDay <= endDay) return { periodStart: dayInMonth(year, month, startDay), periodEnd: dayInMonth(year, month, endDay) };
+  const previous = new Date(Date.UTC(year, month - 2, 1));
+  return { periodStart: dayInMonth(previous.getUTCFullYear(), previous.getUTCMonth() + 1, startDay), periodEnd: dayInMonth(year, month, endDay) };
+}
+
+function selectedPayslipFields(value: unknown, allowed: readonly string[], label: string) {
+  const values = value === undefined || value === null ? [...allowed] : Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? value.split(",") : [];
+  const selected = [...new Set(values.filter((field) => allowed.includes(field)))];
+  if (!selected.length) throw new RequestError(`Select at least one ${label} field`);
+  return JSON.stringify(selected);
+}
+
 async function activeRules(db: Db, vendorId: string) {
   const [rule] = await db.select().from(payrollRules).where(eq(payrollRules.vendorId, vendorId)).limit(1);
   return { ...defaultPayrollRules, ...rule };
@@ -968,24 +986,6 @@ async function updateUnitCount(db: Db, unitId: string) {
   await db.update(clientUnits).set({ employeeCount: rows.length }).where(eq(clientUnits.id, unitId));
 }
 
-async function deleteEmployee(db: Db, employeeId: string) {
-  const [employee] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
-  if (!employee) throw new RequestError("Employee not found", 404);
-  const history = await db.select({ runId: payrollItems.runId, status: payrollRuns.status }).from(payrollItems)
-    .innerJoin(payrollRuns, eq(payrollItems.runId, payrollRuns.id))
-    .where(eq(payrollItems.employeeId, employeeId));
-  if (history.some((row) => row.status === "approved")) {
-    throw new RequestError("This employee belongs to approved payroll history. Make the employee inactive instead of deleting the record.", 409);
-  }
-  await db.delete(accommodationCharges).where(eq(accommodationCharges.employeeId, employeeId));
-  await db.delete(attendanceEntries).where(eq(attendanceEntries.employeeId, employeeId));
-  await db.delete(payrollItems).where(eq(payrollItems.employeeId, employeeId));
-  await db.delete(employees).where(eq(employees.id, employeeId));
-  await updateUnitCount(db, employee.clientUnitId);
-  for (const runId of new Set(history.map((row) => row.runId))) await recalculateRun(db, runId, false);
-  return employee;
-}
-
 async function importWorkbook(db: Db, payload: Payload, actorEmail: string | null) {
   const vendorId = textValue(payload.vendorId, "Payroll entity");
   const unitId = textValue(payload.unitId, "Client unit");
@@ -1171,12 +1171,20 @@ export async function POST(request: Request) {
         unitName,
         location: textValue(payload.location, "Location"),
         remarks: optionalValue(payload.remarks),
+        attendanceCycleStartDay: positiveValue(payload.attendanceCycleStartDay ?? 1, "Attendance cycle start day", 31),
+        attendanceCycleEndDay: positiveValue(payload.attendanceCycleEndDay ?? 31, "Attendance cycle end day", 31),
+        attendanceWorkingDays: positiveValue(payload.attendanceWorkingDays ?? 26, "Attendance working days", 31),
         payslipTitle: optionalValue(payload.payslipTitle),
         payslipSubtitle: optionalValue(payload.payslipSubtitle),
         payslipAddress: optionalValue(payload.payslipAddress),
         payslipContact: optionalValue(payload.payslipContact),
         payslipFooter: optionalValue(payload.payslipFooter),
+        payslipEarningsJson: selectedPayslipFields(payload.payslipEarnings, earningFields, "payslip earning"),
+        payslipDeductionsJson: selectedPayslipFields(payload.payslipDeductions, deductionFields, "payslip deduction"),
       };
+      if (![values.attendanceCycleStartDay, values.attendanceCycleEndDay, values.attendanceWorkingDays].every((value) => Number.isInteger(value) && value >= 1)) {
+        throw new RequestError("Attendance cycle days and working days must be whole numbers between 1 and 31");
+      }
       if (existingId) {
         const [existing] = await db.select().from(clientUnits).where(eq(clientUnits.id, existingId)).limit(1);
         if (!existing) throw new RequestError("Employer unit not found", 404);
@@ -1366,6 +1374,28 @@ export async function POST(request: Request) {
         await db.insert(payrollRemarks).values({ id, ...values });
       }
       await writeAudit(db, existingId ? "remark_updated" : "remark_created", "remark", id, `${existingId ? "Updated" : "Added"} ${category} remark: ${title}`, actorEmail);
+    } else if (action === "mark-employee-left") {
+      const employeeId = textValue(payload.employeeId, "Employee");
+      const leftDate = dateValue(payload.leftDate, "Left date");
+      const [record] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      if (!record) throw new RequestError("Employee not found", 404);
+      if (leftDate < record.dateOfJoining) throw new RequestError("Left date cannot be earlier than the joining date");
+      await db.update(employees).set({ status: "inactive", dateOfLeaving: leftDate }).where(eq(employees.id, employeeId));
+      await updateUnitCount(db, record.clientUnitId);
+      await writeAudit(db, "employee_left", "employee", employeeId, `Marked ${record.name} (${record.employeeCode}) as left on ${leftDate}; all history preserved`, actorEmail);
+    } else if (action === "reactivate-employee") {
+      const employeeId = textValue(payload.employeeId, "Employee");
+      const [record] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      if (!record) throw new RequestError("Employee not found", 404);
+      await db.update(employees).set({ status: "active", dateOfLeaving: null }).where(eq(employees.id, employeeId));
+      const [reactivated] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      const openRuns = await db.select().from(payrollRuns).where(eq(payrollRuns.clientUnitId, record.clientUnitId));
+      for (const run of openRuns.filter((candidate) => candidate.status !== "approved")) {
+        await addEmployeesToRun(db, run, [reactivated]);
+        await recalculateRun(db, run.id, true);
+      }
+      await updateUnitCount(db, record.clientUnitId);
+      await writeAudit(db, "employee_reactivated", "employee", employeeId, `Reactivated ${record.name} (${record.employeeCode})`, actorEmail);
     } else if (action === "set-record-status") {
       const entityType = textValue(payload.entityType, "Record type");
       const entityId = textValue(payload.entityId, "Record");
@@ -1389,19 +1419,7 @@ export async function POST(request: Request) {
         await db.update(clientUnits).set({ status }).where(eq(clientUnits.id, entityId));
         await writeAudit(db, `unit_${status}`, "client_unit", entityId, `${status === "active" ? "Reactivated" : "Made inactive"} employer unit ${record.clientName} · ${record.unitName}`, actorEmail);
       } else if (entityType === "employee") {
-        const [record] = await db.select().from(employees).where(eq(employees.id, entityId)).limit(1);
-        if (!record) throw new RequestError("Employee not found", 404);
-        await db.update(employees).set({ status, dateOfLeaving: status === "inactive" ? new Date().toISOString().slice(0, 10) : null }).where(eq(employees.id, entityId));
-        if (status === "active") {
-          const [reactivated] = await db.select().from(employees).where(eq(employees.id, entityId)).limit(1);
-          const openRuns = await db.select().from(payrollRuns).where(eq(payrollRuns.clientUnitId, record.clientUnitId));
-          for (const run of openRuns.filter((candidate) => candidate.status !== "approved")) {
-            await addEmployeesToRun(db, run, [reactivated]);
-            await recalculateRun(db, run.id, true);
-          }
-        }
-        await updateUnitCount(db, record.clientUnitId);
-        await writeAudit(db, `employee_${status}`, "employee", entityId, `${status === "active" ? "Reactivated" : "Made inactive"} ${record.name} (${record.employeeCode})`, actorEmail);
+        throw new RequestError(status === "inactive" ? "Use Put left date for employees." : "Use Reactivate employee to clear the left date.", 409);
       } else if (entityType === "accommodation_type") {
         const [record] = await db.select().from(accommodationTypes).where(eq(accommodationTypes.id, entityId)).limit(1);
         if (!record) throw new RequestError("Accommodation type not found", 404);
@@ -1457,8 +1475,7 @@ export async function POST(request: Request) {
         await db.delete(appUsers).where(eq(appUsers.id, entityId));
         await writeAudit(db, "user_deleted", "app_user", entityId, `Deleted access profile ${record.email}`, actorEmail);
       } else if (entityType === "employee") {
-        const record = await deleteEmployee(db, entityId);
-        await writeAudit(db, "employee_deleted", "employee", entityId, `Deleted ${record.name} (${record.employeeCode})`, actorEmail);
+        throw new RequestError("Employee records cannot be deleted. Enter a left date to preserve attendance and payroll history.", 409);
       } else if (entityType === "unit") {
         const [record] = await db.select().from(clientUnits).where(eq(clientUnits.id, entityId)).limit(1);
         if (!record) throw new RequestError("Employer unit not found", 404);
@@ -1526,7 +1543,16 @@ export async function POST(request: Request) {
       const period = periodValue(payload.payPeriod);
       const existing = await db.select().from(payrollRuns).where(and(eq(payrollRuns.clientUnitId, unitId), eq(payrollRuns.payPeriod, period))).limit(1);
       if (existing.length) throw new RequestError(`A payroll run already exists for ${period}`, 409);
-      const run = await createRun(db, vendorId, unitId, period, payload);
+      const [unit] = await db.select().from(clientUnits).where(and(eq(clientUnits.id, unitId), eq(clientUnits.vendorId, vendorId))).limit(1);
+      if (!unit) throw new RequestError("Employer unit not found", 404);
+      const cycle = unitCycleRange(period, unit.attendanceCycleStartDay, unit.attendanceCycleEndDay);
+      const options = {
+        ...payload,
+        periodStart: payload.periodStart || cycle.periodStart,
+        periodEnd: payload.periodEnd || cycle.periodEnd,
+        workingDays: payload.workingDays || unit.attendanceWorkingDays,
+      };
+      const run = await createRun(db, vendorId, unitId, period, options);
       runId = run.id;
       await writeAudit(db, "run_created", "payroll_run", run.id, `Created ${period} payroll (${run.periodStart} to ${run.periodEnd}; ${run.workingDays} working days) with ${run.employeeCount} employees`, actorEmail);
     } else if (action === "update-run-period") {

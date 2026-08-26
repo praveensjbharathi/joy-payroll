@@ -28,7 +28,7 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
 
   try {
     const database = await worker.getD1Database("DB");
-    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql"]) {
+    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql", "0005_unit_attendance_cycle_payslip_fields.sql"]) {
       const sql = await readFile(new URL(`drizzle/${migration}`, root), "utf8");
       for (const statement of sql.split("--> statement-breakpoint")) {
         if (statement.trim()) await database.prepare(statement.trim()).run();
@@ -131,9 +131,11 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
     state = await action({ action: "create-unit", vendorId: vendor.id, clientName: "Precision Factory", unitName: "Plant A", location: "Coimbatore" });
     const unit = state.units.find((entry) => entry.vendorId === vendor.id);
     assert.ok(unit);
-    state = await action({ action: "save-unit", id: unit.id, vendorId: vendor.id, clientName: "Precision Engineering Factory", unitName: "Plant A", location: "Sulur, Coimbatore", remarks: "Report to Gate 2" });
+    state = await action({ action: "save-unit", id: unit.id, vendorId: vendor.id, clientName: "Precision Engineering Factory", unitName: "Plant A", location: "Sulur, Coimbatore", remarks: "Report to Gate 2", attendanceCycleStartDay: 26, attendanceCycleEndDay: 25, attendanceWorkingDays: 26, payslipEarnings: ["basic", "overtimeWages"], payslipDeductions: ["pfDeduction", "accommodationDeduction"] });
     assert.equal(state.units.find((entry) => entry.id === unit.id).clientName, "Precision Engineering Factory");
     assert.equal(state.units.find((entry) => entry.id === unit.id).remarks, "Report to Gate 2");
+    assert.equal(state.units.find((entry) => entry.id === unit.id).attendanceCycleStartDay, 26);
+    assert.deepEqual(JSON.parse(state.units.find((entry) => entry.id === unit.id).payslipEarningsJson), ["basic", "overtimeWages"]);
 
     state = await action({ action: "save-shift", vendorId: vendor.id, name: "Weekend Shift", startTime: "07:30", endTime: "16:30", remarks: "Transport available" });
     const customShift = state.shifts.find((entry) => entry.vendorId === vendor.id && entry.name === "Weekend Shift");
@@ -181,12 +183,14 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
     assert.equal(employee.remarks, "Experienced CNC operator");
     assert.equal(state.units.find((entry) => entry.id === unit.id).employeeCount, 1);
 
-    state = await action({ action: "set-record-status", entityType: "employee", entityId: employee.id, status: "inactive" });
+    state = await action({ action: "mark-employee-left", employeeId: employee.id, leftDate: "2026-09-15" });
     assert.equal(state.units.find((entry) => entry.id === unit.id).employeeCount, 0);
     state = await action({ action: "create-run", vendorId: vendor.id, unitId: unit.id, payPeriod: "2026-09" });
     const runId = state.selectedRunId;
+    assert.equal(state.runs.find((entry) => entry.id === runId).periodStart, "2026-08-26");
+    assert.equal(state.runs.find((entry) => entry.id === runId).periodEnd, "2026-09-25");
     assert.equal(state.runs.find((entry) => entry.id === runId).employeeCount, 0);
-    state = await action({ action: "set-record-status", entityType: "employee", entityId: employee.id, status: "active" });
+    state = await action({ action: "reactivate-employee", employeeId: employee.id });
     assert.equal(state.runs.find((entry) => entry.id === runId).employeeCount, 1);
 
     const firstShift = state.shifts.find((entry) => entry.vendorId === vendor.id && entry.name === "1st Shift");
@@ -262,9 +266,10 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
     assert.equal(importedItem.payableDays, 2);
     assert.equal(importedItem.basic, 1000);
 
-    state = await action({ action: "delete-record", entityType: "employee", entityId: importedEmployee.id });
-    assert.equal(state.employees.some((entry) => entry.id === importedEmployee.id), false);
-    assert.equal(state.payrollItems.some((entry) => entry.employeeId === importedEmployee.id), false);
+    await action({ action: "delete-record", entityType: "employee", entityId: importedEmployee.id }, 409);
+    state = await action({ action: "mark-employee-left", employeeId: importedEmployee.id, leftDate: "2026-10-15" });
+    assert.equal(state.employees.find((entry) => entry.id === importedEmployee.id).dateOfLeaving, "2026-10-15");
+    assert.equal(state.payrollItems.some((entry) => entry.employeeId === importedEmployee.id), true);
     state = await action({ action: "delete-payroll-run", runId: octoberRun.id });
     assert.equal(state.runs.some((entry) => entry.id === octoberRun.id), false);
 
