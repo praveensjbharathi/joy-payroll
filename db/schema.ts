@@ -283,6 +283,7 @@ export const payrollRuns = sqliteTable("payroll_runs", {
   periodStart: text("period_start"),
   periodEnd: text("period_end"),
   workingDays: integer("working_days").notNull().default(26),
+  processingMode: text("processing_mode").notNull().default("attendance"),
   status: text("status").notNull().default("draft"),
   employeeCount: integer("employee_count").notNull().default(0),
   grossEarnings: real("gross_earnings").notNull().default(0),

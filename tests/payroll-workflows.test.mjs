@@ -28,7 +28,7 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
 
   try {
     const database = await worker.getD1Database("DB");
-    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql", "0005_unit_attendance_cycle_payslip_fields.sql", "0006_direct_employee_vehicle_utility_operations.sql", "0007_hostel_master_utilities.sql", "0008_link_hostels_to_accommodation_types.sql", "0009_shift_assignments_hostel_activities.sql", "0010_direct_users_hostel_rent_and_deductions.sql"]) {
+    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql", "0005_unit_attendance_cycle_payslip_fields.sql", "0006_direct_employee_vehicle_utility_operations.sql", "0007_hostel_master_utilities.sql", "0008_link_hostels_to_accommodation_types.sql", "0009_shift_assignments_hostel_activities.sql", "0010_direct_users_hostel_rent_and_deductions.sql", "0011_payroll_source_mode.sql"]) {
       const sql = await readFile(new URL(`drizzle/${migration}`, root), "utf8");
       for (const statement of sql.split("--> statement-breakpoint")) {
         if (statement.trim()) await database.prepare(statement.trim()).run();
@@ -79,21 +79,21 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
     assert.equal(initial.appUsers[0].id, "USER-SITE-AUTOMATION");
     assert.equal(initial.appUsers[0].email, adminEmail);
 
-    let userState = await action({ action: "save-app-user", email: payrollEmail, fullName: "Payroll Maker", role: "payroll_team", clientScope: ["vendor-jms"] });
+    let userState = await action({ action: "save-app-user", email: payrollEmail, temporaryPassword: "TestPayroll!2026", employeeCode: "USR-PAY", department: "Payroll", dateOfJoining: "2026-08-01", fullName: "Payroll Maker", role: "payroll_team", clientScope: ["vendor-jms"] });
     const payrollProfile = userState.appUsers.find((profile) => profile.email === payrollEmail);
     assert.ok(payrollProfile);
     assert.equal(payrollProfile.permissions.payroll, "manage");
     assert.equal(payrollProfile.permissions.attendance, "view");
     assert.equal(payrollProfile.canApprovePayroll, false);
 
-    userState = await action({ action: "save-app-user", email: hrEmail, fullName: "HR Operator", role: "hr_team", unitScope: ["unit-watertec-1"] });
+    userState = await action({ action: "save-app-user", email: hrEmail, temporaryPassword: "TestHumanRes!2026", employeeCode: "USR-HR", department: "HR", dateOfJoining: "2026-08-01", fullName: "HR Operator", role: "hr_team", unitScope: ["unit-watertec-1"] });
     const hrProfile = userState.appUsers.find((profile) => profile.email === hrEmail);
     assert.ok(hrProfile);
     assert.equal(hrProfile.permissions.employees, "manage");
     assert.equal(hrProfile.permissions.payments, "none");
 
     const attendanceOnlyPermissions = Object.fromEntries(Object.keys(initial.currentUser.permissions).map((module) => [module, module === "attendance" ? "view" : "none"]));
-    userState = await action({ action: "save-app-user", email: attendanceEmail, fullName: "Attendance Viewer", role: "hr_team", unitScope: ["unit-watertec-1"], permissions: attendanceOnlyPermissions });
+    userState = await action({ action: "save-app-user", email: attendanceEmail, temporaryPassword: "TestAttendance!2026", employeeCode: "USR-ATT", department: "HR", dateOfJoining: "2026-08-01", fullName: "Attendance Viewer", role: "hr_team", unitScope: ["unit-watertec-1"], permissions: attendanceOnlyPermissions });
     const attendanceProfile = userState.appUsers.find((profile) => profile.email === attendanceEmail);
     assert.ok(attendanceProfile);
 

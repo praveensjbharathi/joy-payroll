@@ -33,7 +33,7 @@ export type ImportedAttendance = {
 export type ImportedSalaryItem = Record<string, string | number> & { employeeCode: string };
 
 export type WorkbookImport = {
-  sourceType: "attendance" | "salary" | "csv";
+  sourceType: "attendance" | "salary" | "csv" | "txt";
   sheetName: string;
   employees: ImportedEmployee[];
   attendance: ImportedAttendance[];
@@ -209,7 +209,7 @@ function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookIm
   return imported;
 }
 
-function csvCells(source: string): string[][] {
+function delimitedCells(source: string, delimiter = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let value = "";
@@ -218,7 +218,7 @@ function csvCells(source: string): string[][] {
     const character = source[index];
     if (character === '"' && quoted && source[index + 1] === '"') { value += '"'; index++; }
     else if (character === '"') quoted = !quoted;
-    else if (character === "," && !quoted) { row.push(value); value = ""; }
+    else if (character === delimiter && !quoted) { row.push(value); value = ""; }
     else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && source[index + 1] === "\n") index++;
       row.push(value);
@@ -230,8 +230,10 @@ function csvCells(source: string): string[][] {
   return rows;
 }
 
-function csvSheet(filename: string, source: string, period: string) {
-  const rows = csvCells(source).map((cells) => new Map(cells.map((value, index) => [index, value] as const)));
+function delimitedSheet(filename: string, source: string, period: string, sourceType: "csv" | "txt") {
+  const firstLine = source.split(/\r?\n/, 1)[0] ?? "";
+  const delimiter = sourceType === "txt" ? (["\t", "|", ",", ";"].sort((a, b) => firstLine.split(b).length - firstLine.split(a).length)[0] ?? "\t") : ",";
+  const rows = delimitedCells(source, delimiter).map((cells) => new Map(cells.map((value, index) => [index, value] as const)));
   const hasDates = rows.some((row) => Array.from(row.values()).some((value) => /^\d{1,2}[-/ ](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(text(value))));
   if (hasDates) return attendanceSheet(filename, rows, period);
 
@@ -242,8 +244,20 @@ function csvSheet(filename: string, source: string, period: string) {
   const nameColumn = findColumn(/^(?:employee[ _-]?)?name$/i);
   if (codeColumn === undefined || nameColumn === undefined) throw new Error("CSV needs employee ID and name columns.");
   const departmentColumn = findColumn(/department/i);
-  const salaryColumn = findColumn(/salary|gross|wage|rate/i);
-  const imported: WorkbookImport = { sourceType: "csv", sheetName: filename, employees: [], attendance: [], salaryItems: [] };
+  const salaryColumn = findColumn(/salary|gross|wage|rate|basic/i);
+  const fieldAliases: Record<string, RegExp> = {
+    basic: /^basic(?: salary| wage)?$/i, da: /^(?:da|dearness allowance)$/i, hra: /^(?:hra|house rent allowance)$/i,
+    conveyance: /conveyance|transport allowance/i, foodAllowance: /food allowance/i, nightAllowance: /night allowance/i,
+    overtimeWages: /^(?:ot|overtime)(?: wages| amount)?$/i, attendanceBonus: /attendance bonus/i, arrears: /arrears/i,
+    holidayWages: /holiday wages/i, productionIncentive: /production incentive/i, medicalAllowance: /medical allowance/i,
+    pfDeduction: /^(?:pf|epf)(?: deduction)?$/i, esiDeduction: /^esi(?: deduction)?$/i, professionalTax: /professional tax|^pt$/i,
+    lwf: /^lwf$/i, canteen: /canteen/i, snacks: /snacks/i, tent: /tent/i, advance: /advance/i,
+    otherDeduction: /other deduction|recovery/i, tds: /^tds$|income tax/i, medicalInsurance: /medical insurance/i,
+    presentDays: /present days/i, payableDays: /payable days|paid days/i, overtimeHours: /ot hours|overtime hours/i,
+  };
+  const mappedFields = Object.entries(fieldAliases).map(([field, pattern]) => [field, findColumn(pattern)] as const).filter((entry): entry is readonly [string, number] => entry[1] !== undefined);
+  const isSalary = mappedFields.some(([field]) => ["basic", "pfDeduction", "payableDays", "overtimeWages"].includes(field));
+  const imported: WorkbookImport = { sourceType: isSalary ? "salary" : sourceType, sheetName: filename, employees: [], attendance: [], salaryItems: [] };
   for (const row of rows.slice(1)) {
     const code = text(row.get(codeColumn));
     const name = text(row.get(nameColumn));
@@ -252,14 +266,20 @@ function csvSheet(filename: string, source: string, period: string) {
     employee.department = departmentColumn === undefined ? "General" : text(row.get(departmentColumn)) || "General";
     employee.salaryAmount = salaryColumn === undefined ? 0 : numberValue(row.get(salaryColumn));
     imported.employees.push(employee);
+    if (isSalary) {
+      const item: ImportedSalaryItem = { employeeCode: code };
+      for (const [field, column] of mappedFields) item[field] = numberValue(row.get(column));
+      imported.salaryItems.push(item);
+    }
   }
   return imported;
 }
 
 export async function parsePayrollWorkbook(file: File, period: string): Promise<WorkbookImport> {
   if (!/^\d{4}-\d{2}$/.test(period)) throw new Error("Choose the payroll month before importing.");
-  if (/\.csv$/i.test(file.name)) return csvSheet(file.name, await file.text(), period);
-  if (!/\.xlsx$/i.test(file.name)) throw new Error("Upload an .xlsx or .csv file.");
+  if (/\.csv$/i.test(file.name)) return delimitedSheet(file.name, await file.text(), period, "csv");
+  if (/\.txt$/i.test(file.name)) return delimitedSheet(file.name, await file.text(), period, "txt");
+  if (!/\.xlsx$/i.test(file.name)) throw new Error("Upload an .xlsx, .csv, or .txt file.");
 
   const sheets = workbookSheets(await file.arrayBuffer());
   const salary = sheets.find((sheet) => /^salary register$/i.test(sheet.name));

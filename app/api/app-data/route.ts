@@ -788,6 +788,7 @@ async function writeAudit(db: Db, action: string, entityType: string, entityId: 
 
 async function recalculateRun(db: Db, runId: string, recomputeAttendance = false) {
   const run = await requireRun(db, runId);
+  if (run.processingMode === "salary_import") recomputeAttendance = false;
   const { start, end } = periodRange(run.payPeriod, run.periodStart, run.periodEnd);
   const [rows, unitEmployees, periodAttendance, charges, rules] = await Promise.all([
     db.select().from(payrollItems).where(eq(payrollItems.runId, runId)),
@@ -889,7 +890,8 @@ async function createRun(db: Db, vendorId: string, unitId: string, period: strin
   const id = `RUN-${period.replace("-", "")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
   const rules = await activeRules(db, vendorId);
   const periodSettings = runPeriodValues(period, options, rules.standardWorkingDays);
-  await db.insert(payrollRuns).values({ id, vendorId, clientUnitId: unitId, payPeriod: period, ...periodSettings, status: "draft" });
+  const processingMode = options.processingMode === "salary_import" ? "salary_import" : "attendance";
+  await db.insert(payrollRuns).values({ id, vendorId, clientUnitId: unitId, payPeriod: period, ...periodSettings, processingMode, status: "draft" });
   const run = await requireRun(db, id);
   const assigned = await db.select().from(employees).where(and(eq(employees.clientUnitId, unitId), eq(employees.status, "active")));
   await addEmployeesToRun(db, run, assigned);
@@ -1051,7 +1053,10 @@ async function importWorkbook(db: Db, payload: Payload, actorEmail: string | nul
   const importedItems = Array.isArray(payload.salaryItems) ? payload.salaryItems as Array<Record<string, unknown>> : [];
   if (!importedEmployees.length) throw new RequestError("No employee rows were found in the uploaded file");
   if (importedEmployees.length > 1000 || importedAttendance.length > 35000) throw new RequestError("Import exceeds the limit of 1,000 employees or 35,000 attendance entries");
-  const run = await createRun(db, vendorId, unitId, period);
+  const run = await createRun(db, vendorId, unitId, period, { processingMode: sourceType === "salary" ? "salary_import" : "attendance" });
+  if (sourceType === "salary" && run.processingMode !== "salary_import") {
+    await db.update(payrollRuns).set({ processingMode: "salary_import", updatedAt: new Date().toISOString() }).where(eq(payrollRuns.id, run.id));
+  }
   await requireRun(db, run.id, true);
 
   const allEmployees = await db.select().from(employees);
