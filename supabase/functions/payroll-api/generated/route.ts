@@ -23,6 +23,7 @@ import {
   payrollRemarks,
   payrollRules,
   payrollRuns,
+  recoveryEntries,
   shiftDefinitions,
   vendors,
 } from "./schema.ts";
@@ -254,12 +255,13 @@ async function enforceActionScope(db: Db, access: AppAccess, action: string, pay
 }
 
 function actionPermission(action: string, payload: Payload): { module: AccessModule; level: "manage" } | null {
+  if (action === "save-own-profile") return null;
   if (action === "save-app-user" || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "app_user")) return { module: "users", level: "manage" };
   if (["create-vendor", "save-client", "create-unit", "save-unit"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["client", "unit"].includes(String(payload.entityType)))) return { module: "clients", level: "manage" };
   if (["save-employee", "mark-employee-left", "reactivate-employee", "advance-employee-workflow"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "employee")) return { module: "employees", level: "manage" };
   if (["save-shift", "save-remark", "save-accommodation-type"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["shift", "remark", "accommodation_type"].includes(String(payload.entityType)))) return { module: "masters", level: "manage" };
   if (["save-attendance", "delete-attendance"].includes(action)) return { module: "attendance", level: "manage" };
-  if (["save-accommodation", "delete-accommodation", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
+  if (["save-accommodation", "delete-accommodation", "save-recovery-entry", "delete-recovery-entry", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
   if (["clear-payroll-batch", "reopen-payroll-batch"].includes(action)) return { module: "payments", level: "manage" };
   if (["save-vehicle", "save-vehicle-record", "save-utility-meter", "save-eb-reading", "approve-operation-record"].includes(action)) return { module: "operations", level: "manage" };
   if (["save-hostel", "assign-room-hostel", "save-hostel-utility", "approve-hostel-utility"].includes(action)) return { module: "accommodation", level: "manage" };
@@ -493,7 +495,7 @@ function payrollItem(
 async function loadAppData(access: AppAccess) {
   /* Supabase production databases intentionally start without demo payroll records. */
   const db = getDb();
-  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings, allHostels, allHostelReadings] = await Promise.all([
+  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allRecoveryRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings, allHostels, allHostelReadings] = await Promise.all([
     db.select().from(vendors).orderBy(asc(vendors.name)),
     db.select().from(clientUnits).orderBy(asc(clientUnits.clientName)),
     db.select().from(employees).orderBy(asc(employees.employeeCode)),
@@ -551,6 +553,7 @@ async function loadAppData(access: AppAccess) {
     }).from(payrollItems).innerJoin(employees, eq(payrollItems.employeeId, employees.id)).orderBy(asc(employees.employeeCode)),
     db.select().from(attendanceEntries).orderBy(asc(attendanceEntries.attendanceDate), asc(attendanceEntries.employeeId)),
     db.select().from(accommodationCharges).orderBy(asc(accommodationCharges.roomNumber)),
+    db.select().from(recoveryEntries).orderBy(desc(recoveryEntries.recoveryDate), desc(recoveryEntries.createdAt)),
     db.select().from(auditEvents).orderBy(desc(auditEvents.createdAt)).limit(30),
     db.select().from(payrollRules).orderBy(asc(payrollRules.vendorId)),
     db.select().from(shiftDefinitions).orderBy(asc(shiftDefinitions.name)),
@@ -584,6 +587,7 @@ async function loadAppData(access: AppAccess) {
   const itemRows = allItemRows.filter((item) => visibleRunIds.has(item.runId) && visibleEmployeeIds.has(item.employeeId));
   const attendanceRows = allAttendanceRows.filter((entry) => visibleEmployeeIds.has(entry.employeeId));
   const chargeRows = allChargeRows.filter((charge) => visibleRunIds.has(charge.runId) && visibleEmployeeIds.has(charge.employeeId));
+  const recoveryRows = allRecoveryRows.filter((entry) => visibleRunIds.has(entry.runId) && visibleEmployeeIds.has(entry.employeeId));
   const auditRows = unrestricted ? allAuditRows : allAuditRows.filter((event) => event.actorEmail?.toLowerCase() === access.identity.email.toLowerCase());
   const ruleRows = allRuleRows.filter((rule) => visibleVendorIds.has(rule.vendorId));
   const shiftRows = allShiftRows.filter((shift) => visibleVendorIds.has(shift.vendorId));
@@ -667,6 +671,7 @@ async function loadAppData(access: AppAccess) {
     payrollItems: visibleItems,
     attendance: canView(permissions, "attendance") ? attendanceRows : [],
     accommodationCharges: canView(permissions, "accommodation") ? chargeRows : [],
+    recoveryEntries: canView(permissions, "accommodation") ? recoveryRows : [],
     accommodationTypes: seesAny(["masters", "accommodation", "employees", "payroll", "payments"]) ? typeRows : [],
     accommodationRooms: seesAny(["accommodation", "employees", "payroll"]) ? roomRows : [],
     roomExpenses: canView(permissions, "accommodation") ? roomExpenseRows : [],
@@ -1140,11 +1145,22 @@ async function createSupabaseAuthUser(email: string, password: string) {
   const supabaseUrl = deno?.env.get("SUPABASE_URL");
   const serviceKey = deno?.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) return;
-  const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, { method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ email, password, email_confirm: true }) });
+  const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, { method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { must_change_password: true } }) });
   if (!response.ok) {
     const detail = await response.text();
     if (!detail.toLowerCase().includes("already") && response.status !== 422) throw new RequestError("Supabase sign-in account could not be created", 502);
   }
+}
+
+const datedRecoveryFields = ["rent", "bus", "food", "advance", "idCard", "medical", "ticket", "shoe", "aadhaarUpdate", "bankAccountCharge", "tshirt", "oldPending", "returnAmount"] as const;
+
+async function syncDatedRecoveries(db: Db, runId: string, employeeId: string) {
+  const rows = await db.select().from(recoveryEntries).where(and(eq(recoveryEntries.runId, runId), eq(recoveryEntries.employeeId, employeeId)));
+  const totals = Object.fromEntries(datedRecoveryFields.map((field) => [field, roundMoney(rows.filter((entry) => entry.recoveryType === field).reduce((sum, entry) => sum + entry.amount, 0))])) as Record<(typeof datedRecoveryFields)[number], number>;
+  const [existing] = await db.select().from(accommodationCharges).where(and(eq(accommodationCharges.runId, runId), eq(accommodationCharges.employeeId, employeeId))).limit(1);
+  if (existing) await db.update(accommodationCharges).set(totals).where(eq(accommodationCharges.id, existing.id));
+  else if (rows.length) await db.insert(accommodationCharges).values({ runId, employeeId, ...totals });
+  await recalculateRun(db, runId, false);
 }
 
 async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
@@ -1225,13 +1241,21 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
 
     if (action === "save-app-user") {
       await saveAppUser(db, payload, access);
+    } else if (action === "save-own-profile") {
+      const fullName = textValue(payload.fullName, "Full name");
+      const department = optionalValue(payload.department);
+      const mobileNumber = optionalValue(payload.mobileNumber);
+      await db.update(appUsers).set({ fullName, department, mobileNumber, updatedAt: new Date().toISOString() }).where(eq(appUsers.id, access.profile.id));
+      await writeAudit(db, "profile_updated", "app_user", access.profile.id, "Updated own profile details", actorEmail);
     } else if (action === "create-vendor" || action === "save-client") {
       const code = textValue(payload.code, "Client code").toUpperCase();
       if (!/^[A-Z0-9_-]{2,15}$/.test(code)) throw new RequestError("Client code must contain 2–15 letters, numbers, underscores, or hyphens");
       const existingId = optionalValue(payload.id);
       const id = existingId ?? `CLIENT-${crypto.randomUUID()}`;
       const name = textValue(payload.name, "Client name");
-      const values = { code, name, legalName: optionalValue(payload.legalName) ?? name, epfCode: optionalValue(payload.epfCode), esiCode: optionalValue(payload.esiCode), gstin: optionalValue(payload.gstin)?.toUpperCase() ?? null, remarks: optionalValue(payload.remarks) };
+      const logoDataUrl = optionalValue(payload.logoDataUrl);
+      if (logoDataUrl && (!logoDataUrl.startsWith("data:image/") || logoDataUrl.length > 500000)) throw new RequestError("Upload a JPG or PNG logo smaller than 350 KB");
+      const values = { code, name, legalName: optionalValue(payload.legalName) ?? name, epfCode: optionalValue(payload.epfCode), esiCode: optionalValue(payload.esiCode), gstin: optionalValue(payload.gstin)?.toUpperCase() ?? null, remarks: optionalValue(payload.remarks), logoDataUrl };
       if (existingId) {
         const [existing] = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, existingId)).limit(1);
         if (!existing) throw new RequestError("Client not found", 404);
@@ -1298,6 +1322,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       if (employeeId) {
         const [existing] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
         if (!existing || existing.clientUnitId !== unitId) throw new RequestError("Employee not found in the selected unit", 404);
+        if (existing.roomId && values.roomId && existing.roomId !== values.roomId) throw new RequestError("Remove the employee from the present room before allocating another room", 409);
         await db.update(employees).set({ ...values, complianceStatus }).where(eq(employees.id, employeeId));
       } else {
         await db.insert(employees).values({ id, ...values, complianceStatus, processingStage: "field_hr_draft" });
@@ -1379,7 +1404,9 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         const [room] = await db.select().from(accommodationRooms).where(eq(accommodationRooms.id, roomId)).limit(1);
         const [type] = room ? await db.select().from(accommodationTypes).where(eq(accommodationTypes.id, room.accommodationTypeId)).limit(1) : [];
         if (!room || !type) throw new RequestError("Accommodation room not found", 404);
-        const assigned = await assignEmployeeAccommodation(db, employeeValues({ ...employee, roomId, roomNumber: room.roomNumber, accommodationType: type.name }, employee.vendorId, employee.clientUnitId), employee.id);
+        if (employee.roomId && employee.roomId !== roomId) throw new RequestError("Remove the employee from the present room before allocating another room", 409);
+        if (employee.accommodationType !== type.name) throw new RequestError(`This room is under ${type.name}. Change the employee accommodation type first`, 409);
+        const assigned = await assignEmployeeAccommodation(db, employeeValues({ ...employee, roomId, roomNumber: room.roomNumber, accommodationType: employee.accommodationType }, employee.vendorId, employee.clientUnitId), employee.id);
         await db.update(employees).set({ roomId: assigned.roomId, roomNumber: assigned.roomNumber, accommodationType: assigned.accommodationType }).where(eq(employees.id, employee.id));
       }
       const employeeRuns = await db.select().from(payrollRuns).where(eq(payrollRuns.clientUnitId, employee.clientUnitId));
@@ -1738,6 +1765,30 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       await db.update(payrollItems).set({ ...update, grossEarnings: totals.grossEarnings, totalDeductions: totals.totalDeductions, netPayable: totals.netPayable }).where(eq(payrollItems.id, itemId));
       await recalculateRun(db, runId, false);
       await writeAudit(db, "salary_updated", "payroll_item", itemId, "Updated employee earnings and deductions", actorEmail);
+    } else if (action === "save-recovery-entry") {
+      const run = await requireRun(db, runId, true);
+      const employeeId = textValue(payload.employeeId, "Employee");
+      const [employee] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      if (!employee || employee.clientUnitId !== run.clientUnitId) throw new RequestError("Employee not found in this payroll unit", 404);
+      const recoveryDate = dateValue(payload.recoveryDate, "Recovery date");
+      const { start, end } = periodRange(run.payPeriod, run.periodStart, run.periodEnd);
+      if (recoveryDate < start || recoveryDate >= end) throw new RequestError(`Recovery date must be inside the salary cycle ${start} to ${new Date(new Date(`${end}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)}`);
+      const recoveryType = textValue(payload.recoveryType, "Recovery type");
+      if (!datedRecoveryFields.includes(recoveryType as (typeof datedRecoveryFields)[number])) throw new RequestError("Unsupported recovery type");
+      const amount = positiveValue(payload.amount, "Recovery amount");
+      if (amount <= 0) throw new RequestError("Recovery amount must be greater than zero");
+      const id = `REC-${crypto.randomUUID()}`;
+      await db.insert(recoveryEntries).values({ id, runId, employeeId, recoveryDate, recoveryType, amount, reference: optionalValue(payload.reference), notes: optionalValue(payload.notes), createdBy: actorEmail });
+      await syncDatedRecoveries(db, runId, employeeId);
+      await writeAudit(db, "recovery_added", "employee", employeeId, `Added ${recoveryType} recovery ₹${amount.toFixed(2)} for ${employee.employeeCode} on ${recoveryDate}`, actorEmail);
+    } else if (action === "delete-recovery-entry") {
+      await requireRun(db, runId, true);
+      const recoveryId = textValue(payload.recoveryId, "Recovery entry");
+      const [entry] = await db.select().from(recoveryEntries).where(and(eq(recoveryEntries.id, recoveryId), eq(recoveryEntries.runId, runId))).limit(1);
+      if (!entry) throw new RequestError("Recovery entry not found", 404);
+      await db.delete(recoveryEntries).where(eq(recoveryEntries.id, recoveryId));
+      await syncDatedRecoveries(db, runId, entry.employeeId);
+      await writeAudit(db, "recovery_deleted", "employee", entry.employeeId, `Deleted dated ${entry.recoveryType} recovery`, actorEmail);
     } else if (action === "save-accommodation") {
       const run = await requireRun(db, runId, true);
       const employeeId = textValue(payload.employeeId, "Employee");
@@ -1915,6 +1966,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
     } else if (action === "delete-payroll-run") {
       const run = await requireRun(db, runId, true);
       await db.delete(payrollBatches).where(eq(payrollBatches.runId, runId));
+      await db.delete(recoveryEntries).where(eq(recoveryEntries.runId, runId));
       await db.delete(accommodationCharges).where(eq(accommodationCharges.runId, runId));
       await db.delete(payrollItems).where(eq(payrollItems.runId, runId));
       await db.delete(payrollRuns).where(eq(payrollRuns.id, runId));

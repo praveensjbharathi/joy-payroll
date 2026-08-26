@@ -32,6 +32,7 @@ export const vendors = pgTable("vendors", {
   esiCode: text("esi_code"),
   gstin: text("gstin"),
   remarks: text("remarks"),
+  logoDataUrl: text("logo_data_url"),
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
@@ -403,6 +404,19 @@ export const accommodationCharges = pgTable("accommodation_charges", {
   rationShare: doublePrecision("ration_share").notNull().default(0),
   provisionShare: doublePrecision("provision_share").notNull().default(0),
   returnAmount: doublePrecision("return_amount").notNull().default(0),
+});
+
+export const recoveryEntries = pgTable("recovery_entries", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => payrollRuns.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  recoveryDate: text("recovery_date").notNull(),
+  recoveryType: text("recovery_type").notNull(),
+  amount: doublePrecision("amount").notNull().default(0),
+  reference: text("reference"),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const auditEvents = pgTable("audit_events", {

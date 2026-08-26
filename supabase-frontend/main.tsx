@@ -102,7 +102,7 @@ function LoginScreen({
         if (password !== confirmPassword) {
           throw new Error("The two passwords do not match.");
         }
-        const { error: updateError } = await supabase.auth.updateUser({ password });
+        const { error: updateError } = await supabase.auth.updateUser({ password, data: { must_change_password: false } });
         if (updateError) throw updateError;
         setPassword("");
         setConfirmPassword("");
@@ -255,6 +255,7 @@ function SupabasePayroll({ config }: { config: JoyPayrollConfig }) {
     void supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session);
+      if (data.session?.user.user_metadata?.must_change_password === true) setRecovery(true);
       setLoading(false);
     });
 
@@ -263,6 +264,7 @@ function SupabasePayroll({ config }: { config: JoyPayrollConfig }) {
       setSession(nextSession);
       setLoading(false);
       if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (nextSession?.user.user_metadata?.must_change_password === true) setRecovery(true);
       if (event === "SIGNED_OUT") setRecovery(false);
     });
     return () => {
@@ -307,6 +309,10 @@ function SupabasePayroll({ config }: { config: JoyPayrollConfig }) {
       displayName={displayName}
       onSignOut={async () => {
         await supabase.auth.signOut();
+      }}
+      onChangePassword={async (password) => {
+        const { error } = await supabase.auth.updateUser({ password, data: { must_change_password: false } });
+        if (error) throw error;
       }}
       publishableKey={config.supabasePublishableKey}
     />

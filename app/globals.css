@@ -32,7 +32,7 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 
 .app-shell { min-height: 100vh; background: var(--canvas); }
-.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 30; width: 262px; display: flex; flex-direction: column; color: #d8e3f3; background: linear-gradient(180deg, var(--navy-950) 0%, #0c2038 100%); border-right: 1px solid rgba(255,255,255,.05); }
+.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 30; width: 262px; display: flex; flex-direction: column; overflow-y: auto; scrollbar-gutter: stable; color: #d8e3f3; background: linear-gradient(180deg, var(--navy-950) 0%, #0c2038 100%); border-right: 1px solid rgba(255,255,255,.05); }
 .brand-lockup { height: 76px; padding: 0 22px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .brand-mark, .loading-mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(145deg, #2a80ff, #1257c5); color: white; box-shadow: 0 7px 20px rgba(29, 108, 232, .32); }
 .brand-mark span, .loading-mark span { font-family: Georgia, serif; font-size: 23px; font-weight: 700; font-style: italic; transform: translateX(-1px); }
@@ -66,10 +66,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .icon-button:hover { border-color: #c7d1df; color: var(--blue); }
 .icon-button i { position: absolute; top: -5px; right: -4px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 9px; background: var(--red); color: white; font-size: 8px; font-style: normal; font-weight: 700; }
 .user-chip { display: flex; align-items: center; gap: 10px; }
+.user-chip-button { border: 0; background: transparent; cursor: pointer; text-align: left; }
 .user-chip > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: #eaf2ff; color: var(--blue); font-size: 12px; font-weight: 750; }
 .user-chip div { display: grid; gap: 1px; }
 .user-chip strong { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .user-chip small { color: var(--muted); font-size: 9px; }
+.profile-password-panel { display: grid; gap: 12px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.profile-password-panel label { display: grid; gap: 6px; }
+.payslip-company-logo,.vendor-company-logo { width: 58px; height: 58px; object-fit: contain; border-radius: 10px; }
+.advance-voucher { max-width: 760px; margin: 24px auto; padding: 36px; background: #fff; border: 1px solid #ccd5e1; }
+.advance-voucher h2,.advance-voucher h3 { text-align: center; }
+.advance-voucher dl div { display: grid; grid-template-columns: 180px 1fr; padding: 10px 0; border-bottom: 1px solid #e3e8ef; }
+.advance-voucher dd { margin: 0; font-weight: 700; }
+.advance-voucher footer { display: flex; justify-content: space-between; margin-top: 80px; }
+.bulk-payslip-pages { display: grid; gap: 0; background: #fff; }
+.bulk-payslip-pages .payslip-sheet { border-bottom: 1px dashed #8a94a3; }
+.room-recovery-full-report table { font-size: 8px; }
 .mobile-menu { display: none; width: 38px; height: 38px; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); }
 
 .content { width: min(100%, 1560px); margin: 0 auto; padding: 30px 34px 52px; }
@@ -676,6 +688,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   body * { visibility: hidden !important; }
   .payslip-sheet, .payslip-sheet * { visibility: visible !important; }
   .payslip-sheet { position: absolute; inset: 0; width: 100%; min-height: auto; margin: 0; padding: 20px; box-shadow: none; }
+  .payslip-half-a4 { width: 100%; height: 140mm; min-height: 140mm; max-height: 140mm; padding: 6mm; overflow: hidden; font-size: 9px; }
+  .bulk-payslip-pages, .bulk-payslip-pages * { visibility: visible !important; }
+  .bulk-payslip-pages { position: absolute; inset: 0; width: 100%; display: block; }
+  .bulk-payslip-pages .payslip-sheet { position: relative; inset: auto; page-break-inside: avoid; break-inside: avoid; }
+  .bulk-payslip-pages .payslip-sheet:nth-child(even) { page-break-after: always; break-after: page; }
+  .advance-voucher, .advance-voucher * { visibility: visible !important; }
+  .advance-voucher { position: absolute; inset: 0; max-width: none; margin: 0; box-shadow: none; }
   .room-report-pages, .room-report-pages * { visibility: visible !important; }
   .room-report-modal { position: absolute; inset: 0; width: 100%; max-height: none; overflow: visible; transform: none; border-radius: 0; box-shadow: none; }
   .room-report-pages { padding: 0; }
@@ -685,7 +704,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .report-print-area { position: absolute; inset: 0; width: 100%; margin: 0; box-shadow: none; }
   .report-print-area .table-scroll { overflow: visible; }
   .report-print-area table { width: 100%; font-size: 9px; }
-  @page { size: A4; margin: 8mm; }
+  @page { size: A4; margin: 6mm; }
 }
 
 .id-card-modal { position: absolute; inset: 3vh auto auto 50%; width: min(520px,94vw); max-height:94vh; overflow:auto; transform:translateX(-50%); border-radius:14px; background:#eef2f7; box-shadow:0 24px 70px rgba(5,17,31,.28); }

@@ -12,6 +12,7 @@ const migrationPaths = [
   join(root, "supabase/migrations/20260826090000_shift_assignments_hostel_activities.sql"),
   join(root, "supabase/migrations/20260826103000_direct_users_hostel_rent_and_deductions.sql"),
   join(root, "supabase/migrations/20260826143000_payroll_source_mode.sql"),
+  join(root, "supabase/migrations/20260827090000_recovery_auth_branding.sql"),
 ];
 const payrollTables = [
   "app_users",

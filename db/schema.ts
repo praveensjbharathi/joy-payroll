@@ -31,6 +31,7 @@ export const vendors = sqliteTable("vendors", {
   esiCode: text("esi_code"),
   gstin: text("gstin"),
   remarks: text("remarks"),
+  logoDataUrl: text("logo_data_url"),
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
@@ -402,6 +403,19 @@ export const accommodationCharges = sqliteTable("accommodation_charges", {
   rationShare: real("ration_share").notNull().default(0),
   provisionShare: real("provision_share").notNull().default(0),
   returnAmount: real("return_amount").notNull().default(0),
+});
+
+export const recoveryEntries = sqliteTable("recovery_entries", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => payrollRuns.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  recoveryDate: text("recovery_date").notNull(),
+  recoveryType: text("recovery_type").notNull(),
+  amount: real("amount").notNull().default(0),
+  reference: text("reference"),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const auditEvents = sqliteTable("audit_events", {
