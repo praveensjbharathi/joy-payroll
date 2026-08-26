@@ -16,6 +16,8 @@ import {
   vehicleRecords,
   utilityMeters,
   ebReadings,
+  hostels,
+  hostelUtilityReadings,
   payrollItems,
   payrollBatches,
   payrollRemarks,
@@ -238,6 +240,7 @@ function actionPermission(action: string, payload: Payload): { module: AccessMod
   if (["save-accommodation", "delete-accommodation", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
   if (["clear-payroll-batch", "reopen-payroll-batch"].includes(action)) return { module: "payments", level: "manage" };
   if (["save-vehicle", "save-vehicle-record", "save-utility-meter", "save-eb-reading", "approve-operation-record"].includes(action)) return { module: "operations", level: "manage" };
+  if (["save-hostel", "assign-room-hostel", "save-hostel-utility", "approve-hostel-utility"].includes(action)) return { module: "accommodation", level: "manage" };
   if (action === "save-rules") return { module: "settings", level: "manage" };
   if (action === "import-workbook") return { module: payload.sourceType === "salary" ? "payroll" : payload.sourceType === "csv" ? "employees" : "attendance", level: "manage" };
   if (["create-run", "update-run-period", "prepare-payroll-batch", "prepare-payroll-batches", "save-payroll-item", "resolve-issues", "recalculate", "reopen", "reset-demo", "delete-payroll-run"].includes(action)) return { module: "payroll", level: "manage" };
@@ -468,7 +471,7 @@ function payrollItem(
 async function loadAppData(access: AppAccess) {
   /* Supabase production databases intentionally start without demo payroll records. */
   const db = getDb();
-  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings] = await Promise.all([
+  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings, allHostels, allHostelReadings] = await Promise.all([
     db.select().from(vendors).orderBy(asc(vendors.name)),
     db.select().from(clientUnits).orderBy(asc(clientUnits.clientName)),
     db.select().from(employees).orderBy(asc(employees.employeeCode)),
@@ -539,6 +542,8 @@ async function loadAppData(access: AppAccess) {
     db.select().from(vehicleRecords).orderBy(desc(vehicleRecords.recordDate)),
     db.select().from(utilityMeters).orderBy(asc(utilityMeters.locationName)),
     db.select().from(ebReadings).orderBy(desc(ebReadings.readingDate)),
+    db.select().from(hostels).orderBy(asc(hostels.name)),
+    db.select().from(hostelUtilityReadings).orderBy(desc(hostelUtilityReadings.readingDate)),
   ]);
 
   const unrestricted = access.profile.role === "super_admin";
@@ -651,6 +656,8 @@ async function loadAppData(access: AppAccess) {
     vehicleRecords: canView(permissions, "operations") ? allVehicleRecords.filter((record) => allVehicles.some((vehicle) => vehicle.id === record.vehicleId && visibleVendorIds.has(vehicle.vendorId))) : [],
     utilityMeters: canView(permissions, "operations") ? allMeters.filter((meter) => visibleVendorIds.has(meter.vendorId)) : [],
     ebReadings: canView(permissions, "operations") ? allEbReadings.filter((reading) => allMeters.some((meter) => meter.id === reading.meterId && visibleVendorIds.has(meter.vendorId))) : [],
+    hostels: canView(permissions, "accommodation") ? allHostels.filter((hostel) => visibleVendorIds.has(hostel.vendorId)) : [],
+    hostelUtilityReadings: canView(permissions, "accommodation") ? allHostelReadings.filter((reading) => allHostels.some((hostel) => hostel.id === reading.hostelId && visibleVendorIds.has(hostel.vendorId))) : [],
   };
 }
 
@@ -868,7 +875,7 @@ async function createRun(db: Db, vendorId: string, unitId: string, period: strin
 function employeeValues(payload: Record<string, unknown>, vendorId: string, unitId: string) {
   const employeeCode = textValue(payload.employeeCode, "Employee code").toUpperCase();
   const name = textValue(payload.name, "Employee name");
-  const paymentMode = payload.paymentMode === "bank" ? "bank" : "cash";
+  const paymentMode = "bank";
   const accommodationType = normalizeAccommodationType(payload.accommodationType);
   const dateOfJoining = textValue(payload.dateOfJoining, "Date of joining");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfJoining)) throw new RequestError("Date of joining must be YYYY-MM-DD");
@@ -891,6 +898,7 @@ function employeeValues(payload: Record<string, unknown>, vendorId: string, unit
     salaryAmount: positiveValue(payload.salaryAmount, "Salary amount"),
     salaryBasis: payload.salaryBasis === "daily" ? "daily" : "monthly",
     defaultShift: optionalValue(payload.defaultShift) ?? "General",
+    shiftPattern: payload.shiftPattern === "rotational" ? "rotational" : "general",
     remarks: optionalValue(payload.remarks),
     employmentType: payload.employmentType === "direct" ? "direct" : "client",
   };
@@ -1028,7 +1036,7 @@ async function importWorkbook(db: Db, payload: Payload, actorEmail: string | nul
       }
       continue;
     }
-    const value = await assignEmployeeAccommodation(db, employeeValues({ department: "General", dateOfJoining: `${period}-01`, salaryAmount: 0, paymentMode: "cash", accommodationType: "Tamil", ...imported }, vendorId, unitId));
+    const value = await assignEmployeeAccommodation(db, employeeValues({ department: "General", dateOfJoining: `${period}-01`, salaryAmount: 0, paymentMode: "bank", shiftPattern: "general", accommodationType: "Tamil", ...imported }, vendorId, unitId));
     const employee = { id: `EMP-${crypto.randomUUID()}`, ...value, complianceStatus: "ready", status: "active" };
     newRows.push(employee);
     existingByCode.set(code, employee as EmployeeRow);
@@ -1314,8 +1322,11 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       const payPeriod = periodValue(payload.payPeriod);
       const values = {
         gasAmount: positiveValue(payload.gasAmount, "Gas expense"),
+        gasDate: payload.gasDate ? dateValue(payload.gasDate, "Gas cylinder date") : null,
         rationAmount: positiveValue(payload.rationAmount, "Ration expense"),
+        rationDate: payload.rationDate ? dateValue(payload.rationDate, "Ration date") : null,
         provisionAmount: positiveValue(payload.provisionAmount, "Provision expense"),
+        provisionDate: payload.provisionDate ? dateValue(payload.provisionDate, "Provision date") : null,
         notes: optionalValue(payload.notes),
         updatedAt: new Date().toISOString(),
       };
@@ -1708,6 +1719,22 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         await db.update(payrollBatches).set({ status: "prepared", paymentReference: null, clearedBy: null, clearedAt: null, updatedAt: new Date().toISOString() }).where(eq(payrollBatches.id, batch.id));
         await writeAudit(db, "payroll_batch_reopened", "payroll_batch", batch.id, `Reopened ${batch.accommodationType} payment clearance`, actorEmail);
       }
+    } else if (action === "save-hostel") {
+      const vendorId = textValue(payload.vendorId, "Client"); const id = optionalValue(payload.id) ?? `HOSTEL-${crypto.randomUUID()}`;
+      const values = { vendorId, name: textValue(payload.name, "Hostel name"), address: optionalValue(payload.address), inchargeName: optionalValue(payload.inchargeName), ebMeterNumber: optionalValue(payload.ebMeterNumber), remarks: optionalValue(payload.remarks) };
+      const [existing] = await db.select().from(hostels).where(eq(hostels.id,id)).limit(1); if(existing) await db.update(hostels).set(values).where(eq(hostels.id,id)); else await db.insert(hostels).values({id,...values});
+    } else if (action === "assign-room-hostel") {
+      const roomId=textValue(payload.roomId,"Room"); const hostelId=textValue(payload.hostelId,"Hostel");
+      const [room]=await db.select().from(accommodationRooms).where(eq(accommodationRooms.id,roomId)).limit(1); const [hostel]=await db.select().from(hostels).where(eq(hostels.id,hostelId)).limit(1);
+      if(!room||!hostel||room.vendorId!==hostel.vendorId) throw new RequestError("Select a room and hostel from the same client",409); await db.update(accommodationRooms).set({hostelId}).where(eq(accommodationRooms.id,roomId));
+    } else if (action === "save-hostel-utility") {
+      const hostelId=textValue(payload.hostelId,"Hostel"); const readingDate=dateValue(payload.readingDate,"Reading date"); const utilityType=textValue(payload.utilityType,"Utility type");
+      if(!["eb","water_purchase"].includes(utilityType)) throw new RequestError("Unsupported hostel utility type");
+      const readingValue=positiveValue(payload.readingValue??0,"Reading"); const [previous]=await db.select().from(hostelUtilityReadings).where(and(eq(hostelUtilityReadings.hostelId,hostelId),eq(hostelUtilityReadings.utilityType,utilityType),lt(hostelUtilityReadings.readingDate,readingDate))).orderBy(desc(hostelUtilityReadings.readingDate)).limit(1);
+      if(previous&&utilityType==="eb"&&readingValue<previous.readingValue) throw new RequestError("Reading cannot be below the previous reading");
+      await db.insert(hostelUtilityReadings).values({id:`HUTIL-${crypto.randomUUID()}`,hostelId,readingDate,utilityType,readingValue,consumption:previous&&utilityType==="eb"?roundMoney(readingValue-previous.readingValue):0,tankerQuantity:positiveValue(payload.tankerQuantity??0,"Water quantity"),amount:positiveValue(payload.amount??0,"Amount"),remarks:optionalValue(payload.remarks),enteredBy:actorEmail,status:"draft"});
+    } else if (action === "approve-hostel-utility") {
+      if(!access.profile.canApprovePayroll&&access.profile.role!=="hr_team") throw new RequestError("HR Manager or Super Admin approval is required",403); const id=textValue(payload.id,"Reading"); await db.update(hostelUtilityReadings).set({status:"approved",approvedBy:actorEmail,approvedAt:new Date().toISOString()}).where(eq(hostelUtilityReadings.id,id));
     } else if (action === "save-vehicle") {
       const vendorId = textValue(payload.vendorId, "Joy company");
       const id = optionalValue(payload.id) ?? `VEH-${crypto.randomUUID()}`;

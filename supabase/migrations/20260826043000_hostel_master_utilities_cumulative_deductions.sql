@@ -1,0 +1,14 @@
+begin;
+create table if not exists public.hostels (id text primary key,vendor_id text not null references public.vendors(id),name text not null,address text,incharge_name text,eb_meter_number text,status text not null default 'active',remarks text,created_at timestamptz not null default now(),unique(vendor_id,name),check(status in ('active','inactive')));
+alter table public.accommodation_rooms add column if not exists hostel_id text references public.hostels(id);
+create index if not exists accommodation_rooms_hostel_idx on public.accommodation_rooms(hostel_id);
+create table if not exists public.hostel_utility_readings (id text primary key,hostel_id text not null references public.hostels(id),reading_date date not null,utility_type text not null,reading_value double precision not null default 0,consumption double precision not null default 0,tanker_quantity double precision not null default 0,amount double precision not null default 0,remarks text,entered_by text,approved_by text,approved_at timestamptz,status text not null default 'draft',created_at timestamptz not null default now(),unique(hostel_id,utility_type,reading_date),check(utility_type in ('eb','water_purchase')),check(status in ('draft','approved')),check(reading_value>=0 and consumption>=0 and tanker_quantity>=0 and amount>=0));
+alter table public.accommodation_room_expenses add column if not exists gas_date date;
+alter table public.accommodation_room_expenses add column if not exists ration_date date;
+alter table public.accommodation_room_expenses add column if not exists provision_date date;
+alter table public.employees add column if not exists shift_pattern text not null default 'general' check (shift_pattern in ('general','rotational'));
+update public.employees set payment_mode='bank' where payment_mode<>'bank';
+create index if not exists hostel_utility_hostel_date_idx on public.hostel_utility_readings(hostel_id,reading_date desc);
+alter table public.hostels enable row level security; alter table public.hostel_utility_readings enable row level security;
+revoke all on public.hostels,public.hostel_utility_readings from anon,authenticated;
+commit;

@@ -135,7 +135,7 @@ function emptyEmployee(code: string, name: string, period: string): ImportedEmpl
     bankName: null,
     accommodationType: "Tamil Own",
     roomNumber: null,
-    paymentMode: "cash",
+    paymentMode: "bank",
     salaryAmount: 0,
     salaryBasis: "monthly",
     defaultShift: "General",
@@ -197,7 +197,7 @@ function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookIm
     employee.ifscMasked = nullable(row.get(10));
     employee.accommodationType = normalizeAccommodation(row.get(51));
     employee.roomNumber = nullable(row.get(53));
-    employee.paymentMode = (employee.bankAccountMasked?.length ?? 0) > 5 ? "bank" : "cash";
+    employee.paymentMode = "bank";
     employee.salaryBasis = /daily/i.test(text(row.get(13))) ? "daily" : "monthly";
     employee.salaryAmount = numberValue(row.get(24)) || numberValue(row.get(37)) || monetaryColumns.filter(([column]) => column >= 24 && column <= 36).reduce((sum, [column]) => sum + numberValue(row.get(column)), 0);
     imported.employees.push(employee);

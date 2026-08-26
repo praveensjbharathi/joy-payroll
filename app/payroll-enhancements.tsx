@@ -149,8 +149,11 @@ export function AccommodationControlCenter({ vendorId, types, rooms, employees, 
   const [roomDraft, setRoomDraft] = useState<RoomDraft>({ accommodationTypeId: "", roomNumber: "", capacity: 0, address: "", remarks: "" });
   const [allocationId, setAllocationId] = useState("");
   const [gasAmount, setGasAmount] = useState(0);
+  const [gasDate, setGasDate] = useState("");
   const [rationAmount, setRationAmount] = useState(0);
+  const [rationDate, setRationDate] = useState("");
   const [provisionAmount, setProvisionAmount] = useState(0);
+  const [provisionDate, setProvisionDate] = useState("");
   const [expenseNotes, setExpenseNotes] = useState("");
   const [reportRooms, setReportRooms] = useState<AccommodationRoom[] | null>(null);
 
@@ -165,10 +168,13 @@ export function AccommodationControlCenter({ vendorId, types, rooms, employees, 
 
   useEffect(() => {
     setGasAmount(selectedExpense?.gasAmount ?? 0);
+    setGasDate(selectedExpense?.gasDate ?? `${payPeriod}-01`);
     setRationAmount(selectedExpense?.rationAmount ?? 0);
+    setRationDate(selectedExpense?.rationDate ?? `${payPeriod}-01`);
     setProvisionAmount(selectedExpense?.provisionAmount ?? 0);
+    setProvisionDate(selectedExpense?.provisionDate ?? `${payPeriod}-01`);
     setExpenseNotes(selectedExpense?.notes ?? "");
-  }, [selectedExpense?.id, selectedExpense?.gasAmount, selectedExpense?.rationAmount, selectedExpense?.provisionAmount, selectedExpense?.notes, selectedRoom?.id]);
+  }, [selectedExpense?.id, selectedExpense?.gasAmount, selectedExpense?.gasDate, selectedExpense?.rationAmount, selectedExpense?.rationDate, selectedExpense?.provisionAmount, selectedExpense?.provisionDate, selectedExpense?.notes, selectedRoom?.id, payPeriod]);
 
   const finalizedReports = useMemo(() => rooms.filter((room) => room.vendorId === vendorId && expenses.some((expense) => expense.roomId === room.id && expense.payPeriod === payPeriod && expense.status === "finalized")), [rooms, expenses, vendorId, payPeriod]);
 
@@ -192,7 +198,7 @@ export function AccommodationControlCenter({ vendorId, types, rooms, employees, 
   async function saveExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedRoom) return;
-    await onAction("save-room-expense", "Room gas, ration, and provision expenses saved", { roomId: selectedRoom.id, payPeriod, gasAmount, rationAmount, provisionAmount, notes: expenseNotes });
+    await onAction("save-room-expense", "Room gas, ration, and provision expenses saved", { roomId: selectedRoom.id, payPeriod, gasAmount, gasDate, rationAmount, rationDate, provisionAmount, provisionDate, notes: expenseNotes });
   }
 
   return <div className="section-stack room-control-center">
@@ -217,6 +223,8 @@ export function AccommodationControlCenter({ vendorId, types, rooms, employees, 
     })}</tbody></table></div>{!roomEmployees.length ? <div className="enhancement-empty">No employees have been allocated to this room.</div> : null}</section> : null}
 
     {selectedRoom ? <form className="panel room-expense-panel" onSubmit={saveExpense}><div className="panel-heading"><div><span className="eyebrow">Per-head shared room deductions</span><h2>Gas + ration + provision ÷ active roommates</h2></div><span className={`enhancement-status ${selectedExpense?.status === "finalized" ? "status-positive" : "status-pending"}`}>{selectedExpense?.status === "finalized" ? "Finalized" : "Draft"}</span></div><fieldset className="room-expense-fields" disabled={!canManage || selectedExpense?.status === "finalized" || isActing}><label><span>Gas amount (₹)</span><input type="number" min="0" step="0.01" value={gasAmount} onChange={(event) => setGasAmount(Number(event.target.value))} /></label><label><span>Ration amount (₹)</span><input type="number" min="0" step="0.01" value={rationAmount} onChange={(event) => setRationAmount(Number(event.target.value))} /></label><label><span>Provision amount (₹)</span><input type="number" min="0" step="0.01" value={provisionAmount} onChange={(event) => setProvisionAmount(Number(event.target.value))} /></label><label><span>Expense remarks</span><input value={expenseNotes} onChange={(event) => setExpenseNotes(event.target.value)} /></label>{canManage && selectedExpense?.status !== "finalized" ? <button className="secondary-button" type="submit">Save room expenses</button> : null}</fieldset><div className="room-expense-calculation"><strong>Total {money(gasAmount + rationAmount + provisionAmount)}</strong><span>÷ {roomEmployees.length || 0} roommates</span><strong>≈ {money(roomEmployees.length ? (gasAmount + rationAmount + provisionAmount) / roomEmployees.length : 0)} per head</strong><small>Paise remainders are distributed exactly so the shares always equal the room total.</small></div><div className="room-expense-actions">{canManage && selectedExpense?.status === "draft" ? <button className="primary-button" type="button" disabled={!roomEmployees.length || isActing} onClick={() => void onAction("finalize-room-expense", `Finalized and split room ${selectedRoom.roomNumber} deductions`, { roomId: selectedRoom.id, expenseId: selectedExpense.id })}>Finalize & split per head</button> : null}{canManage && selectedExpense?.status === "finalized" ? <button className="secondary-button" type="button" disabled={isActing} onClick={() => { if (window.confirm(`Reopen room ${selectedRoom.roomNumber} and clear its finalized employee shares?`)) void onAction("reopen-room-expense", "Room expense reopened", { roomId: selectedRoom.id, expenseId: selectedExpense.id }); }}>Reopen deductions</button> : null}{selectedExpense?.status === "finalized" ? <button className="secondary-button" type="button" onClick={() => setReportRooms([selectedRoom])}>Print this room breakup</button> : null}{finalizedReports.length ? <button className="secondary-button" type="button" onClick={() => setReportRooms(finalizedReports)}>Print all finalized rooms ({finalizedReports.length})</button> : null}</div></form> : null}
+
+    {selectedRoom ? <section className="panel room-expense-panel"><div className="panel-heading"><div><span className="eyebrow">Dated room purchases</span><h2>Gas cylinder, ration and provision dates</h2></div></div><fieldset className="room-expense-fields" disabled={!canManage || selectedExpense?.status === "finalized" || isActing}><label><span>Gas cylinder date</span><input type="date" value={gasDate} onChange={(event) => setGasDate(event.target.value)} /></label><label><span>Ration date</span><input type="date" value={rationDate} onChange={(event) => setRationDate(event.target.value)} /></label><label><span>Provision date</span><input type="date" value={provisionDate} onChange={(event) => setProvisionDate(event.target.value)} /></label></fieldset><small className="muted-label">Choose dates before saving the room amounts above. They are applied only when salary deductions are finalized.</small></section> : null}
 
     {reportRooms ? <RoomBreakupReport rooms={reportRooms} types={types} employees={employees} expenses={expenses} charges={charges} payPeriod={payPeriod} onClose={() => setReportRooms(null)} /> : null}
   </div>;

@@ -8,6 +8,7 @@ import { defaultPayrollRules, deductionFields, earningFields } from "../lib/payr
 import { calendarPeriod, payrollPeriodRange } from "../lib/payroll-operations";
 import { AccommodationControlCenter, PayrollBatchPanel, PayrollPeriodEditor, WorkforceDashboard } from "./payroll-enhancements";
 import { OperationsView } from "./operations-view";
+import { HostelMaster } from "./hostel-master";
 import {
   ACCESS_MODULES,
   DEFAULT_APPROVAL_ACCESS,
@@ -102,6 +103,7 @@ export type Employee = {
   salaryAmount: number;
   salaryBasis: string;
   defaultShift: string;
+  shiftPattern: string;
   remarks: string | null;
   complianceStatus: string;
   status: string;
@@ -255,6 +257,7 @@ export type AccommodationRoom = {
   id: string;
   vendorId: string;
   accommodationTypeId: string;
+  hostelId: string | null;
   roomNumber: string;
   capacity: number;
   address: string | null;
@@ -267,14 +270,20 @@ export type RoomExpense = {
   roomId: string;
   payPeriod: string;
   gasAmount: number;
+  gasDate: string | null;
   rationAmount: number;
+  rationDate: string | null;
   provisionAmount: number;
+  provisionDate: string | null;
   occupantCount: number;
   status: string;
   notes: string | null;
   finalizedBy: string | null;
   finalizedAt: string | null;
 };
+
+export type Hostel = { id: string; vendorId: string; name: string; address: string | null; inchargeName: string | null; ebMeterNumber: string | null; status: string; remarks: string | null };
+export type HostelUtilityReading = { id: string; hostelId: string; readingDate: string; utilityType: "eb" | "water_purchase"; readingValue: number; consumption: number; tankerQuantity: number; amount: number; remarks: string | null; status: string; approvedBy: string | null; approvedAt: string | null };
 
 export type PayrollBatch = {
   id: string;
@@ -327,6 +336,8 @@ export type AppData = {
   accommodationTypes: AccommodationType[];
   accommodationRooms: AccommodationRoom[];
   roomExpenses: RoomExpense[];
+  hostels: Hostel[];
+  hostelUtilityReadings: HostelUtilityReading[];
   payrollBatches: PayrollBatch[];
   auditEvents: AuditEvent[];
   rules: PayrollRule[];
@@ -704,6 +715,7 @@ export default function PayrollApp({
           {activeSection === "attendance" && currentRun ? <AttendanceView period={currentRun.payPeriod} periodStart={currentRun.periodStart} periodEnd={currentRun.periodEnd} items={currentItems} employees={operationalEmployees} attendance={data.attendance.filter((entry) => { const range = payrollPeriodRange(currentRun.payPeriod, currentRun.periodStart, currentRun.periodEnd); return entry.attendanceDate >= range.start && entry.attendanceDate < range.end && operationalEmployees.some((employee) => employee.id === entry.employeeId); })} canManage={mayManage("attendance")} onEdit={(employee, date, entry) => setModal({ kind: "attendance", employee, date, entry })} onImport={() => setModal({ kind: "import" })} locked={currentRun.status === "approved" || !mayManage("attendance")} /> : null}
           {activeSection === "employees" && currentUnit ? <EmployeesView employees={currentEmployees} canManage={mayManage("employees")} onAdd={() => setModal({ kind: "employee" })} onEdit={(employee) => setModal({ kind: "employee", employee })} onImport={() => setModal({ kind: "import" })} onLeft={(employee) => setModal({ kind: "employee-left", employee })} onReactivate={(employee) => void performAction("reactivate-employee", `${employee.name} reactivated`, { employeeId: employee.id })} onWorkflow={(employee) => void performAction("advance-employee-workflow", `${employee.name} moved to the next approval stage`, { employeeId: employee.id })} /> : null}
           {activeSection === "employees" && !currentUnit ? <EmptyPayroll unit={null} canCreate={mayManage("payroll")} canImport={mayManage("employees")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} /> : null}
+          {activeSection === "accommodation" && currentVendor ? <HostelMaster vendorId={activeVendorId} hostels={data.hostels} rooms={data.accommodationRooms} employees={data.employees} readings={data.hostelUtilityReadings} expenses={data.roomExpenses} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} canApprove={data.currentUser.role === "super_admin" || data.currentUser.role === "hr_team"} isActing={isActing} onAction={performAction} /> : null}
           {activeSection === "accommodation" && currentVendor ? <><AccommodationControlCenter vendorId={activeVendorId} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} expenses={data.roomExpenses} charges={data.accommodationCharges} runs={data.runs} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} isActing={isActing} onAction={performAction} onRoomStatus={(room) => updateRecordStatus("room", room.id, room.status, `room ${room.roomNumber}`)} onDeleteRoom={(room) => deleteRecord("room", room.id, `room ${room.roomNumber}`)} />{currentRun ? <AccommodationView types={currentTypes} items={currentItems} employees={currentEmployees} charges={data.accommodationCharges.filter((charge) => charge.runId === currentRun.id)} canManage={mayManage("accommodation")} onAdd={() => setModal({ kind: "accommodation" })} onEdit={(employee, charge) => setModal({ kind: "accommodation", employee, charge })} locked={currentRun.status === "approved" || !mayManage("accommodation")} /> : null}</> : null}
           {activeSection === "payments" && currentRun ? <><PaymentsView run={currentRun} items={currentItems} employees={currentEmployees} canExport={mayManage("payments")} onPayslip={setPayslipItem} /><PayrollBatchPanel run={currentRun} items={currentItems} batches={data.payrollBatches.filter((batch) => batch.runId === currentRun.id)} canPrepare={mayManage("payroll")} canClear={mayManage("payments")} isActing={isActing} onAction={performAction} /></> : null}
           {activeSection === "vendors" ? <VendorsView vendors={data.vendors} units={data.units} activeVendorId={activeVendorId} canManage={mayManage("vendors")} onSelect={(vendorId, unitId) => { setActiveVendorId(vendorId); setActiveUnitId(unitId); }} onAddVendor={() => setModal({ kind: "vendor" })} onEditVendor={(vendor) => setModal({ kind: "vendor", vendor })} onAddUnit={() => setModal({ kind: "unit" })} onEditUnit={(unit) => setModal({ kind: "unit", unit })} onVendorStatus={(vendor) => updateRecordStatus("client", vendor.id, vendor.status, vendor.name)} onDeleteVendor={(vendor) => deleteRecord("client", vendor.id, vendor.name)} onUnitStatus={(unit) => updateRecordStatus("unit", unit.id, unit.status, `${unit.clientName} · ${unit.unitName}`)} onDeleteUnit={(unit) => deleteRecord("unit", unit.id, `${unit.clientName} · ${unit.unitName}`)} /> : null}

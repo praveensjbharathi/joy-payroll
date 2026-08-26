@@ -7,6 +7,7 @@ const root = process.cwd();
 const migrationPaths = [
   join(root, "supabase/migrations/202608250001_joy_payroll.sql"),
   join(root, "supabase/migrations/20260825165413_payroll_accommodation_access_enhancements.sql"),
+  join(root, "supabase/migrations/20260826043000_hostel_master_utilities_cumulative_deductions.sql"),
 ];
 const payrollTables = [
   "app_users",
@@ -23,6 +24,8 @@ const payrollTables = [
   "accommodation_types",
   "accommodation_rooms",
   "accommodation_room_expenses",
+  "hostels",
+  "hostel_utility_readings",
   "payroll_batches",
   "audit_events",
 ];
@@ -64,6 +67,8 @@ test("the generated Supabase API preserves payroll logic without demo seeding", 
     "save-accommodation",
     "save-room-expense",
     "finalize-room-expense",
+    "save-hostel",
+    "save-hostel-utility",
     "prepare-payroll-batches",
     "clear-payroll-batch",
     "import-workbook",

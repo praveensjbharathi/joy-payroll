@@ -1,0 +1,10 @@
+CREATE TABLE `hostels` (`id` text PRIMARY KEY NOT NULL,`vendor_id` text NOT NULL,`name` text NOT NULL,`address` text,`incharge_name` text,`eb_meter_number` text,`status` text DEFAULT 'active' NOT NULL,`remarks` text,`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,FOREIGN KEY (`vendor_id`) REFERENCES `vendors`(`id`));
+CREATE UNIQUE INDEX `hostel_client_name_unique` ON `hostels` (`vendor_id`,`name`);
+ALTER TABLE `accommodation_rooms` ADD `hostel_id` text REFERENCES `hostels`(`id`);
+CREATE TABLE `hostel_utility_readings` (`id` text PRIMARY KEY NOT NULL,`hostel_id` text NOT NULL,`reading_date` text NOT NULL,`utility_type` text NOT NULL,`reading_value` real DEFAULT 0 NOT NULL,`consumption` real DEFAULT 0 NOT NULL,`tanker_quantity` real DEFAULT 0 NOT NULL,`amount` real DEFAULT 0 NOT NULL,`remarks` text,`entered_by` text,`approved_by` text,`approved_at` text,`status` text DEFAULT 'draft' NOT NULL,`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,FOREIGN KEY (`hostel_id`) REFERENCES `hostels`(`id`));
+CREATE UNIQUE INDEX `hostel_utility_date_unique` ON `hostel_utility_readings` (`hostel_id`,`utility_type`,`reading_date`);
+ALTER TABLE `accommodation_room_expenses` ADD `gas_date` text;
+ALTER TABLE `accommodation_room_expenses` ADD `ration_date` text;
+ALTER TABLE `accommodation_room_expenses` ADD `provision_date` text;
+ALTER TABLE `employees` ADD `shift_pattern` text DEFAULT 'general' NOT NULL;
+UPDATE `employees` SET `payment_mode`='bank' WHERE `payment_mode`<>'bank';

@@ -40,10 +40,23 @@ export const accommodationTypes = pgTable("accommodation_types", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("accommodation_type_client_name_unique").on(table.vendorId, table.name)]);
 
+export const hostels = pgTable("hostels", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull().references(() => vendors.id),
+  name: text("name").notNull(),
+  address: text("address"),
+  inchargeName: text("incharge_name"),
+  ebMeterNumber: text("eb_meter_number"),
+  status: text("status").notNull().default("active"),
+  remarks: text("remarks"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("hostel_client_name_unique").on(table.vendorId, table.name)]);
+
 export const accommodationRooms = pgTable("accommodation_rooms", {
   id: text("id").primaryKey(),
   vendorId: text("vendor_id").notNull().references(() => vendors.id),
   accommodationTypeId: text("accommodation_type_id").notNull().references(() => accommodationTypes.id),
+  hostelId: text("hostel_id").references(() => hostels.id),
   roomNumber: text("room_number").notNull(),
   capacity: integer("capacity").notNull().default(0),
   address: text("address"),
@@ -51,6 +64,20 @@ export const accommodationRooms = pgTable("accommodation_rooms", {
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("accommodation_room_client_type_number_unique").on(table.vendorId, table.accommodationTypeId, table.roomNumber)]);
+
+export const hostelUtilityReadings = pgTable("hostel_utility_readings", {
+  id: text("id").primaryKey(),
+  hostelId: text("hostel_id").notNull().references(() => hostels.id),
+  readingDate: text("reading_date").notNull(),
+  utilityType: text("utility_type").notNull(),
+  readingValue: doublePrecision("reading_value").notNull().default(0),
+  consumption: doublePrecision("consumption").notNull().default(0),
+  tankerQuantity: doublePrecision("tanker_quantity").notNull().default(0),
+  amount: doublePrecision("amount").notNull().default(0),
+  remarks: text("remarks"), enteredBy: text("entered_by"), approvedBy: text("approved_by"), approvedAt: text("approved_at"),
+  status: text("status").notNull().default("draft"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("hostel_utility_date_unique").on(table.hostelId, table.utilityType, table.readingDate)]);
 
 export const clientUnits = pgTable("client_units", {
   id: text("id").primaryKey(),
@@ -95,6 +122,7 @@ export const employees = pgTable("employees", {
   salaryAmount: doublePrecision("salary_amount").notNull().default(0),
   salaryBasis: text("salary_basis").notNull().default("monthly"),
   defaultShift: text("default_shift").notNull().default("General"),
+  shiftPattern: text("shift_pattern").notNull().default("general"),
   remarks: text("remarks"),
   complianceStatus: text("compliance_status").notNull().default("ready"),
   status: text("status").notNull().default("active"),
@@ -252,8 +280,11 @@ export const accommodationRoomExpenses = pgTable("accommodation_room_expenses", 
   roomId: text("room_id").notNull().references(() => accommodationRooms.id),
   payPeriod: text("pay_period").notNull(),
   gasAmount: doublePrecision("gas_amount").notNull().default(0),
+  gasDate: text("gas_date"),
   rationAmount: doublePrecision("ration_amount").notNull().default(0),
+  rationDate: text("ration_date"),
   provisionAmount: doublePrecision("provision_amount").notNull().default(0),
+  provisionDate: text("provision_date"),
   occupantCount: integer("occupant_count").notNull().default(0),
   status: text("status").notNull().default("draft"),
   notes: text("notes"),
