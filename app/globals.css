@@ -681,6 +681,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .room-report-pages { padding: 0; }
   .room-report-page { page-break-after: always; break-after: page; border: 0; border-radius: 0; }
   .room-report-page:last-child { page-break-after: auto; break-after: auto; }
+  .report-print-area, .report-print-area * { visibility: visible !important; }
+  .report-print-area { position: absolute; inset: 0; width: 100%; margin: 0; box-shadow: none; }
+  .report-print-area .table-scroll { overflow: visible; }
+  .report-print-area table { width: 100%; font-size: 9px; }
   @page { size: A4; margin: 8mm; }
 }
 
