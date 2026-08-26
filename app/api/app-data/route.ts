@@ -795,13 +795,15 @@ async function recalculateRun(db: Db, runId: string, recomputeAttendance = false
   const run = await requireRun(db, runId);
   if (run.processingMode === "salary_import") recomputeAttendance = false;
   const { start, end } = periodRange(run.payPeriod, run.periodStart, run.periodEnd);
-  const [rows, unitEmployees, periodAttendance, charges, rules] = await Promise.all([
+  const [rows, unitEmployees, periodAttendance, charges, rules, unitRows] = await Promise.all([
     db.select().from(payrollItems).where(eq(payrollItems.runId, runId)),
     db.select().from(employees).where(eq(employees.clientUnitId, run.clientUnitId)),
     db.select().from(attendanceEntries).where(and(gte(attendanceEntries.attendanceDate, start), lt(attendanceEntries.attendanceDate, end))),
     db.select().from(accommodationCharges).where(eq(accommodationCharges.runId, runId)),
     activeRules(db, run.vendorId),
+    db.select().from(clientUnits).where(eq(clientUnits.id, run.clientUnitId)).limit(1),
   ]);
+  const overtimeMultiplier = unitRows[0]?.overtimeMultiplier ?? 1;
   const effectiveRules = { ...rules, standardWorkingDays: run.workingDays || rules.standardWorkingDays };
   const employeeMap = new Map(unitEmployees.map((employee) => [employee.id, employee]));
   const chargeMap = new Map(charges.map((charge) => [charge.employeeId, charge]));
@@ -823,7 +825,7 @@ async function recalculateRun(db: Db, runId: string, recomputeAttendance = false
     if (shouldRecompute) {
       Object.assign(next, attendanceSummary(entries, effectiveRules));
       if (employee.salaryAmount > 0) next.basic = salaryForAttendance(employee.salaryAmount, employee.salaryBasis, next.payableDays, effectiveRules);
-      if (effectiveRules.overtimeHourlyRate > 0) next.overtimeWages = roundMoney(next.overtimeHours * effectiveRules.overtimeHourlyRate);
+      if (effectiveRules.overtimeHourlyRate > 0) next.overtimeWages = roundMoney(next.overtimeHours * overtimeMultiplier * effectiveRules.overtimeHourlyRate);
       if (effectiveRules.pfRate > 0) next.pfDeduction = roundMoney(next.basic * effectiveRules.pfRate / 100);
       if (effectiveRules.professionalTax > 0) next.professionalTax = effectiveRules.professionalTax;
       if (effectiveRules.lwf > 0) next.lwf = effectiveRules.lwf;
@@ -1283,6 +1285,8 @@ export async function POST(request: Request) {
         attendanceCycleStartDay: positiveValue(payload.attendanceCycleStartDay ?? 1, "Attendance cycle start day", 31),
         attendanceCycleEndDay: positiveValue(payload.attendanceCycleEndDay ?? 31, "Attendance cycle end day", 31),
         attendanceWorkingDays: positiveValue(payload.attendanceWorkingDays ?? 26, "Attendance working days", 31),
+        overtimeMultiplier: positiveValue(payload.overtimeMultiplier ?? 1, "OT payment multiplier", 5),
+        voucherHeader: optionalValue(payload.voucherHeader),
         payslipTitle: optionalValue(payload.payslipTitle),
         payslipSubtitle: optionalValue(payload.payslipSubtitle),
         payslipAddress: optionalValue(payload.payslipAddress),
@@ -1874,7 +1878,11 @@ export async function POST(request: Request) {
       const accommodationTypeId = textValue(payload.accommodationTypeId, "Accommodation type");
       const [hostelType] = await db.select().from(accommodationTypes).where(eq(accommodationTypes.id, accommodationTypeId)).limit(1);
       if (!hostelType || hostelType.vendorId !== vendorId) throw new RequestError("Select an accommodation type from this client", 409);
-      const values = { vendorId, accommodationTypeId, name: textValue(payload.name, "Hostel name"), address: optionalValue(payload.address), inchargeName: optionalValue(payload.inchargeName), ebMeterNumber: optionalValue(payload.ebMeterNumber), remarks: optionalValue(payload.remarks) };
+      const clientScope = Array.isArray(payload.clientScope) ? payload.clientScope.filter((value): value is string => typeof value === "string") : [];
+      const validUnits = await db.select({ id: clientUnits.id }).from(clientUnits).where(eq(clientUnits.vendorId, vendorId));
+      const validIds = new Set(validUnits.map((unit) => unit.id));
+      if (clientScope.some((unitId) => !validIds.has(unitId))) throw new RequestError("Hostel client mapping contains an invalid client unit", 409);
+      const values = { vendorId, accommodationTypeId, name: textValue(payload.name, "Hostel name"), address: optionalValue(payload.address), inchargeName: optionalValue(payload.inchargeName), ebMeterNumber: optionalValue(payload.ebMeterNumber), clientScopeJson: JSON.stringify(clientScope), remarks: optionalValue(payload.remarks) };
       const [existing] = await db.select().from(hostels).where(eq(hostels.id,id)).limit(1); if(existing) await db.update(hostels).set(values).where(eq(hostels.id,id)); else await db.insert(hostels).values({id,...values});
     } else if (action === "assign-room-hostel") {
       const roomId=textValue(payload.roomId,"Room"); const hostelId=textValue(payload.hostelId,"Hostel");

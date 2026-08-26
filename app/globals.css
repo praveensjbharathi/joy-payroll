@@ -313,6 +313,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .vendor-selected { border-color: #9fc2f7; box-shadow: 0 0 0 2px #e5f0ff, var(--shadow); }
 .vendor-card header { display: flex; justify-content: space-between; align-items: center; }
 .vendor-logo { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(145deg, #1f73ee, #1559c2); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.vendor-logo-image { object-fit: contain; padding: 4px; background: #fff; border: 1px solid #dce5f2; }
+.vendor-logo-upload { border: 1px dashed #8fb3e8; cursor: pointer; line-height: 1.1; }
 .vendor-card h2 { margin: 15px 0 5px; font-size: 15px; }
 .vendor-card > p { margin: 0; color: var(--muted); font-size: 9px; }
 .vendor-card > .record-remarks { margin-top: 7px; color: #526d8c; }
@@ -700,11 +702,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .room-report-pages { padding: 0; }
   .room-report-page { page-break-after: always; break-after: page; border: 0; border-radius: 0; }
   .room-report-page:last-child { page-break-after: auto; break-after: auto; }
+  .room-report-page { page: room-recovery; width: 100%; min-height: auto; }
   .report-print-area, .report-print-area * { visibility: visible !important; }
   .report-print-area { position: absolute; inset: 0; width: 100%; margin: 0; box-shadow: none; }
   .report-print-area .table-scroll { overflow: visible; }
   .report-print-area table { width: 100%; font-size: 9px; }
   @page { size: A4; margin: 6mm; }
+  @page room-recovery { size: A4 landscape; margin: 6mm; }
 }
 
 .id-card-modal { position: absolute; inset: 3vh auto auto 50%; width: min(520px,94vw); max-height:94vh; overflow:auto; transform:translateX(-50%); border-radius:14px; background:#eef2f7; box-shadow:0 24px 70px rgba(5,17,31,.28); }
