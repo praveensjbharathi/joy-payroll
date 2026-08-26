@@ -8,7 +8,7 @@ export const ACCESS_MODULES = [
   { id: "payments", label: "Payments & Payslips", description: "Bank/cash outputs, payslips, and payment exports" },
   { id: "clients", label: "Clients & Employers", description: "Clients, employers, factory units, and status controls" },
   { id: "masters", label: "Operational Masters", description: "Accommodation types, shift timings, and reusable operational remarks" },
-  { id: "operations", label: "Vehicles & EB", description: "Company vehicles, reminders, trips, fuel, expenses, and hostel/office EB readings" },
+  { id: "operations", label: "Vehicle Monitoring", description: "Company vehicles, movements, fuel, expenses, and government/service reminders" },
   { id: "settings", label: "Rules & Settings", description: "Salary, statutory, overtime, attendance, and approval rules" },
   { id: "users", label: "Users & Access", description: "User profiles, roles, status, and permission customization" },
 ] as const;
@@ -60,7 +60,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, PermissionMap> = {
     dashboard: "view", payroll: "view", attendance: "manage", employees: "manage", accommodation: "manage",
     payments: "none", clients: "view", masters: "view", operations: "view", settings: "none", users: "none",
   },
-  hostel_incharge: { dashboard: "view", payroll: "none", attendance: "none", employees: "view", accommodation: "manage", payments: "none", clients: "view", masters: "view", operations: "none", settings: "none", users: "none" },
+  hostel_incharge: { dashboard: "view", payroll: "none", attendance: "manage", employees: "view", accommodation: "manage", payments: "none", clients: "view", masters: "view", operations: "none", settings: "none", users: "none" },
 };
 
 export const DEFAULT_APPROVAL_ACCESS: Record<UserRole, boolean> = {

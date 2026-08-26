@@ -98,11 +98,16 @@ function appUserProfile(row: AppUserRow) {
     id: row.id,
     email: row.email,
     fullName: row.fullName,
+    employeeCode: row.employeeCode,
+    department: row.department,
+    dateOfJoining: row.dateOfJoining,
+    mobileNumber: row.mobileNumber,
     role,
     status: row.status,
     permissions,
     clientScope: normalizedScope(row.clientScopeJson),
     unitScope: normalizedScope(row.unitScopeJson),
+    hostelScope: normalizedScope(row.hostelScopeJson),
     canApprovePayroll: role === "super_admin" || Boolean(row.canApprovePayroll),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -174,6 +179,23 @@ function requireUnitScope(access: AppAccess, unitId: string, vendorId: string) {
 
 async function enforceActionScope(db: Db, access: AppAccess, action: string, payload: Payload) {
   if (access.profile.role === "super_admin") return;
+  if (access.profile.role === "hostel_incharge") {
+    const allowed = new Set(["save-attendance", "delete-attendance", "save-room-expense", "save-hostel-utility"]);
+    if (!allowed.has(action)) throw new RequestError("Hostel In-charge access is limited to assigned-hostel residents, attendance, and non-statutory hostel deductions", 403);
+    const hostelScope = new Set(access.profile.hostelScope);
+    const employeeId = optionalValue(payload.employeeId);
+    if (employeeId) {
+      const [employee] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      const [room] = employee?.roomId ? await db.select().from(accommodationRooms).where(eq(accommodationRooms.id, employee.roomId)).limit(1) : [];
+      if (!employee || !room?.hostelId || !hostelScope.has(room.hostelId)) throw new RequestError("This employee is not staying in your assigned hostel", 403);
+    }
+    const roomId = optionalValue(payload.roomId);
+    if (roomId) {
+      const [room] = await db.select().from(accommodationRooms).where(eq(accommodationRooms.id, roomId)).limit(1);
+      if (!room?.hostelId || !hostelScope.has(room.hostelId)) throw new RequestError("This room is not in your assigned hostel", 403);
+    }
+    return;
+  }
   if (action === "create-vendor") throw new RequestError("Only a Super Admin can add a new client.", 403);
 
   const explicitVendor = optionalValue(payload.vendorId);
@@ -549,11 +571,13 @@ async function loadAppData(access: AppAccess) {
   const unrestricted = access.profile.role === "super_admin";
   const clientScope = new Set(access.profile.clientScope);
   const unitScope = new Set(access.profile.unitScope);
+  const hostelScope = new Set(access.profile.hostelScope);
   const vendorRows = unrestricted ? allVendorRows : allVendorRows.filter((vendor) => clientScope.has(vendor.id));
   const visibleVendorIds = new Set(vendorRows.map((vendor) => vendor.id));
   const unitRows = allUnitRows.filter((unit) => visibleVendorIds.has(unit.vendorId) && (unrestricted || access.profile.role !== "hr_team" || unitScope.has(unit.id)));
   const visibleUnitIds = new Set(unitRows.map((unit) => unit.id));
-  const employeeRows = allEmployeeRows.filter((employee) => visibleVendorIds.has(employee.vendorId) && visibleUnitIds.has(employee.clientUnitId));
+  const assignedHostelRoomIds = new Set(allRoomRows.filter((room) => room.hostelId && hostelScope.has(room.hostelId)).map((room) => room.id));
+  const employeeRows = allEmployeeRows.filter((employee) => visibleVendorIds.has(employee.vendorId) && visibleUnitIds.has(employee.clientUnitId) && (access.profile.role !== "hostel_incharge" || Boolean(employee.roomId && assignedHostelRoomIds.has(employee.roomId))));
   const visibleEmployeeIds = new Set(employeeRows.map((employee) => employee.id));
   const runRows = allRunRows.filter((run) => visibleVendorIds.has(run.vendorId) && visibleUnitIds.has(run.clientUnitId));
   const visibleRunIds = new Set(runRows.map((run) => run.id));
@@ -567,6 +591,7 @@ async function loadAppData(access: AppAccess) {
   const typeRows = allTypeRows.filter((type) => visibleVendorIds.has(type.vendorId));
   const roomRows = allRoomRows.filter((room) => {
     if (!visibleVendorIds.has(room.vendorId)) return false;
+    if (access.profile.role === "hostel_incharge") return Boolean(room.hostelId && hostelScope.has(room.hostelId));
     if (unrestricted || access.profile.role !== "hr_team") return true;
     const occupants = allEmployeeRows.filter((employee) => employee.roomId === room.id && employee.status === "active");
     return occupants.length === 0 || occupants.some((employee) => visibleEmployeeIds.has(employee.id));
@@ -579,7 +604,7 @@ async function loadAppData(access: AppAccess) {
   const seesAny = (modules: AccessModule[]) => modules.some((module) => canView(permissions, module));
   const seesOrganisation = seesAny(["dashboard", "payroll", "attendance", "employees", "accommodation", "payments", "clients", "masters", "settings"]);
   const seesEmployees = seesAny(["dashboard", "payroll", "attendance", "employees", "accommodation", "payments"]);
-  const seesFullEmployeeDetails = seesAny(["payroll", "employees", "payments"]);
+  const seesFullEmployeeDetails = access.profile.role !== "hostel_incharge" && seesAny(["dashboard", "payroll", "employees", "payments"]);
   const seesRuns = seesAny(["dashboard", "payroll", "attendance", "accommodation", "payments"]);
   const seesPayrollItems = seesRuns;
   const seesFullPayrollDetails = seesAny(["payroll", "payments"]);
@@ -656,7 +681,7 @@ async function loadAppData(access: AppAccess) {
     vehicleRecords: canView(permissions, "operations") ? allVehicleRecords.filter((record) => allVehicles.some((vehicle) => vehicle.id === record.vehicleId && visibleVendorIds.has(vehicle.vendorId))) : [],
     utilityMeters: canView(permissions, "operations") ? allMeters.filter((meter) => visibleVendorIds.has(meter.vendorId)) : [],
     ebReadings: canView(permissions, "operations") ? allEbReadings.filter((reading) => allMeters.some((meter) => meter.id === reading.meterId && visibleVendorIds.has(meter.vendorId))) : [],
-    hostels: canView(permissions, "accommodation") ? allHostels.filter((hostel) => visibleVendorIds.has(hostel.vendorId)) : [],
+    hostels: canView(permissions, "accommodation") ? allHostels.filter((hostel) => visibleVendorIds.has(hostel.vendorId) && (access.profile.role !== "hostel_incharge" || hostelScope.has(hostel.id))) : [],
     hostelUtilityReadings: canView(permissions, "accommodation") ? allHostelReadings.filter((reading) => allHostels.some((hostel) => hostel.id === reading.hostelId && visibleVendorIds.has(hostel.vendorId))) : [],
   };
 }
@@ -981,12 +1006,19 @@ async function finalizeRoomExpense(db: Db, expenseId: string, access: AppAccess)
   for (const share of shares) {
     const run = runByEmployee.get(share.employeeId);
     if (!run) continue;
+    const employee = occupants.find((candidate) => candidate.id === share.employeeId);
+    let rentSettings: Record<string, number> = {};
+    try { rentSettings = JSON.parse(room.rentSettingsJson || "{}"); } catch { rentSettings = {}; }
+    const fullRent = employee ? positiveValue(rentSettings[employee.clientUnitId] ?? 0, "Room rent") : 0;
+    const joinedLate = Boolean(employee?.dateOfJoining?.startsWith(`${expense.payPeriod}-`) && Number(employee.dateOfJoining.slice(8, 10)) > room.rentCutoffDay);
+    const rent = roundMoney(fullRent * (joinedLate ? room.lateJoinRentPercent / 100 : 1));
     const values = {
       roomExpenseId: expense.id,
       roomNumber: room.roomNumber,
       gasShare: share.gasShare,
       rationShare: share.rationShare,
       provisionShare: share.provisionShare,
+      rent,
     };
     const [existing] = await db.select().from(accommodationCharges).where(and(eq(accommodationCharges.runId, run.id), eq(accommodationCharges.employeeId, share.employeeId))).limit(1);
     if (existing) await db.update(accommodationCharges).set(values).where(eq(accommodationCharges.id, existing.id));
@@ -1098,6 +1130,19 @@ function permissionPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
+async function inviteSupabaseUser(email: string) {
+  const deno = (globalThis as unknown as { Deno?: { env: { get(name: string): string | undefined } } }).Deno;
+  const supabaseUrl = deno?.env.get("SUPABASE_URL");
+  const serviceKey = deno?.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) return;
+  const redirect = deno?.env.get("PAYROLL_APP_URL") ?? "https://joy-payroll.praveen-red-07.workers.dev";
+  const response = await fetch(`${supabaseUrl}/auth/v1/invite?redirect_to=${encodeURIComponent(redirect)}`, { method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+  if (!response.ok) {
+    const detail = await response.text();
+    if (!detail.toLowerCase().includes("already") && response.status !== 422) throw new RequestError("User profile was not created because the Supabase invitation email could not be sent", 502);
+  }
+}
+
 async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
   requireSuperAdmin(access);
   const existingId = optionalValue(payload.id);
@@ -1109,22 +1154,32 @@ async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
   const canApprovePayroll = role === "super_admin" || payload.canApprovePayroll === true || payload.canApprovePayroll === 1 || payload.canApprovePayroll === "on";
   let clientScope = normalizedScope(payload.clientScope ?? payload.clientIds);
   let unitScope = normalizedScope(payload.unitScope ?? payload.unitIds);
+  let hostelScope = normalizedScope(payload.hostelScope ?? payload.hostelIds);
   if (role === "super_admin") {
     clientScope = [];
     unitScope = [];
+    hostelScope = [];
   } else if (role === "payroll_team") {
     if (!clientScope.length) throw new RequestError("Assign at least one client to a Payroll Team user");
     const assignedClients = await db.select({ id: vendors.id }).from(vendors).where(inArray(vendors.id, clientScope));
     if (assignedClients.length !== clientScope.length) throw new RequestError("One or more assigned clients no longer exist", 404);
+    unitScope = [];
+    hostelScope = [];
+  } else if (role === "hostel_incharge") {
+    if (!hostelScope.length) throw new RequestError("Assign at least one hostel to a Hostel In-charge user");
+    const assignedHostels = await db.select({ id: hostels.id, vendorId: hostels.vendorId }).from(hostels).where(inArray(hostels.id, hostelScope));
+    if (assignedHostels.length !== hostelScope.length) throw new RequestError("One or more assigned hostels no longer exist", 404);
+    clientScope = normalizedScope(assignedHostels.map((hostel) => hostel.vendorId));
     unitScope = [];
   } else {
     if (!unitScope.length) throw new RequestError("Assign at least one employer unit to an HR Team user");
     const assignedUnits = await db.select({ id: clientUnits.id, vendorId: clientUnits.vendorId }).from(clientUnits).where(inArray(clientUnits.id, unitScope));
     if (assignedUnits.length !== unitScope.length) throw new RequestError("One or more assigned employer units no longer exist", 404);
     clientScope = normalizedScope(assignedUnits.map((unit) => unit.vendorId));
+    hostelScope = [];
   }
   const now = new Date().toISOString();
-  const values = { email, fullName, role, permissionsJson: JSON.stringify(permissions), clientScopeJson: JSON.stringify(clientScope), unitScopeJson: JSON.stringify(unitScope), canApprovePayroll: canApprovePayroll ? 1 : 0, updatedAt: now };
+  const values = { email, fullName, employeeCode: optionalValue(payload.employeeCode), department: optionalValue(payload.department), dateOfJoining: payload.dateOfJoining ? dateValue(payload.dateOfJoining, "Joining date") : null, mobileNumber: optionalValue(payload.mobileNumber), role, permissionsJson: JSON.stringify(permissions), clientScopeJson: JSON.stringify(clientScope), unitScopeJson: JSON.stringify(unitScope), hostelScopeJson: JSON.stringify(hostelScope), canApprovePayroll: canApprovePayroll ? 1 : 0, updatedAt: now };
   const [emailOwner] = await db.select({ id: appUsers.id }).from(appUsers).where(eq(appUsers.email, email)).limit(1);
   if (emailOwner && emailOwner.id !== existingId) throw new RequestError("A user profile already exists for this email address", 409);
   if (existingId) {
@@ -1137,6 +1192,7 @@ async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
     return;
   }
   const id = `USER-${crypto.randomUUID()}`;
+  await inviteSupabaseUser(email);
   await db.insert(appUsers).values({ id, ...values, status: "active", createdBy: access.identity.email, createdAt: now });
   await writeAudit(db, "user_created", "app_user", id, `Added ${email} as ${role.replaceAll("_", " ")}`, access.identity.email);
 }
@@ -1285,6 +1341,9 @@ export async function POST(request: Request) {
         vendorId,
         accommodationTypeId,
         hostelId,
+        rentSettingsJson: typeof payload.rentSettingsJson === "string" ? payload.rentSettingsJson : "{}",
+        rentCutoffDay: Math.max(1, Math.min(31, Math.round(positiveValue(payload.rentCutoffDay ?? 25, "Rent cutoff day", 31)))),
+        lateJoinRentPercent: positiveValue(payload.lateJoinRentPercent ?? 50, "Late joining rent percent", 100),
         roomNumber: textValue(payload.roomNumber, "Room number"),
         capacity,
         address: optionalValue(payload.address),
@@ -1330,10 +1389,14 @@ export async function POST(request: Request) {
       const values = {
         gasAmount: positiveValue(payload.gasAmount, "Gas expense"),
         gasDate: payload.gasDate ? dateValue(payload.gasDate, "Gas cylinder date") : null,
+        gasCylinderCount: Math.round(positiveValue(payload.gasCylinderCount ?? 0, "Gas cylinder count")),
+        gasPaymentReference: optionalValue(payload.gasPaymentReference),
         rationAmount: positiveValue(payload.rationAmount, "Ration expense"),
         rationDate: payload.rationDate ? dateValue(payload.rationDate, "Ration date") : null,
+        rationPaymentReference: optionalValue(payload.rationPaymentReference),
         provisionAmount: positiveValue(payload.provisionAmount, "Provision expense"),
         provisionDate: payload.provisionDate ? dateValue(payload.provisionDate, "Provision date") : null,
+        provisionPaymentReference: optionalValue(payload.provisionPaymentReference),
         notes: optionalValue(payload.notes),
         updatedAt: new Date().toISOString(),
       };
@@ -1374,7 +1437,13 @@ export async function POST(request: Request) {
       const startTime = textValue(payload.startTime, "Shift start time");
       const endTime = textValue(payload.endTime, "Shift end time");
       if (![startTime, endTime].every((value) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))) throw new RequestError("Shift times must use the 24-hour HH:MM format");
-      const values = { vendorId, name, startTime, endTime, remarks: optionalValue(payload.remarks) };
+      const clientUnitId = optionalValue(payload.clientUnitId);
+      if (clientUnitId) {
+        const [mappedUnit] = await db.select().from(clientUnits).where(eq(clientUnits.id, clientUnitId)).limit(1);
+        if (!mappedUnit || mappedUnit.vendorId !== vendorId) throw new RequestError("Choose a client location under this group company", 409);
+      }
+      const wholeMinutes = (value: unknown, label: string, maximum = 1440) => Math.round(positiveValue(value ?? 0, label, maximum));
+      const values = { vendorId, clientUnitId, name, startTime, endTime, breakMinutes: wholeMinutes(payload.breakMinutes, "Break minutes"), requiredWorkMinutes: wholeMinutes(payload.requiredWorkMinutes ?? 480, "Required work minutes"), lateGraceMinutes: wholeMinutes(payload.lateGraceMinutes, "Late grace minutes"), lateDeductionMinutes: wholeMinutes(payload.lateDeductionMinutes, "Late deduction minutes"), earlyGraceMinutes: wholeMinutes(payload.earlyGraceMinutes, "Early grace minutes"), earlyDeductionMinutes: wholeMinutes(payload.earlyDeductionMinutes, "Early deduction minutes"), otMode: payload.otMode === "fixed" ? "fixed" : "approval", fixedOtHours: positiveValue(payload.fixedOtHours ?? 0, "Fixed OT hours", 24), remarks: optionalValue(payload.remarks) };
       if (existingId) {
         const [existing] = await db.select().from(shiftDefinitions).where(eq(shiftDefinitions.id, existingId)).limit(1);
         if (!existing || existing.vendorId !== vendorId) throw new RequestError("Shift not found for this client", 404);
@@ -1619,7 +1688,24 @@ export async function POST(request: Request) {
       const statusCode = textValue(payload.statusCode, "Attendance status").toUpperCase();
       if (!ATTENDANCE_CODES.includes(statusCode as (typeof ATTENDANCE_CODES)[number])) throw new RequestError("Unsupported attendance status");
       if (employee.status !== "active") throw new RequestError("Reactivate the employee before recording attendance", 409);
-      const values = { statusCode, shiftCode: optionalValue(payload.shiftCode) ?? employee.defaultShift, overtimeHours: positiveValue(payload.overtimeHours, "Overtime hours", 24), remarks: optionalValue(payload.remarks), source: "manual", updatedBy: actorEmail, updatedAt: new Date().toISOString() };
+      const shiftCode = optionalValue(payload.shiftCode) ?? employee.defaultShift;
+      const [shift] = await db.select().from(shiftDefinitions).where(and(eq(shiftDefinitions.vendorId, employee.vendorId), eq(shiftDefinitions.name, shiftCode))).limit(1);
+      const punchIn = optionalValue(payload.punchIn), punchOut = optionalValue(payload.punchOut);
+      const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
+      let workedMinutes = 0, deductionMinutes = 0;
+      if (shift && punchIn && punchOut) {
+        const start = minutes(shift.startTime), actualIn = minutes(punchIn);
+        let end = minutes(shift.endTime), actualOut = minutes(punchOut);
+        if (end <= start) end += 1440;
+        if (actualOut <= actualIn) actualOut += 1440;
+        workedMinutes = Math.max(0, actualOut - actualIn - shift.breakMinutes);
+        if (actualIn - start > shift.lateGraceMinutes) deductionMinutes += shift.lateDeductionMinutes;
+        if (end - actualOut > shift.earlyGraceMinutes) deductionMinutes += shift.earlyDeductionMinutes;
+        if (workedMinutes < shift.requiredWorkMinutes) deductionMinutes += shift.requiredWorkMinutes - workedMinutes;
+      }
+      const requestedOt = positiveValue(payload.overtimeHours, "Overtime hours", 24);
+      const overtimeHours = shift?.otMode === "fixed" ? shift.fixedOtHours : requestedOt;
+      const values = { statusCode, shiftCode, punchIn, punchOut, workedHours: roundMoney(workedMinutes / 60), deductionHours: roundMoney(deductionMinutes / 60), overtimeHours, remarks: optionalValue(payload.remarks), source: "manual", updatedBy: actorEmail, updatedAt: new Date().toISOString() };
       const [existing] = await db.select().from(attendanceEntries).where(and(eq(attendanceEntries.employeeId, employeeId), eq(attendanceEntries.attendanceDate, attendanceDate))).limit(1);
       if (existing) await db.update(attendanceEntries).set(values).where(eq(attendanceEntries.id, existing.id));
       else await db.insert(attendanceEntries).values({ employeeId, attendanceDate, ...values });

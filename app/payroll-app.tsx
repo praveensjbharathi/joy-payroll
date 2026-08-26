@@ -39,11 +39,16 @@ export type AppUserProfile = {
   id: string;
   email: string;
   fullName: string | null;
+  employeeCode: string | null;
+  department: string | null;
+  dateOfJoining: string | null;
+  mobileNumber: string | null;
   role: UserRole;
   status: string;
   permissions: PermissionMap;
   clientScope: string[];
   unitScope: string[];
+  hostelScope: string[];
   canApprovePayroll: boolean;
   createdAt: string;
   updatedAt: string;
@@ -162,6 +167,10 @@ export type PayrollItem = {
   holidayPresentDays: number;
   payableDays: number;
   overtimeHours: number;
+  punchIn: string | null;
+  punchOut: string | null;
+  workedHours: number;
+  deductionHours: number;
   basic: number;
   da: number;
   hra: number;
@@ -207,9 +216,18 @@ type AttendanceEntry = {
 type ShiftDefinition = {
   id: string;
   vendorId: string;
+  clientUnitId: string | null;
   name: string;
   startTime: string;
   endTime: string;
+  breakMinutes: number;
+  requiredWorkMinutes: number;
+  lateGraceMinutes: number;
+  lateDeductionMinutes: number;
+  earlyGraceMinutes: number;
+  earlyDeductionMinutes: number;
+  otMode: string;
+  fixedOtHours: number;
   remarks: string | null;
   status: string;
 };
@@ -260,6 +278,9 @@ export type AccommodationRoom = {
   vendorId: string;
   accommodationTypeId: string;
   hostelId: string | null;
+  rentSettingsJson: string;
+  rentCutoffDay: number;
+  lateJoinRentPercent: number;
   roomNumber: string;
   capacity: number;
   address: string | null;
@@ -273,10 +294,14 @@ export type RoomExpense = {
   payPeriod: string;
   gasAmount: number;
   gasDate: string | null;
+  gasCylinderCount: number;
+  gasPaymentReference: string | null;
   rationAmount: number;
   rationDate: string | null;
+  rationPaymentReference: string | null;
   provisionAmount: number;
   provisionDate: string | null;
+  provisionPaymentReference: string | null;
   occupantCount: number;
   status: string;
   notes: string | null;
@@ -379,7 +404,7 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "payments", label: "Payments & Payslips", icon: "bank" },
   { id: "vendors", label: "Group Companies & Clients", icon: "building" },
   { id: "masters", label: "Operational Masters", icon: "calendar" },
-  { id: "operations", label: "Vehicles & EB", icon: "building" },
+  { id: "operations", label: "Vehicle Monitoring", icon: "building" },
   { id: "users", label: "Users & Access", icon: "users" },
   { id: "settings", label: "Rules & Settings", icon: "settings" },
 ];
@@ -721,7 +746,7 @@ export default function PayrollApp({
           {activeSection === "employees" && currentUnit ? <EmployeesView employees={currentEmployees} canManage={mayManage("employees")} onAdd={() => setModal({ kind: "employee" })} onEdit={(employee) => setModal({ kind: "employee", employee })} onImport={() => setModal({ kind: "import" })} onLeft={(employee) => setModal({ kind: "employee-left", employee })} onReactivate={(employee) => void performAction("reactivate-employee", `${employee.name} reactivated`, { employeeId: employee.id })} onWorkflow={(employee) => void performAction("advance-employee-workflow", `${employee.name} moved to the next approval stage`, { employeeId: employee.id })} /> : null}
           {activeSection === "employees" && !currentUnit ? <EmptyPayroll unit={null} canCreate={mayManage("payroll")} canImport={mayManage("employees")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} /> : null}
           {activeSection === "hostels" && currentVendor ? <HostelMaster vendorId={activeVendorId} types={currentTypes} hostels={data.hostels} rooms={data.accommodationRooms} employees={data.employees} readings={data.hostelUtilityReadings} expenses={data.roomExpenses} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} canApprove={data.currentUser.role === "super_admin" || data.currentUser.role === "hr_team"} isActing={isActing} onAction={performAction} /> : null}
-          {activeSection === "accommodation" && currentVendor ? <><AccommodationControlCenter vendorId={activeVendorId} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} expenses={data.roomExpenses} charges={data.accommodationCharges} runs={data.runs} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} isActing={isActing} onAction={performAction} onRoomStatus={(room) => updateRecordStatus("room", room.id, room.status, `room ${room.roomNumber}`)} onDeleteRoom={(room) => deleteRecord("room", room.id, `room ${room.roomNumber}`)} />{currentRun ? <AccommodationView types={currentTypes} items={currentItems} employees={currentEmployees} charges={data.accommodationCharges.filter((charge) => charge.runId === currentRun.id)} canManage={mayManage("accommodation")} onAdd={() => setModal({ kind: "accommodation" })} onEdit={(employee, charge) => setModal({ kind: "accommodation", employee, charge })} locked={currentRun.status === "approved" || !mayManage("accommodation")} /> : null}</> : null}
+          {activeSection === "accommodation" && currentVendor ? <><AccommodationControlCenter vendorId={activeVendorId} types={currentTypes} hostels={data.hostels} units={data.units.filter((entry) => entry.vendorId === activeVendorId)} rooms={data.accommodationRooms} employees={data.employees} expenses={data.roomExpenses} charges={data.accommodationCharges} runs={data.runs} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} isActing={isActing} onAction={performAction} onRoomStatus={(room) => updateRecordStatus("room", room.id, room.status, `room ${room.roomNumber}`)} onDeleteRoom={(room) => deleteRecord("room", room.id, `room ${room.roomNumber}`)} />{currentRun ? <AccommodationView types={currentTypes} items={currentItems} employees={currentEmployees} charges={data.accommodationCharges.filter((charge) => charge.runId === currentRun.id)} canManage={mayManage("accommodation")} onAdd={() => setModal({ kind: "accommodation" })} onEdit={(employee, charge) => setModal({ kind: "accommodation", employee, charge })} locked={currentRun.status === "approved" || !mayManage("accommodation")} /> : null}</> : null}
           {activeSection === "payments" && currentRun ? <><PaymentsView run={currentRun} items={currentItems} employees={currentEmployees} canExport={mayManage("payments")} onPayslip={setPayslipItem} /><PayrollBatchPanel run={currentRun} items={currentItems} batches={data.payrollBatches.filter((batch) => batch.runId === currentRun.id)} canPrepare={mayManage("payroll")} canClear={mayManage("payments")} isActing={isActing} onAction={performAction} /></> : null}
           {activeSection === "vendors" ? <VendorsView vendors={data.vendors} units={data.units} activeVendorId={activeVendorId} canManage={mayManage("vendors")} onSelect={(vendorId, unitId) => { setActiveVendorId(vendorId); setActiveUnitId(unitId); }} onAddVendor={() => setModal({ kind: "vendor" })} onEditVendor={(vendor) => setModal({ kind: "vendor", vendor })} onAddUnit={() => setModal({ kind: "unit" })} onEditUnit={(unit) => setModal({ kind: "unit", unit })} onVendorStatus={(vendor) => updateRecordStatus("client", vendor.id, vendor.status, vendor.name)} onDeleteVendor={(vendor) => deleteRecord("client", vendor.id, vendor.name)} onUnitStatus={(unit) => updateRecordStatus("unit", unit.id, unit.status, `${unit.clientName} · ${unit.unitName}`)} onDeleteUnit={(unit) => deleteRecord("unit", unit.id, `${unit.clientName} · ${unit.unitName}`)} /> : null}
           {activeSection === "masters" && currentVendor ? <MasterDataView client={currentVendor} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} shifts={currentShifts} remarks={currentRemarks} canManage={mayManage("masters")} onAddType={() => setModal({ kind: "accommodation-type" })} onEditType={(accommodationType) => setModal({ kind: "accommodation-type", accommodationType })} onTypeStatus={(type) => updateRecordStatus("accommodation_type", type.id, type.status, type.name)} onDeleteType={(type) => deleteRecord("accommodation_type", type.id, type.name)} onAddShift={() => setModal({ kind: "shift" })} onEditShift={(shift) => setModal({ kind: "shift", shift })} onShiftStatus={(shift) => updateRecordStatus("shift", shift.id, shift.status, shift.name)} onDeleteShift={(shift) => deleteRecord("shift", shift.id, shift.name)} onAddRemark={() => setModal({ kind: "remark" })} onEditRemark={(remark) => setModal({ kind: "remark", remark })} onRemarkStatus={(remark) => updateRecordStatus("remark", remark.id, remark.status, remark.title)} onDeleteRemark={(remark) => deleteRecord("remark", remark.id, remark.title)} /> : null}
@@ -734,7 +759,7 @@ export default function PayrollApp({
 
       {selectedItem ? <PayrollDetail item={selectedItem} onClose={() => setSelectedItem(null)} onPayslip={() => { setPayslipItem(selectedItem); setSelectedItem(null); }} onEdit={() => { setModal({ kind: "salary", item: selectedItem }); setSelectedItem(null); }} locked={currentRun?.status === "approved" || !mayManage("payroll")} /> : null}
       {payslipItem && currentVendor && currentUnit ? <PayslipModal item={payslipItem} vendor={currentVendor} unit={currentUnit} run={currentRun} period={currentRun?.payPeriod ?? new Date().toISOString().slice(0, 7)} canExport={mayManage("payroll") || mayManage("payments")} onClose={() => setPayslipItem(null)} /> : null}
-      {modal ? <PayrollActionModal modal={modal} vendors={data.vendors} units={data.units} accommodationTypes={currentTypes} rooms={data.accommodationRooms.filter((room) => room.vendorId === activeVendorId)} employees={currentEmployees} shifts={currentShifts} remarks={currentRemarks} unit={currentUnit} vendorId={activeVendorId} currentPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} currentRun={currentRun} busy={isActing} onClose={() => setModal(null)} onAction={performAction} /> : null}
+      {modal ? <PayrollActionModal modal={modal} vendors={data.vendors} units={data.units} hostels={data.hostels} accommodationTypes={currentTypes} rooms={data.accommodationRooms.filter((room) => room.vendorId === activeVendorId)} employees={currentEmployees} shifts={currentShifts} remarks={currentRemarks} unit={currentUnit} vendorId={activeVendorId} currentPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} currentRun={currentRun} busy={isActing} onClose={() => setModal(null)} onAction={performAction} /> : null}
       {toast ? <div className="toast"><Icon name="check" size={17} />{toast}</div> : null}
     </div>
   );
@@ -1147,10 +1172,11 @@ function configuredFields(json: string | null | undefined, defaults: readonly st
   try { const fields = JSON.parse(json ?? "[]"); return Array.isArray(fields) && fields.length ? fields.map(String) : [...defaults]; } catch { return [...defaults]; }
 }
 
-function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, employees, shifts, remarks, unit, vendorId, currentPeriod, currentRun, busy, onClose, onAction }: {
+function PayrollActionModal({ modal, vendors, units, hostels, accommodationTypes, rooms, employees, shifts, remarks, unit, vendorId, currentPeriod, currentRun, busy, onClose, onAction }: {
   modal: ActiveModal;
   vendors: Vendor[];
   units: ClientUnit[];
+  hostels: Hostel[];
   accommodationTypes: AccommodationType[];
   rooms: AccommodationRoom[];
   employees: Employee[];
@@ -1176,6 +1202,7 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
   const [approvalDraft, setApprovalDraft] = useState(accessProfile?.canApprovePayroll ?? DEFAULT_APPROVAL_ACCESS[initialRole]);
   const [clientScopeDraft, setClientScopeDraft] = useState<string[]>(accessProfile?.clientScope ?? []);
   const [unitScopeDraft, setUnitScopeDraft] = useState<string[]>(accessProfile?.unitScope ?? []);
+  const [hostelScopeDraft, setHostelScopeDraft] = useState<string[]>(accessProfile?.hostelScope ?? []);
   const employee = modal.kind === "employee" ? modal.employee : undefined;
   const leftEmployee = modal.kind === "employee-left" ? modal.employee : undefined;
   const client = modal.kind === "vendor" ? modal.vendor : undefined;
@@ -1234,7 +1261,7 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
     else if (modal.kind === "accommodation-type") await onAction("save-accommodation-type", selectedType ? "Accommodation type updated" : "Accommodation type added", { ...fields, id: selectedType?.id });
     else if (modal.kind === "shift") await onAction("save-shift", selectedShift ? "Shift details updated" : "Shift added", { ...fields, id: selectedShift?.id });
     else if (modal.kind === "remark") await onAction("save-remark", selectedRemark ? "Remark updated" : "Remark added", { ...fields, id: selectedRemark?.id });
-    else if (modal.kind === "app-user") await onAction("save-app-user", accessProfile ? "User access updated" : "User access created", { id: accessProfile?.id, email: fields.email, fullName: fields.fullName, role: userRole, permissions: permissionDraft, canApprovePayroll: approvalDraft, clientScope: clientScopeDraft, unitScope: unitScopeDraft });
+    else if (modal.kind === "app-user") await onAction("save-app-user", accessProfile ? "Direct employee user updated" : "Direct employee user created", { id: accessProfile?.id, email: fields.email, fullName: fields.fullName, employeeCode: fields.employeeCode, department: fields.department, dateOfJoining: fields.dateOfJoining, mobileNumber: fields.mobileNumber, role: userRole, permissions: permissionDraft, canApprovePayroll: approvalDraft, clientScope: clientScopeDraft, unitScope: unitScopeDraft, hostelScope: hostelScopeDraft });
     else if (modal.kind === "run") await onAction("create-run", "Custom monthly payroll run created", { payPeriod: fields.payPeriod, periodStart: fields.periodStart, periodEnd: fields.periodEnd, workingDays: fields.workingDays });
     else if (modal.kind === "attendance") await onAction("save-attendance", "Attendance, shift and payroll updated", { employeeId: modal.employee.id, attendanceDate: modal.date, ...fields });
     else if (modal.kind === "salary") await onAction("save-payroll-item", "Employee earnings and deductions saved", { itemId: modal.item.id, fields });
@@ -1258,12 +1285,13 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
 
     {modal.kind === "accommodation-type" ? <div className="form-grid"><label className="form-span"><span>Accommodation type name *</span><input name="name" defaultValue={selectedType?.name ?? ""} placeholder="Tamil, Outside Room, Joy Room…" required /></label><label className="form-span"><span>Remarks</span><textarea name="remarks" defaultValue={selectedType?.remarks ?? ""} rows={3} placeholder="Optional allocation or recovery guidance" /></label><div className="form-note form-span">Active accommodation types appear in employee and room forms. A type with active employee assignments cannot be deactivated or removed.</div></div> : null}
 
-    {modal.kind === "shift" ? <div className="form-grid"><label className="form-span"><span>Shift name *</span><input name="name" defaultValue={selectedShift?.name} placeholder="General, Morning, Night, Weekend…" required /></label><label><span>Start time *</span><input name="startTime" type="time" defaultValue={selectedShift?.startTime ?? "09:00"} required /></label><label><span>End time *</span><input name="endTime" type="time" defaultValue={selectedShift?.endTime ?? "18:00"} required /></label><label className="form-span"><span>Shift remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={selectedShift?.remarks ?? ""} placeholder="Transport, break, attendance, or other shift notes" /></label><div className="form-note form-span">An end time earlier than the start time is treated as a next-day shift.</div></div> : null}
+    {modal.kind === "shift" ? <div className="form-grid"><label className="form-span"><span>Client location *</span><select name="clientUnitId" defaultValue={selectedShift?.clientUnitId ?? unit?.id ?? ""} required>{units.filter((entry) => entry.vendorId === vendorId && entry.status === "active").map((entry) => <option key={entry.id} value={entry.id}>{entry.clientName} · {entry.unitName}</option>)}</select></label><label><span>Shift name *</span><input name="name" defaultValue={selectedShift?.name} required /></label><label><span>Start time *</span><input name="startTime" type="time" defaultValue={selectedShift?.startTime ?? "09:00"} required /></label><label><span>End time *</span><input name="endTime" type="time" defaultValue={selectedShift?.endTime ?? "18:00"} required /></label><label><span>Break minutes</span><input name="breakMinutes" type="number" min="0" defaultValue={selectedShift?.breakMinutes ?? 60} /></label><label><span>Required work minutes</span><input name="requiredWorkMinutes" type="number" min="1" defaultValue={selectedShift?.requiredWorkMinutes ?? 480} /></label><label><span>Late grace minutes</span><input name="lateGraceMinutes" type="number" min="0" defaultValue={selectedShift?.lateGraceMinutes ?? 0} /></label><label><span>Late deduction minutes</span><input name="lateDeductionMinutes" type="number" min="0" defaultValue={selectedShift?.lateDeductionMinutes ?? 0} /></label><label><span>Early-out grace minutes</span><input name="earlyGraceMinutes" type="number" min="0" defaultValue={selectedShift?.earlyGraceMinutes ?? 0} /></label><label><span>Early-out deduction minutes</span><input name="earlyDeductionMinutes" type="number" min="0" defaultValue={selectedShift?.earlyDeductionMinutes ?? 0} /></label><label><span>OT logic</span><select name="otMode" defaultValue={selectedShift?.otMode ?? "approval"}><option value="approval">Based on requirement / approval</option><option value="fixed">Fixed OT hours</option></select></label><label><span>Fixed OT hours</span><input name="fixedOtHours" type="number" min="0" max="24" step="0.5" defaultValue={selectedShift?.fixedOtHours ?? 0} /></label><label className="form-span"><span>Shift remarks</span><input name="remarks" defaultValue={selectedShift?.remarks ?? ""} /></label><div className="form-note form-span">Late and early deductions apply only after their grace limits. Overnight shifts are supported.</div></div> : null}
 
     {modal.kind === "remark" ? <div className="form-grid"><label><span>Remark title *</span><input name="title" defaultValue={selectedRemark?.title} placeholder="Late arrival, safety issue, follow-up…" required /></label><label><span>Category *</span><select name="category" defaultValue={selectedRemark?.category ?? "general"}>{["general", "attendance", "employee", "salary", "employer", "shift"].map((category) => <option value={category} key={category}>{readableField(category)}</option>)}</select></label><label className="form-span"><span>Remark details</span><textarea name="notes" defaultValue={selectedRemark?.notes ?? ""} placeholder="Describe when your team should use this remark" rows={4} /></label></div> : null}
 
     {modal.kind === "app-user" ? <div className="user-access-form">
-      <div className="form-grid"><label><span>Sign-in email *</span><input name="email" type="email" defaultValue={accessProfile?.email ?? ""} placeholder="person@company.com" required /></label><label><span>Display name</span><input name="fullName" defaultValue={accessProfile?.fullName ?? ""} placeholder="Employee or team member name" /></label><label className="form-span"><span>Starting role *</span><select value={userRole} onChange={(event) => { const role = event.target.value as UserRole; setUserRole(role); setPermissionDraft({ ...DEFAULT_PERMISSIONS[role] }); setApprovalDraft(DEFAULT_APPROVAL_ACCESS[role]); }}>{(Object.keys(ROLE_LABELS) as UserRole[]).map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label></div>
+      {userRole === "hostel_incharge" ? <section className="scope-assignment-panel"><header><div><span className="eyebrow">Hostel responsibility</span><h3>Assign responsible hostels</h3></div><small>Attendance and hostel entries are limited to these residents</small></header><div className="scope-checkbox-grid">{hostels.filter((hostel) => hostel.status === "active" || hostelScopeDraft.includes(hostel.id)).map((hostel) => <label key={hostel.id}><input type="checkbox" checked={hostelScopeDraft.includes(hostel.id)} onChange={(event) => toggleScope(setHostelScopeDraft, hostelScopeDraft, hostel.id, event.target.checked)} /><span><strong>{hostel.name}</strong><small>{vendors.find((vendor) => vendor.id === hostel.vendorId)?.name}</small></span></label>)}</div></section> : null}
+      <div className="form-grid"><div className="form-note form-span"><strong>Joy direct employee user</strong><span>Create the login and direct employee identity together. Client-factory manpower remains in Employee Master.</span></div><label><span>Employee code *</span><input name="employeeCode" defaultValue={accessProfile?.employeeCode ?? ""} required /></label><label><span>Employee name *</span><input name="fullName" defaultValue={accessProfile?.fullName ?? ""} required /></label><label><span>Department *</span><input name="department" defaultValue={accessProfile?.department ?? ""} required /></label><label><span>Date of joining *</span><input name="dateOfJoining" type="date" defaultValue={accessProfile?.dateOfJoining ?? ""} required /></label><label><span>Mobile number</span><input name="mobileNumber" defaultValue={accessProfile?.mobileNumber ?? ""} /></label><label><span>Sign-in email *</span><input name="email" type="email" defaultValue={accessProfile?.email ?? ""} required /></label><label className="form-span"><span>Role *</span><select value={userRole} onChange={(event) => { const role = event.target.value as UserRole; setUserRole(role); setPermissionDraft({ ...DEFAULT_PERMISSIONS[role] }); setApprovalDraft(DEFAULT_APPROVAL_ACCESS[role]); }}>{(Object.keys(ROLE_LABELS) as UserRole[]).map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label></div>
       <section className="scope-assignment-panel"><header><div><span className="eyebrow">Organisation access</span><h3>{userRole === "super_admin" ? "Unrestricted access" : userRole === "payroll_team" ? "Assign clients" : "Assign employer units"}</h3></div><small>{userRole === "super_admin" ? "All current and future clients and units" : "At least one assignment is required"}</small></header>{userRole === "super_admin" ? <div className="form-note">Super Admin can access every client and employer unit.</div> : userRole === "payroll_team" ? <div className="scope-checkbox-grid">{vendors.filter((vendor) => vendor.status === "active" || clientScopeDraft.includes(vendor.id)).map((vendor) => <label key={vendor.id}><input type="checkbox" checked={clientScopeDraft.includes(vendor.id)} onChange={(event) => toggleScope(setClientScopeDraft, clientScopeDraft, vendor.id, event.target.checked)} /><span><strong>{vendor.name}</strong><small>{vendor.code}</small></span></label>)}</div> : <div className="scope-checkbox-grid">{vendors.map((vendor) => <div className="scope-client-group" key={vendor.id}><strong>{vendor.name}</strong>{units.filter((entry) => entry.vendorId === vendor.id && (entry.status === "active" || unitScopeDraft.includes(entry.id))).map((entry) => <label key={entry.id}><input type="checkbox" checked={unitScopeDraft.includes(entry.id)} onChange={(event) => toggleScope(setUnitScopeDraft, unitScopeDraft, entry.id, event.target.checked)} /><span><strong>{entry.clientName}</strong><small>{entry.unitName} · {entry.location}</small></span></label>)}</div>)}</div>}</section>
       <div className="permission-legend"><span><b>No access</b> Hidden and blocked</span><span><b>View only</b> Can review, cannot save</span><span><b>Full access</b> Can create, edit, import, or export</span></div>
       <section className="permission-matrix"><header><div><span className="eyebrow">Custom permissions</span><h3>Module access</h3></div><small>{userRole === "super_admin" ? "Super Admin always has full access" : "Change any role default"}</small></header>{ACCESS_MODULES.map((module) => <label key={module.id}><div><strong>{module.label}</strong><small>{module.description}</small></div><select aria-label={`${module.label} permission`} value={permissionDraft[module.id]} disabled={userRole === "super_admin"} onChange={(event) => setPermissionDraft((current) => ({ ...current, [module.id]: event.target.value as PermissionMap[typeof module.id] }))}><option value="none">No access</option><option value="view">View only</option><option value="manage">Full access</option></select></label>)}</section>
@@ -1272,7 +1300,7 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
 
     {modal.kind === "run" ? <div className="form-grid"><label className="form-span"><span>Payroll month / label *</span><input name="payPeriod" type="month" value={runMonth} onChange={(event) => { const value = event.target.value; const dates = unitAttendanceCycle(value, unit); setRunMonth(value); setRunStart(dates.start); setRunEnd(dates.end); setRunWorkingDays(unit?.attendanceWorkingDays ?? 26); }} required /></label><label><span>Calculation period starts *</span><input name="periodStart" type="date" value={runStart} onChange={(event) => setRunStart(event.target.value)} required /></label><label><span>Calculation period ends *</span><input name="periodEnd" type="date" value={runEnd} onChange={(event) => setRunEnd(event.target.value)} required /></label><label className="form-span"><span>Monthly working days *</span><input name="workingDays" type="number" min="1" max="62" value={runWorkingDays} onChange={(event) => setRunWorkingDays(Number(event.target.value))} required /></label><div className="form-note form-span">Defaults are loaded from this employer unit's attendance cycle. You can still adjust this individual payroll run before creating it.</div></div> : null}
 
-    {modal.kind === "attendance" ? <div className="form-grid"><div className="form-note form-span"><strong>{modal.employee.name}</strong><span>{modal.employee.employeeCode} · {new Date(`${modal.date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span></div><label><span>Attendance status *</span><select name="statusCode" defaultValue={modal.entry?.statusCode ?? "P"}>{Object.entries(statusMeta).map(([code, meta]) => <option value={code} key={code}>{code} — {meta.label}</option>)}</select></label><label><span>Shift on this date *</span><select name="shiftCode" defaultValue={modal.entry?.shiftCode ?? modal.employee.defaultShift}>{shiftOptions.map((shift) => <option key={shift}>{shift}</option>)}</select></label><label><span>Overtime hours</span><input name="overtimeHours" type="number" min="0" max="24" step="0.5" defaultValue={modal.entry?.overtimeHours ?? 0} /></label><label><span>Attendance remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={modal.entry?.remarks ?? ""} placeholder="Optional follow-up or daily remark" /></label></div> : null}
+    {modal.kind === "attendance" ? <div className="form-grid"><div className="form-note form-span"><strong>{modal.employee.name}</strong><span>{modal.employee.employeeCode} · {new Date(`${modal.date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span></div><label><span>Attendance status *</span><select name="statusCode" defaultValue={modal.entry?.statusCode ?? "P"}>{Object.entries(statusMeta).map(([code, meta]) => <option value={code} key={code}>{code} — {meta.label}</option>)}</select></label><label><span>Client-mapped shift *</span><select name="shiftCode" defaultValue={modal.entry?.shiftCode ?? modal.employee.defaultShift}>{shiftOptions.map((shift) => <option key={shift}>{shift}</option>)}</select></label><label><span>Punch in</span><input name="punchIn" type="time" defaultValue={modal.entry?.punchIn ?? ""} /></label><label><span>Punch out</span><input name="punchOut" type="time" defaultValue={modal.entry?.punchOut ?? ""} /></label><label><span>Approved OT hours</span><input name="overtimeHours" type="number" min="0" max="24" step="0.5" defaultValue={modal.entry?.overtimeHours ?? 0} /></label><label><span>Attendance remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={modal.entry?.remarks ?? ""} /></label><div className="form-note form-span">The selected shift applies break time, required work time, late/early grace, deduction hours and fixed/approved OT rules automatically.</div></div> : null}
 
     {modal.kind === "salary" ? <div className="salary-form-columns"><section><h3>Earnings</h3><div className="form-grid">{earningFields.map((field) => <label key={field}><span>{readableField(field)}</span><input name={field} type="number" min="0" step="0.01" defaultValue={modal.item[field]} /></label>)}</div></section><section><h3>Deductions</h3><div className="form-grid">{deductionFields.map((field) => <label key={field}><span>{readableField(field)}</span><input name={field} type="number" min="0" step="0.01" defaultValue={modal.item[field]} /></label>)}</div><div className="form-note">Room deductions are managed separately under Accommodation.</div></section></div> : null}
 
