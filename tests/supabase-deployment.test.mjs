@@ -4,10 +4,10 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const migrationPath = join(
-  root,
-  "supabase/migrations/202608250001_joy_payroll.sql",
-);
+const migrationPaths = [
+  join(root, "supabase/migrations/202608250001_joy_payroll.sql"),
+  join(root, "supabase/migrations/20260825165413_payroll_accommodation_access_enhancements.sql"),
+];
 const payrollTables = [
   "app_users",
   "vendors",
@@ -20,11 +20,15 @@ const payrollTables = [
   "payroll_runs",
   "payroll_items",
   "accommodation_charges",
+  "accommodation_types",
+  "accommodation_rooms",
+  "accommodation_room_expenses",
+  "payroll_batches",
   "audit_events",
 ];
 
 test("Supabase migration creates and protects every payroll table", async () => {
-  const sql = await readFile(migrationPath, "utf8");
+  const sql = (await Promise.all(migrationPaths.map((path) => readFile(path, "utf8")))).join("\n");
   for (const table of payrollTables) {
     assert.match(sql, new RegExp(`create table if not exists public\\.${table}\\s*\\(`, "i"));
     assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security`, "i"));
@@ -58,6 +62,10 @@ test("the generated Supabase API preserves payroll logic without demo seeding", 
     "save-employee",
     "save-attendance",
     "save-accommodation",
+    "save-room-expense",
+    "finalize-room-expense",
+    "prepare-payroll-batches",
+    "clear-payroll-batch",
     "import-workbook",
     "approve",
   ]) {

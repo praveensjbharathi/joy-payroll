@@ -66,7 +66,7 @@ export function attendanceSummary(entries: AttendanceInput[], rules: PayrollRule
 
 export function accommodationTotal(charge: Record<string, unknown> | null | undefined) {
   if (!charge) return { accommodationDeduction: 0, returnAmount: 0 };
-  const fields = ["idCard", "rent", "bus", "medical", "ticket", "shoe", "advance", "food", "aadhaarUpdate", "bankAccountCharge", "tshirt", "oldPending", "rationShare"];
+  const fields = ["idCard", "rent", "bus", "medical", "ticket", "shoe", "advance", "food", "aadhaarUpdate", "bankAccountCharge", "tshirt", "oldPending", "gasShare", "rationShare", "provisionShare"];
   return {
     accommodationDeduction: roundMoney(fields.reduce((sum, field) => sum + numberValue(charge[field]), 0)),
     returnAmount: numberValue(charge.returnAmount),

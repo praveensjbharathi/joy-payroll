@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { parsePayrollWorkbook, type WorkbookImport } from "../lib/excel-import";
 import { defaultPayrollRules, deductionFields, earningFields } from "../lib/payroll-calculations";
+import { calendarPeriod, payrollPeriodRange } from "../lib/payroll-operations";
+import { AccommodationControlCenter, PayrollBatchPanel, PayrollPeriodEditor, WorkforceDashboard } from "./payroll-enhancements";
 import {
   ACCESS_MODULES,
   DEFAULT_APPROVAL_ACCESS,
@@ -27,20 +29,22 @@ type Section =
   | "users"
   | "settings";
 
-type AppUserProfile = {
+export type AppUserProfile = {
   id: string;
   email: string;
   fullName: string | null;
   role: UserRole;
   status: string;
   permissions: PermissionMap;
+  clientScope: string[];
+  unitScope: string[];
   canApprovePayroll: boolean;
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
 };
 
-type Vendor = {
+export type Vendor = {
   id: string;
   code: string;
   name: string;
@@ -52,7 +56,7 @@ type Vendor = {
   status: string;
 };
 
-type ClientUnit = {
+export type ClientUnit = {
   id: string;
   vendorId: string;
   clientName: string;
@@ -60,10 +64,15 @@ type ClientUnit = {
   location: string;
   employeeCount: number;
   remarks: string | null;
+  payslipTitle: string | null;
+  payslipSubtitle: string | null;
+  payslipAddress: string | null;
+  payslipContact: string | null;
+  payslipFooter: string | null;
   status: string;
 };
 
-type Employee = {
+export type Employee = {
   id: string;
   vendorId: string;
   clientUnitId: string;
@@ -71,12 +80,14 @@ type Employee = {
   name: string;
   department: string;
   dateOfJoining: string;
+  dateOfLeaving: string | null;
   uanMasked: string | null;
   esiMasked: string | null;
   bankAccountMasked: string | null;
   ifscMasked: string | null;
   bankName: string | null;
   accommodationType: string;
+  roomId: string | null;
   roomNumber: string | null;
   paymentMode: string;
   salaryAmount: number;
@@ -87,11 +98,14 @@ type Employee = {
   status: string;
 };
 
-type PayrollRun = {
+export type PayrollRun = {
   id: string;
   vendorId: string;
   clientUnitId: string;
   payPeriod: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  workingDays: number;
   status: string;
   employeeCount: number;
   grossEarnings: number;
@@ -106,7 +120,7 @@ type PayrollRun = {
   approvedAt: string | null;
 };
 
-type PayrollItem = {
+export type PayrollItem = {
   id: string;
   runId: string;
   employeeId: string;
@@ -187,10 +201,11 @@ type PayrollRemark = {
   status: string;
 };
 
-type AccommodationCharge = {
+export type AccommodationCharge = {
   id: number;
   runId: string;
   employeeId: string;
+  roomExpenseId: string | null;
   roomNumber: string | null;
   idCard: number;
   rent: number;
@@ -204,8 +219,58 @@ type AccommodationCharge = {
   bankAccountCharge: number;
   tshirt: number;
   oldPending: number;
+  gasShare: number;
   rationShare: number;
+  provisionShare: number;
   returnAmount: number;
+};
+
+export type AccommodationType = {
+  id: string;
+  vendorId: string;
+  name: string;
+  remarks: string | null;
+  status: string;
+};
+
+export type AccommodationRoom = {
+  id: string;
+  vendorId: string;
+  accommodationTypeId: string;
+  roomNumber: string;
+  capacity: number;
+  address: string | null;
+  remarks: string | null;
+  status: string;
+};
+
+export type RoomExpense = {
+  id: string;
+  roomId: string;
+  payPeriod: string;
+  gasAmount: number;
+  rationAmount: number;
+  provisionAmount: number;
+  occupantCount: number;
+  status: string;
+  notes: string | null;
+  finalizedBy: string | null;
+  finalizedAt: string | null;
+};
+
+export type PayrollBatch = {
+  id: string;
+  runId: string;
+  accommodationType: string;
+  employeeCount: number;
+  grossEarnings: number;
+  netPayable: number;
+  status: string;
+  paymentReference: string | null;
+  preparedBy: string | null;
+  preparedAt: string | null;
+  clearedBy: string | null;
+  clearedAt: string | null;
 };
 
 type AuditEvent = {
@@ -232,7 +297,7 @@ type PayrollRule = {
   effectiveFrom: string;
 };
 
-type AppData = {
+export type AppData = {
   demo: boolean;
   vendors: Vendor[];
   units: ClientUnit[];
@@ -241,6 +306,10 @@ type AppData = {
   payrollItems: PayrollItem[];
   attendance: AttendanceEntry[];
   accommodationCharges: AccommodationCharge[];
+  accommodationTypes: AccommodationType[];
+  accommodationRooms: AccommodationRoom[];
+  roomExpenses: RoomExpense[];
+  payrollBatches: PayrollBatch[];
   auditEvents: AuditEvent[];
   rules: PayrollRule[];
   shifts: ShiftDefinition[];
@@ -255,6 +324,7 @@ type ActiveModal =
   | { kind: "unit"; unit?: ClientUnit }
   | { kind: "employee"; employee?: Employee }
   | { kind: "shift"; shift?: ShiftDefinition }
+  | { kind: "accommodation-type"; accommodationType?: AccommodationType }
   | { kind: "remark"; remark?: PayrollRemark }
   | { kind: "app-user"; profile?: AppUserProfile }
   | { kind: "run" }
@@ -271,7 +341,7 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "accommodation", label: "Accommodation", icon: "home" },
   { id: "payments", label: "Payments & Payslips", icon: "bank" },
   { id: "vendors", label: "Clients & Employers", icon: "building" },
-  { id: "masters", label: "Shifts & Remarks", icon: "calendar" },
+  { id: "masters", label: "Operational Masters", icon: "calendar" },
   { id: "users", label: "Users & Access", icon: "users" },
   { id: "settings", label: "Rules & Settings", icon: "settings" },
 ];
@@ -290,14 +360,14 @@ const sectionPermission: Record<Section, AccessModule> = {
 };
 
 const sectionTitles: Record<Section, { eyebrow: string; title: string; description: string }> = {
-  dashboard: { eyebrow: "Payroll control centre", title: "Monthly payroll overview", description: "Attendance, salary readiness, exceptions and payment position in one view." },
+  dashboard: { eyebrow: "Workforce and payroll control centre", title: "Manpower & payroll dashboard", description: "Client-wise and unit-wise manpower, joining, compliance, payroll, and payment visibility." },
   payroll: { eyebrow: "Salary processing", title: "Payroll run", description: "Review every employee calculation before approval and payment." },
   attendance: { eyebrow: "Daily workforce", title: "Attendance & shift register", description: "Day-wise status, changing shifts, week offs and holiday work." },
   employees: { eyebrow: "Employee master", title: "Employee compliance readiness", description: "Identity, statutory, bank and assignment information used by payroll." },
-  accommodation: { eyebrow: "Hostel & room recovery", title: "Accommodation deductions", description: "Room-wise charges, employee recoveries and return amounts." },
+  accommodation: { eyebrow: "Accommodation rooms & recoveries", title: "Room allocations & shared deductions", description: "Accommodation-type masters, room allocations, gas, ration, provision, and printable room-wise breakups." },
   payments: { eyebrow: "Disbursement", title: "Payments & payslips", description: "Bank-ready rows, cash list and employee salary slips after approval." },
   vendors: { eyebrow: "Organisation structure", title: "Clients, employers & units", description: "Add, edit, deactivate, or delete every client and employer factory unit." },
-  masters: { eyebrow: "Operational master data", title: "Shifts & remarks", description: "Maintain shift timings and reusable notes separately for each client." },
+  masters: { eyebrow: "Operational master data", title: "Accommodation, shifts & remarks", description: "Add, edit, deactivate, or remove accommodation types, shift timings, and reusable remarks for each client." },
   users: { eyebrow: "Security & responsibility", title: "Users & access", description: "Assign roles and customize what each person can view or manage." },
   settings: { eyebrow: "Calculation governance", title: "Payroll rules & settings", description: "Configurable earning, deduction, attendance and approval rules." },
 };
@@ -430,6 +500,7 @@ export default function PayrollApp({
   const currentRules = data?.rules.find((rule) => rule.vendorId === activeVendorId) ?? null;
   const currentShifts = data?.shifts.filter((shift) => shift.vendorId === activeVendorId) ?? [];
   const currentRemarks = data?.remarks.filter((remark) => remark.vendorId === activeVendorId) ?? [];
+  const currentTypes = data?.accommodationTypes.filter((type) => type.vendorId === activeVendorId) ?? [];
   const title = sectionTitles[activeSection];
   const visibleNavItems = data ? navItems.filter((item) => canView(data.currentUser.permissions, sectionPermission[item.id])) : [];
   const mayView = (section: Section) => Boolean(data && canView(data.currentUser.permissions, sectionPermission[section]));
@@ -598,28 +669,28 @@ export default function PayrollApp({
             <p><strong>Excel-connected payroll workspace.</strong> Add or manage clients, employers and employees; import Attendance Input or Salary Register workbooks; edit attendance, salary and room recoveries before approval.</p>
           </div>
 
-          {!currentRun && !["vendors", "settings", "employees", "masters", "users"].includes(activeSection) ? (
+          {!currentRun && !["dashboard", "accommodation", "vendors", "settings", "employees", "masters", "users"].includes(activeSection) ? (
             <EmptyPayroll unit={currentUnit} canCreate={mayManage("payroll")} canImport={mayManage("attendance") || mayManage("payroll")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} />
           ) : null}
 
-          {activeSection === "dashboard" && currentRun ? <Dashboard run={currentRun} items={currentItems} employees={operationalEmployees} data={data} onNavigate={(section) => mayView(section) ? setActiveSection(section) : setToast("Your profile does not have access to that module")} /> : null}
-          {activeSection === "payroll" && currentRun ? <PayrollRunView run={currentRun} items={currentItems} isActing={isActing} canManage={mayManage("payroll")} canManageEmployees={mayManage("employees")} canApprove={data.currentUser.canApprovePayroll} onAction={performAction} onSelect={setSelectedItem} onEmployees={() => setActiveSection("employees")} /> : null}
-          {activeSection === "attendance" && currentRun ? <AttendanceView period={currentRun.payPeriod} items={currentItems} employees={operationalEmployees} attendance={data.attendance.filter((entry) => entry.attendanceDate.startsWith(`${currentRun.payPeriod}-`) && operationalEmployees.some((employee) => employee.id === entry.employeeId))} canManage={mayManage("attendance")} onEdit={(employee, date, entry) => setModal({ kind: "attendance", employee, date, entry })} onImport={() => setModal({ kind: "import" })} locked={currentRun.status === "approved" || !mayManage("attendance")} /> : null}
+          {activeSection === "dashboard" ? <><WorkforceDashboard data={data} />{currentRun ? <Dashboard run={currentRun} items={currentItems} employees={operationalEmployees} data={data} onNavigate={(section) => mayView(section) ? setActiveSection(section) : setToast("Your profile does not have access to that module")} /> : null}</> : null}
+          {activeSection === "payroll" && currentRun ? <><PayrollPeriodEditor key={currentRun.id} run={currentRun} canManage={mayManage("payroll")} isActing={isActing} onAction={performAction} /><PayrollRunView run={currentRun} items={currentItems} isActing={isActing} canManage={mayManage("payroll")} canManageEmployees={mayManage("employees")} canApprove={data.currentUser.canApprovePayroll} onAction={performAction} onSelect={setSelectedItem} onEmployees={() => setActiveSection("employees")} /><PayrollBatchPanel run={currentRun} items={currentItems} batches={data.payrollBatches.filter((batch) => batch.runId === currentRun.id)} canPrepare={mayManage("payroll")} canClear={mayManage("payments")} isActing={isActing} onAction={performAction} /></> : null}
+          {activeSection === "attendance" && currentRun ? <AttendanceView period={currentRun.payPeriod} periodStart={currentRun.periodStart} periodEnd={currentRun.periodEnd} items={currentItems} employees={operationalEmployees} attendance={data.attendance.filter((entry) => { const range = payrollPeriodRange(currentRun.payPeriod, currentRun.periodStart, currentRun.periodEnd); return entry.attendanceDate >= range.start && entry.attendanceDate < range.end && operationalEmployees.some((employee) => employee.id === entry.employeeId); })} canManage={mayManage("attendance")} onEdit={(employee, date, entry) => setModal({ kind: "attendance", employee, date, entry })} onImport={() => setModal({ kind: "import" })} locked={currentRun.status === "approved" || !mayManage("attendance")} /> : null}
           {activeSection === "employees" && currentUnit ? <EmployeesView employees={currentEmployees} canManage={mayManage("employees")} onAdd={() => setModal({ kind: "employee" })} onEdit={(employee) => setModal({ kind: "employee", employee })} onImport={() => setModal({ kind: "import" })} onStatus={(employee) => updateRecordStatus("employee", employee.id, employee.status, employee.name)} onDelete={(employee) => deleteRecord("employee", employee.id, employee.name)} /> : null}
           {activeSection === "employees" && !currentUnit ? <EmptyPayroll unit={null} canCreate={mayManage("payroll")} canImport={mayManage("employees")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} /> : null}
-          {activeSection === "accommodation" && currentRun ? <AccommodationView items={currentItems} employees={currentEmployees} charges={data.accommodationCharges.filter((charge) => charge.runId === currentRun.id)} canManage={mayManage("accommodation")} onAdd={() => setModal({ kind: "accommodation" })} onEdit={(employee, charge) => setModal({ kind: "accommodation", employee, charge })} locked={currentRun.status === "approved" || !mayManage("accommodation")} /> : null}
-          {activeSection === "payments" && currentRun ? <PaymentsView run={currentRun} items={currentItems} employees={currentEmployees} canExport={mayManage("payments")} onPayslip={setPayslipItem} /> : null}
+          {activeSection === "accommodation" && currentVendor ? <><AccommodationControlCenter vendorId={activeVendorId} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} expenses={data.roomExpenses} charges={data.accommodationCharges} runs={data.runs} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} isActing={isActing} onAction={performAction} onRoomStatus={(room) => updateRecordStatus("room", room.id, room.status, `room ${room.roomNumber}`)} onDeleteRoom={(room) => deleteRecord("room", room.id, `room ${room.roomNumber}`)} />{currentRun ? <AccommodationView types={currentTypes} items={currentItems} employees={currentEmployees} charges={data.accommodationCharges.filter((charge) => charge.runId === currentRun.id)} canManage={mayManage("accommodation")} onAdd={() => setModal({ kind: "accommodation" })} onEdit={(employee, charge) => setModal({ kind: "accommodation", employee, charge })} locked={currentRun.status === "approved" || !mayManage("accommodation")} /> : null}</> : null}
+          {activeSection === "payments" && currentRun ? <><PaymentsView run={currentRun} items={currentItems} employees={currentEmployees} canExport={mayManage("payments")} onPayslip={setPayslipItem} /><PayrollBatchPanel run={currentRun} items={currentItems} batches={data.payrollBatches.filter((batch) => batch.runId === currentRun.id)} canPrepare={mayManage("payroll")} canClear={mayManage("payments")} isActing={isActing} onAction={performAction} /></> : null}
           {activeSection === "vendors" ? <VendorsView vendors={data.vendors} units={data.units} activeVendorId={activeVendorId} canManage={mayManage("vendors")} onSelect={(vendorId, unitId) => { setActiveVendorId(vendorId); setActiveUnitId(unitId); }} onAddVendor={() => setModal({ kind: "vendor" })} onEditVendor={(vendor) => setModal({ kind: "vendor", vendor })} onAddUnit={() => setModal({ kind: "unit" })} onEditUnit={(unit) => setModal({ kind: "unit", unit })} onVendorStatus={(vendor) => updateRecordStatus("client", vendor.id, vendor.status, vendor.name)} onDeleteVendor={(vendor) => deleteRecord("client", vendor.id, vendor.name)} onUnitStatus={(unit) => updateRecordStatus("unit", unit.id, unit.status, `${unit.clientName} · ${unit.unitName}`)} onDeleteUnit={(unit) => deleteRecord("unit", unit.id, `${unit.clientName} · ${unit.unitName}`)} /> : null}
-          {activeSection === "masters" && currentVendor ? <MasterDataView client={currentVendor} shifts={currentShifts} remarks={currentRemarks} canManage={mayManage("masters")} onAddShift={() => setModal({ kind: "shift" })} onEditShift={(shift) => setModal({ kind: "shift", shift })} onShiftStatus={(shift) => updateRecordStatus("shift", shift.id, shift.status, shift.name)} onDeleteShift={(shift) => deleteRecord("shift", shift.id, shift.name)} onAddRemark={() => setModal({ kind: "remark" })} onEditRemark={(remark) => setModal({ kind: "remark", remark })} onRemarkStatus={(remark) => updateRecordStatus("remark", remark.id, remark.status, remark.title)} onDeleteRemark={(remark) => deleteRecord("remark", remark.id, remark.title)} /> : null}
+          {activeSection === "masters" && currentVendor ? <MasterDataView client={currentVendor} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} shifts={currentShifts} remarks={currentRemarks} canManage={mayManage("masters")} onAddType={() => setModal({ kind: "accommodation-type" })} onEditType={(accommodationType) => setModal({ kind: "accommodation-type", accommodationType })} onTypeStatus={(type) => updateRecordStatus("accommodation_type", type.id, type.status, type.name)} onDeleteType={(type) => deleteRecord("accommodation_type", type.id, type.name)} onAddShift={() => setModal({ kind: "shift" })} onEditShift={(shift) => setModal({ kind: "shift", shift })} onShiftStatus={(shift) => updateRecordStatus("shift", shift.id, shift.status, shift.name)} onDeleteShift={(shift) => deleteRecord("shift", shift.id, shift.name)} onAddRemark={() => setModal({ kind: "remark" })} onEditRemark={(remark) => setModal({ kind: "remark", remark })} onRemarkStatus={(remark) => updateRecordStatus("remark", remark.id, remark.status, remark.title)} onDeleteRemark={(remark) => deleteRecord("remark", remark.id, remark.title)} /> : null}
           {activeSection === "masters" && !currentVendor ? <EmptyPayroll unit={null} canCreate={mayManage("payroll")} canImport={mayManage("masters")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} /> : null}
-          {activeSection === "users" ? <UsersAccessView users={data.appUsers} currentUser={data.currentUser} canManage={data.currentUser.role === "super_admin" && mayManage("users")} onAdd={() => setModal({ kind: "app-user" })} onEdit={(profile) => setModal({ kind: "app-user", profile })} onStatus={(profile) => updateRecordStatus("app_user", profile.id, profile.status, profile.fullName ?? profile.email)} onDelete={(profile) => deleteRecord("app_user", profile.id, profile.fullName ?? profile.email)} /> : null}
+          {activeSection === "users" ? <UsersAccessView users={data.appUsers} vendors={data.vendors} units={data.units} currentUser={data.currentUser} canManage={data.currentUser.role === "super_admin" && mayManage("users")} onAdd={() => setModal({ kind: "app-user" })} onEdit={(profile) => setModal({ kind: "app-user", profile })} onStatus={(profile) => updateRecordStatus("app_user", profile.id, profile.status, profile.fullName ?? profile.email)} onDelete={(profile) => deleteRecord("app_user", profile.id, profile.fullName ?? profile.email)} /> : null}
           {activeSection === "settings" && currentVendor ? <SettingsView key={currentVendor.id} vendor={currentVendor} rules={currentRules} canManage={mayManage("settings")} isActing={isActing} onSave={(rules) => performAction("save-rules", "Payroll rules saved", { vendorId: currentVendor.id, rules })} /> : null}
         </main>
       </div>
 
       {selectedItem ? <PayrollDetail item={selectedItem} onClose={() => setSelectedItem(null)} onPayslip={() => { setPayslipItem(selectedItem); setSelectedItem(null); }} onEdit={() => { setModal({ kind: "salary", item: selectedItem }); setSelectedItem(null); }} locked={currentRun?.status === "approved" || !mayManage("payroll")} /> : null}
-      {payslipItem && currentVendor && currentUnit ? <PayslipModal item={payslipItem} vendor={currentVendor} unit={currentUnit} period={currentRun?.payPeriod ?? "2026-08"} canExport={mayManage("payroll") || mayManage("payments")} onClose={() => setPayslipItem(null)} /> : null}
-      {modal ? <PayrollActionModal modal={modal} vendors={data.vendors} employees={currentEmployees} shifts={currentShifts} remarks={currentRemarks} unit={currentUnit} vendorId={activeVendorId} currentPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} currentRun={currentRun} busy={isActing} onClose={() => setModal(null)} onAction={performAction} /> : null}
+      {payslipItem && currentVendor && currentUnit ? <PayslipModal item={payslipItem} vendor={currentVendor} unit={currentUnit} run={currentRun} period={currentRun?.payPeriod ?? new Date().toISOString().slice(0, 7)} canExport={mayManage("payroll") || mayManage("payments")} onClose={() => setPayslipItem(null)} /> : null}
+      {modal ? <PayrollActionModal modal={modal} vendors={data.vendors} units={data.units} accommodationTypes={currentTypes} rooms={data.accommodationRooms.filter((room) => room.vendorId === activeVendorId)} employees={currentEmployees} shifts={currentShifts} remarks={currentRemarks} unit={currentUnit} vendorId={activeVendorId} currentPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} currentRun={currentRun} busy={isActing} onClose={() => setModal(null)} onAction={performAction} /> : null}
       {toast ? <div className="toast"><Icon name="check" size={17} />{toast}</div> : null}
     </div>
   );
@@ -762,9 +833,13 @@ function PayrollRunView({ run, items, isActing, canManage, canManageEmployees, c
   );
 }
 
-function AttendanceView({ period, items, employees, attendance, canManage, onEdit, onImport, locked }: { period: string; items: PayrollItem[]; employees: Employee[]; attendance: AttendanceEntry[]; canManage: boolean; onEdit: (employee: Employee, date: string, entry?: AttendanceEntry) => void; onImport: () => void; locked: boolean }) {
-  const [year, month] = period.split("-").map(Number);
-  const dates = Array.from({ length: new Date(year, month, 0).getDate() }, (_, index) => `${period}-${String(index + 1).padStart(2, "0")}`);
+function AttendanceView({ period, periodStart, periodEnd, items, employees, attendance, canManage, onEdit, onImport, locked }: { period: string; periodStart: string | null; periodEnd: string | null; items: PayrollItem[]; employees: Employee[]; attendance: AttendanceEntry[]; canManage: boolean; onEdit: (employee: Employee, date: string, entry?: AttendanceEntry) => void; onImport: () => void; locked: boolean }) {
+  const range = payrollPeriodRange(period, periodStart, periodEnd);
+  const dates = Array.from({ length: range.days }, (_, index) => {
+    const date = new Date(`${range.start}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
   const entryMap = new Map(attendance.map((entry) => [`${entry.employeeId}:${entry.attendanceDate}`, entry]));
   const followups = items.filter((item) => item.absentDays >= 2 || item.leaveDays >= 2);
   function exportAttendance() {
@@ -811,26 +886,26 @@ function EmployeesView({ employees, canManage, onAdd, onEdit, onImport, onStatus
   }
   return (
     <div className="section-stack">
-      <section className="kpi-grid attendance-kpis"><MetricCard label="Active employees" value={String(activeEmployees.length)} note={`${employees.length - activeEmployees.length} inactive records`} tone="blue" icon="users" /><MetricCard label="Payroll ready" value={String(ready)} note={`${Math.round((ready / Math.max(activeEmployees.length, 1)) * 100)}% complete`} tone="green" icon="check" /><MetricCard label="Statutory pending" value={String(activeEmployees.filter((employee) => !employee.uanMasked || !employee.esiMasked).length)} note="UAN or ESI missing" tone="red" icon="alert" /><MetricCard label="Bank pending" value={String(activeEmployees.filter((employee) => !employee.bankAccountMasked || !employee.ifscMasked).length)} note="Cash fallback requires approval" tone="amber" icon="bank" /><MetricCard label="Accommodation" value={String(activeEmployees.filter((employee) => employee.accommodationType !== "Tamil Own").length)} note="Joy or outside room" tone="violet" icon="home" /></section>
+      <section className="kpi-grid attendance-kpis"><MetricCard label="Active employees" value={String(activeEmployees.length)} note={`${employees.length - activeEmployees.length} left / inactive records`} tone="blue" icon="users" /><MetricCard label="Payroll ready" value={String(ready)} note={`${Math.round((ready / Math.max(activeEmployees.length, 1)) * 100)}% complete`} tone="green" icon="check" /><MetricCard label="Statutory pending" value={String(activeEmployees.filter((employee) => !employee.uanMasked || !employee.esiMasked).length)} note="UAN or ESI missing" tone="red" icon="alert" /><MetricCard label="Bank pending" value={String(activeEmployees.filter((employee) => !employee.bankAccountMasked || !employee.ifscMasked).length)} note="Account number or IFSC missing" tone="amber" icon="bank" /><MetricCard label="Room allocated" value={String(activeEmployees.filter((employee) => employee.roomId).length)} note="Employees assigned to rooms" tone="violet" icon="home" /></section>
       <section className="panel table-panel"><div className="table-toolbar"><div className="search-field"><Icon name="search" size={17} /><input aria-label="Search employee master" placeholder="Search employee master" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="filter-tabs"><button className={statusFilter === "all" ? "filter-active" : ""} onClick={() => setStatusFilter("all")}>All</button><button className={statusFilter === "active" ? "filter-active" : ""} onClick={() => setStatusFilter("active")}>Active</button><button className={statusFilter === "inactive" ? "filter-active" : ""} onClick={() => setStatusFilter("inactive")}>Inactive</button></div>{canManage ? <><button className="secondary-button" onClick={exportEmployees}><Icon name="download" size={16} />Export CSV</button><button className="secondary-button" onClick={onImport}>Import Excel</button><button className="primary-button" onClick={onAdd}>+ Add employee</button></> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Employee</th><th>Joining date</th><th>Salary / shift</th><th>UAN</th><th>ESI</th><th>Bank / IFSC</th><th>Accommodation</th><th>Payment</th><th>Readiness</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{visible.map((employee) => <tr key={employee.id}><td><EmployeeCell name={employee.name} code={employee.employeeCode} detail={employee.department} /></td><td>{new Date(`${employee.dateOfJoining}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td><td><strong>{money(employee.salaryAmount)}</strong><small>{employee.salaryBasis} · {employee.defaultShift}</small></td><td><FieldState value={employee.uanMasked} /></td><td><FieldState value={employee.esiMasked} /></td><td><FieldState value={employee.bankAccountMasked && employee.ifscMasked ? `${employee.bankAccountMasked} · ${employee.ifscMasked}` : null} /></td><td><strong>{employee.accommodationType}</strong><small>{employee.roomNumber ?? "—"}</small></td><td><span className="mode-pill">{employee.paymentMode === "bank" ? "Bank" : "Cash"}</span></td><td><StatusPill status={employee.complianceStatus === "ready" ? "Ready" : "Review"} /></td><td><StatusPill status={employee.status === "active" ? "Active" : "Inactive"} /></td>{canManage ? <td><RecordActions status={employee.status} onEdit={() => onEdit(employee)} onToggle={() => onStatus(employee)} onDelete={() => onDelete(employee)} /></td> : null}</tr>)}</tbody></table></div>{!visible.length ? <EmptyState icon="users" title="No employees found" detail="Add employees manually or import an Excel workbook." /> : null}</section>
     </div>
   );
 }
 
-function AccommodationView({ items, employees, charges, canManage, onAdd, onEdit, locked }: { items: PayrollItem[]; employees: Employee[]; charges: AccommodationCharge[]; canManage: boolean; onAdd: () => void; onEdit: (employee: Employee, charge: AccommodationCharge) => void; locked: boolean }) {
-  const roomTypes = ["Joy Room", "Outside Room", "Tamil Own"].map((type) => ({ type, people: employees.filter((employee) => employee.accommodationType === type), items: items.filter((item) => item.accommodationType === type) }));
+function AccommodationView({ types, items, employees, charges, canManage, onAdd, onEdit, locked }: { types: AccommodationType[]; items: PayrollItem[]; employees: Employee[]; charges: AccommodationCharge[]; canManage: boolean; onAdd: () => void; onEdit: (employee: Employee, charge: AccommodationCharge) => void; locked: boolean }) {
+  const roomTypes = types.map(({ name: type }) => ({ type, people: employees.filter((employee) => employee.accommodationType === type), items: items.filter((item) => item.accommodationType === type) }));
   const rooms = Array.from(new Set(charges.map((charge) => charge.roomNumber).filter(Boolean))) as string[];
   function exportAccommodation() {
     downloadCsv("accommodation-deduction-register.csv", [
-      ["Emp ID", "Employee", "Accommodation Type", "Room", "ID Card", "Rent", "Bus", "Medical", "Ticket", "Shoe", "Advance", "Food", "Aadhaar Update", "Bank Account Charge", "T-Shirt", "Old Pending", "Ration Share", "Return Amount", "Final Net Pay"],
-      ...charges.map((charge) => { const employee = employees.find((row) => row.id === charge.employeeId); const item = items.find((row) => row.employeeId === charge.employeeId); return [employee?.employeeCode ?? "", employee?.name ?? "", employee?.accommodationType ?? "", charge.roomNumber ?? "", charge.idCard, charge.rent, charge.bus, charge.medical, charge.ticket, charge.shoe, charge.advance, charge.food, charge.aadhaarUpdate, charge.bankAccountCharge, charge.tshirt, charge.oldPending, charge.rationShare, charge.returnAmount, item?.netPayable ?? 0]; }),
+      ["Emp ID", "Employee", "Accommodation Type", "Room", "ID Card", "Rent", "Bus", "Medical", "Ticket", "Shoe", "Advance", "Food", "Aadhaar Update", "Bank Account Charge", "T-Shirt", "Old Pending", "Gas Share", "Ration Share", "Provision Share", "Return Amount", "Final Net Pay"],
+      ...charges.map((charge) => { const employee = employees.find((row) => row.id === charge.employeeId); const item = items.find((row) => row.employeeId === charge.employeeId); return [employee?.employeeCode ?? "", employee?.name ?? "", employee?.accommodationType ?? "", charge.roomNumber ?? "", charge.idCard, charge.rent, charge.bus, charge.medical, charge.ticket, charge.shoe, charge.advance, charge.food, charge.aadhaarUpdate, charge.bankAccountCharge, charge.tshirt, charge.oldPending, charge.gasShare, charge.rationShare, charge.provisionShare, charge.returnAmount, item?.netPayable ?? 0]; }),
     ]);
   }
   return (
     <div className="section-stack">
-      <section className="accommodation-type-grid">{roomTypes.map((group) => <article className="accommodation-card" key={group.type}><span className="accommodation-icon"><Icon name={group.type === "Tamil Own" ? "users" : "home"} /></span><div><span>{group.type}</span><strong>{group.people.length} employees</strong><small>{group.type === "Tamil Own" ? "No room-level recovery" : `${money(group.items.reduce((sum, item) => sum + item.accommodationDeduction, 0))} deductions`}</small></div></article>)}</section>
-      <section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Employee recoveries</span><h2>Accommodation deduction register</h2></div><div className="attendance-toolbar">{canManage ? <button className="secondary-button" onClick={exportAccommodation}><Icon name="download" size={16} />Room-wise CSV</button> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}{canManage ? <button className="primary-button" onClick={onAdd} disabled={locked || !employees.length}>+ Add recovery</button> : null}</div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Employee</th><th>Type / room</th><th>Rent</th><th>Bus</th><th>Food</th><th>Advance</th><th>Ration share</th><th>Other / old</th><th>Total recovery</th><th>Final pay</th>{canManage ? <th /> : null}</tr></thead><tbody>{charges.map((charge) => { const employee = employees.find((row) => row.id === charge.employeeId); const item = items.find((row) => row.employeeId === charge.employeeId); const other = charge.idCard + charge.medical + charge.ticket + charge.shoe + charge.aadhaarUpdate + charge.bankAccountCharge + charge.tshirt + charge.oldPending; const total = charge.rent + charge.bus + charge.food + charge.advance + charge.rationShare + other - charge.returnAmount; return <tr key={charge.id}><td><EmployeeCell name={employee?.name ?? "Employee"} code={employee?.employeeCode ?? "—"} detail={employee?.department ?? ""} /></td><td><strong>{employee?.accommodationType}</strong><small>{charge.roomNumber}</small></td><td>{money(charge.rent)}</td><td>{money(charge.bus)}</td><td>{money(charge.food)}</td><td>{money(charge.advance)}</td><td>{money(charge.rationShare)}</td><td>{money(other)}</td><td>{money(total)}</td><td className="net-cell">{money(item?.netPayable ?? 0)}</td>{canManage ? <td>{employee ? <button className="text-button" disabled={locked} onClick={() => onEdit(employee, charge)}>Edit</button> : null}</td> : null}</tr>; })}</tbody></table></div>{!charges.length ? <EmptyState icon="home" title="No room recoveries yet" detail="Add rent, bus, ration, advance or other employee recoveries." /> : null}</section>
-      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">Room control</span><h2>Room-wise summary</h2></div></div><div className="room-grid">{rooms.map((room) => { const roomCharges = charges.filter((charge) => charge.roomNumber === room); const roomEmployees = roomCharges.map((charge) => employees.find((employee) => employee.id === charge.employeeId)).filter(Boolean) as Employee[]; const recovery = roomCharges.reduce((sum, charge) => sum + charge.rent + charge.bus + charge.food + charge.advance + charge.rationShare + charge.oldPending, 0); return <article key={room}><div><span className="room-key">{room}</span><StatusPill status="Active" /></div><strong>{roomEmployees.length} residents</strong><p>{roomEmployees.map((employee) => employee.name).join(" · ")}</p><footer><span>Monthly recovery</span><b>{money(recovery)}</b></footer></article>; })}</div></section>
+      <section className="accommodation-type-grid">{roomTypes.map((group) => <article className="accommodation-card" key={group.type}><span className="accommodation-icon"><Icon name={group.type === "Tamil" ? "users" : "home"} /></span><div><span>{group.type}</span><strong>{group.people.length} employees</strong><small>{money(group.items.reduce((sum, item) => sum + item.accommodationDeduction, 0))} deductions</small></div></article>)}</section>
+      <section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Employee recoveries</span><h2>Accommodation deduction register</h2></div><div className="attendance-toolbar">{canManage ? <button className="secondary-button" onClick={exportAccommodation}><Icon name="download" size={16} />Room-wise CSV</button> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}{canManage ? <button className="primary-button" onClick={onAdd} disabled={locked || !employees.length}>+ Add recovery</button> : null}</div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Employee</th><th>Type / room</th><th>Rent</th><th>Bus</th><th>Food</th><th>Advance</th><th>Gas share</th><th>Ration share</th><th>Provision share</th><th>Other / old</th><th>Total recovery</th><th>Final pay</th>{canManage ? <th /> : null}</tr></thead><tbody>{charges.map((charge) => { const employee = employees.find((row) => row.id === charge.employeeId); const item = items.find((row) => row.employeeId === charge.employeeId); const other = charge.idCard + charge.medical + charge.ticket + charge.shoe + charge.aadhaarUpdate + charge.bankAccountCharge + charge.tshirt + charge.oldPending; const total = charge.rent + charge.bus + charge.food + charge.advance + charge.gasShare + charge.rationShare + charge.provisionShare + other - charge.returnAmount; return <tr key={charge.id}><td><EmployeeCell name={employee?.name ?? "Employee"} code={employee?.employeeCode ?? "—"} detail={employee?.department ?? ""} /></td><td><strong>{employee?.accommodationType}</strong><small>{charge.roomNumber}</small></td><td>{money(charge.rent)}</td><td>{money(charge.bus)}</td><td>{money(charge.food)}</td><td>{money(charge.advance)}</td><td>{money(charge.gasShare)}</td><td>{money(charge.rationShare)}</td><td>{money(charge.provisionShare)}</td><td>{money(other)}</td><td>{money(total)}</td><td className="net-cell">{money(item?.netPayable ?? 0)}</td>{canManage ? <td>{employee ? <button className="text-button" disabled={locked} onClick={() => onEdit(employee, charge)}>Edit</button> : null}</td> : null}</tr>; })}</tbody></table></div>{!charges.length ? <EmptyState icon="home" title="No room recoveries yet" detail="Add rent, gas, ration, provision, advance, or other employee recoveries." /> : null}</section>
+      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">Room control</span><h2>Room-wise summary</h2></div></div><div className="room-grid">{rooms.map((room) => { const roomCharges = charges.filter((charge) => charge.roomNumber === room); const roomEmployees = roomCharges.map((charge) => employees.find((employee) => employee.id === charge.employeeId)).filter(Boolean) as Employee[]; const recovery = roomCharges.reduce((sum, charge) => sum + charge.rent + charge.bus + charge.food + charge.advance + charge.gasShare + charge.rationShare + charge.provisionShare + charge.oldPending, 0); return <article key={room}><div><span className="room-key">{room}</span><StatusPill status="Active" /></div><strong>{roomEmployees.length} residents</strong><p>{roomEmployees.map((employee) => employee.name).join(" · ")}</p><footer><span>Monthly recovery</span><b>{money(recovery)}</b></footer></article>; })}</div></section>
     </div>
   );
 }
@@ -877,8 +952,10 @@ function VendorsView({ vendors, units, activeVendorId, canManage, onSelect, onAd
   );
 }
 
-function UsersAccessView({ users, currentUser, canManage, onAdd, onEdit, onStatus, onDelete }: {
+function UsersAccessView({ users, vendors, units, currentUser, canManage, onAdd, onEdit, onStatus, onDelete }: {
   users: AppUserProfile[];
+  vendors: Vendor[];
+  units: ClientUnit[];
   currentUser: AppUserProfile;
   canManage: boolean;
   onAdd: () => void;
@@ -893,29 +970,41 @@ function UsersAccessView({ users, currentUser, canManage, onAdd, onEdit, onStatu
   const formatLogin = (value: string | null) => value ? new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not signed in yet";
   return <div className="section-stack">
     <section className="access-intro">
-      <div><span className="eyebrow">Identity-based control</span><h2>Control access by person and responsibility</h2><p>Choose a starting role, then customise every module as No access, View only, or Full access. Final payroll approval is a separate authority.</p></div>
+      <div><span className="eyebrow">Identity-based and organisation-scoped control</span><h2>Assign Payroll Team clients and HR Team employer units</h2><p>Payroll users can access only assigned clients. HR users can access only assigned employer units. Module permissions and final payroll approval remain separate controls.</p></div>
       {canManage ? <button className="primary-button" onClick={onAdd}>+ Add user</button> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}
     </section>
     <section className="role-summary-grid">{roleCounts.map(({ role, count }) => <article key={role} className={`role-summary role-${role}`}><span>{initials(ROLE_LABELS[role])}</span><div><small>{ROLE_LABELS[role]}</small><strong>{count}</strong><p>active {count === 1 ? "user" : "users"}</p></div></article>)}</section>
-    <section className="access-security-note"><Icon name="alert" size={19} /><div><strong>Two access steps protect this payroll workspace.</strong><p>Create the profile here, then invite the same email through the Site sharing list. App permissions are checked securely for every saved change.</p></div></section>
+    <section className="access-security-note"><Icon name="alert" size={19} /><div><strong>Two access steps protect this payroll workspace.</strong><p>Create the profile here and invite the same email through Supabase Authentication. Client, unit, and module permissions are enforced securely for every request.</p></div></section>
     <section className="panel table-panel">
       <div className="panel-heading"><div><span className="eyebrow">Company users</span><h2>User profiles & permission coverage</h2></div><span className="muted-label">{users.filter((profile) => profile.status === "active").length} active · {users.filter((profile) => profile.status !== "active").length} inactive</span></div>
-      <div className="table-scroll"><table className="data-table access-users-table"><thead><tr><th>User</th><th>Role</th><th>Module access</th><th>Final approval</th><th>Last sign-in</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{users.map((profile) => {
+      <div className="table-scroll"><table className="data-table access-users-table"><thead><tr><th>User</th><th>Role</th><th>Assigned client / employer units</th><th>Module access</th><th>Final approval</th><th>Last sign-in</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{users.map((profile) => {
         const managed = ACCESS_MODULES.filter((module) => profile.permissions[module.id] === "manage").length;
         const viewed = ACCESS_MODULES.filter((module) => profile.permissions[module.id] === "view").length;
         const isCurrent = profile.email === currentUser.email;
-        return <tr key={profile.id}><td><EmployeeCell name={profile.fullName ?? profile.email.split("@")[0]} code={profile.email} detail={isCurrent ? "You" : ""} /></td><td><span className={`role-pill role-pill-${profile.role}`}>{ROLE_LABELS[profile.role]}</span></td><td><div className="permission-counts"><b>{managed} full</b><span>{viewed} view</span><small>{ACCESS_MODULES.length - managed - viewed} hidden</small></div></td><td>{profile.canApprovePayroll ? <span className="field-ready"><Icon name="check" size={14} />Authorised</span> : <span className="field-pending">Not authorised</span>}</td><td><span className="last-login">{formatLogin(profile.lastLoginAt)}</span></td><td><StatusPill status={profile.status === "active" ? "Active" : "Inactive"} /></td>{canManage ? <td><div className="record-actions"><button className="record-action" onClick={() => onEdit(profile)}>Edit</button>{!isCurrent ? <button className="record-action" onClick={() => onStatus(profile)}>{profile.status === "active" ? "Deactivate" : "Activate"}</button> : null}{!isCurrent ? <button className="record-action record-delete" onClick={() => onDelete(profile)}>Delete</button> : null}</div></td> : null}</tr>;
+        const scopeLabels = profile.role === "super_admin"
+          ? ["All clients and employer units"]
+          : profile.role === "payroll_team"
+            ? profile.clientScope.map((id) => vendors.find((vendor) => vendor.id === id)?.name ?? id)
+            : profile.unitScope.map((id) => { const unit = units.find((candidate) => candidate.id === id); return unit ? `${unit.clientName} · ${unit.unitName}` : id; });
+        return <tr key={profile.id}><td><EmployeeCell name={profile.fullName ?? profile.email.split("@")[0]} code={profile.email} detail={isCurrent ? "You" : ""} /></td><td><span className={`role-pill role-pill-${profile.role}`}>{ROLE_LABELS[profile.role]}</span></td><td><div className="scope-label-list">{scopeLabels.length ? scopeLabels.map((label) => <span key={label}>{label}</span>) : <span className="field-pending">No scope assigned</span>}</div></td><td><div className="permission-counts"><b>{managed} full</b><span>{viewed} view</span><small>{ACCESS_MODULES.length - managed - viewed} hidden</small></div></td><td>{profile.canApprovePayroll ? <span className="field-ready"><Icon name="check" size={14} />Authorised</span> : <span className="field-pending">Not authorised</span>}</td><td><span className="last-login">{formatLogin(profile.lastLoginAt)}</span></td><td><StatusPill status={profile.status === "active" ? "Active" : "Inactive"} /></td>{canManage ? <td><div className="record-actions"><button className="record-action" onClick={() => onEdit(profile)}>Edit</button>{!isCurrent ? <button className="record-action" onClick={() => onStatus(profile)}>{profile.status === "active" ? "Deactivate" : "Activate"}</button> : null}{!isCurrent ? <button className="record-action record-delete" onClick={() => onDelete(profile)}>Delete</button> : null}</div></td> : null}</tr>;
       })}</tbody></table></div>
       {!users.length ? <EmptyState icon="users" title="No user profiles" detail="Add the first Super Admin, Payroll Team, or HR Team profile." /> : null}
     </section>
   </div>;
 }
 
-function MasterDataView({ client, shifts, remarks, canManage, onAddShift, onEditShift, onShiftStatus, onDeleteShift, onAddRemark, onEditRemark, onRemarkStatus, onDeleteRemark }: {
+function MasterDataView({ client, types, rooms, employees, shifts, remarks, canManage, onAddType, onEditType, onTypeStatus, onDeleteType, onAddShift, onEditShift, onShiftStatus, onDeleteShift, onAddRemark, onEditRemark, onRemarkStatus, onDeleteRemark }: {
   client: Vendor;
+  types: AccommodationType[];
+  rooms: AccommodationRoom[];
+  employees: Employee[];
   shifts: ShiftDefinition[];
   remarks: PayrollRemark[];
   canManage: boolean;
+  onAddType: () => void;
+  onEditType: (type: AccommodationType) => void;
+  onTypeStatus: (type: AccommodationType) => void;
+  onDeleteType: (type: AccommodationType) => void;
   onAddShift: () => void;
   onEditShift: (shift: ShiftDefinition) => void;
   onShiftStatus: (shift: ShiftDefinition) => void;
@@ -926,7 +1015,8 @@ function MasterDataView({ client, shifts, remarks, canManage, onAddShift, onEdit
   onDeleteRemark: (remark: PayrollRemark) => void;
 }) {
   return <div className="section-stack">
-    <section className="rule-callout"><span><Icon name="settings" /></span><div><strong>{canManage ? "Manage" : "Review"} shift timings and remarks for {client.name}.</strong><p>Only active shifts and active remarks are available in employee and attendance forms. Existing payroll history is preserved.</p></div>{!canManage ? <span className="access-mode-note"><Icon name="eye" size={15} />View only</span> : null}</section>
+    <section className="rule-callout"><span><Icon name="settings" /></span><div><strong>{canManage ? "Manage" : "Review"} accommodation, shifts, and remarks for {client.name}.</strong><p>Only active accommodation types, shifts, and remarks are available in operational forms. Existing payroll history is preserved.</p></div>{!canManage ? <span className="access-mode-note"><Icon name="eye" size={15} />View only</span> : null}</section>
+    <section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Accommodation master</span><h2>Accommodation types & room categories</h2></div>{canManage ? <button className="primary-button" onClick={onAddType}>+ Add accommodation type</button> : null}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Accommodation type</th><th>Rooms</th><th>Active employees</th><th>Remarks</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{types.map((type) => <tr key={type.id}><td><strong>{type.name}</strong></td><td>{rooms.filter((room) => room.accommodationTypeId === type.id).length}</td><td>{employees.filter((employee) => employee.vendorId === client.id && employee.accommodationType === type.name && employee.status === "active").length}</td><td>{type.remarks ?? "—"}</td><td><StatusPill status={type.status === "active" ? "Active" : "Inactive"} /></td>{canManage ? <td><RecordActions status={type.status} onEdit={() => onEditType(type)} onToggle={() => onTypeStatus(type)} onDelete={() => onDeleteType(type)} /></td> : null}</tr>)}</tbody></table></div>{!types.length ? <EmptyState icon="home" title="No accommodation types" detail="Add Tamil, Outside Room, Joy Room, or another custom accommodation type." /> : null}</section>
     <section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Shift master</span><h2>Shift details & working hours</h2></div>{canManage ? <button className="primary-button" onClick={onAddShift}>+ Add shift</button> : null}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Shift name</th><th>Start time</th><th>End time</th><th>Remarks</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{shifts.map((shift) => <tr key={shift.id}><td><strong>{shift.name}</strong></td><td>{formatShiftTime(shift.startTime)}</td><td>{formatShiftTime(shift.endTime)}{shift.endTime <= shift.startTime ? <small>Next day</small> : null}</td><td>{shift.remarks ?? "—"}</td><td><StatusPill status={shift.status === "active" ? "Active" : "Inactive"} /></td>{canManage ? <td><RecordActions status={shift.status} onEdit={() => onEditShift(shift)} onToggle={() => onShiftStatus(shift)} onDelete={() => onDeleteShift(shift)} /></td> : null}</tr>)}</tbody></table></div>{!shifts.length ? <EmptyState icon="calendar" title="No shifts added" detail="Create the first working shift for this client." /> : null}</section>
     <section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Remarks master</span><h2>Reusable notes & other remarks</h2></div>{canManage ? <button className="primary-button" onClick={onAddRemark}>+ Add remark</button> : null}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Remark title</th><th>Category</th><th>Details</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{remarks.map((remark) => <tr key={remark.id}><td><strong>{remark.title}</strong></td><td><span className="mode-pill">{readableField(remark.category)}</span></td><td>{remark.notes ?? "—"}</td><td><StatusPill status={remark.status === "active" ? "Active" : "Inactive"} /></td>{canManage ? <td><RecordActions status={remark.status} onEdit={() => onEditRemark(remark)} onToggle={() => onRemarkStatus(remark)} onDelete={() => onDeleteRemark(remark)} /></td> : null}</tr>)}</tbody></table></div>{!remarks.length ? <EmptyState icon="file" title="No remarks added" detail="Create attendance, employee, salary, employer, shift, or general remarks." /> : null}</section>
   </div>;
@@ -960,10 +1050,16 @@ function PayrollDetail({ item, onClose, onPayslip, onEdit, locked }: { item: Pay
   return <div className="drawer-layer"><button className="drawer-scrim" aria-label="Close details" onClick={onClose} /><aside className="detail-drawer"><header><div><span className="eyebrow">Employee calculation</span><h2>{item.employeeName}</h2><p>{item.employeeCode} · {item.department}</p></div><button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></header><div className="drawer-status"><StatusPill status={item.validationStatus === "ready" ? "Ready" : "Review"} />{item.validationMessage ? <span><Icon name="alert" size={15} />{item.validationMessage}</span> : <span><Icon name="check" size={15} />All validation checks passed</span>}</div><section><h3>Attendance inputs</h3><div className="detail-metrics"><div><span>Present</span><strong>{item.presentDays}</strong></div><div><span>Absent</span><strong>{item.absentDays}</strong></div><div><span>Leave</span><strong>{item.leaveDays}</strong></div><div><span>WO / H</span><strong>{item.weekOffDays}</strong></div><div><span>HP</span><strong>{item.holidayPresentDays}</strong></div><div><span>OT hours</span><strong>{item.overtimeHours}</strong></div></div></section><section><h3>Earnings</h3><div className="calculation-list">{earnings.map(([label, value]) => value ? <div key={label}><span>{label}</span><b>{money(value)}</b></div> : null)}<div className="calculation-total"><span>Gross earnings</span><b>{money(item.grossEarnings)}</b></div></div></section><section><h3>Deductions</h3><div className="calculation-list">{deductions.map(([label, value]) => value ? <div key={label}><span>{label}</span><b>{money(value)}</b></div> : null)}{item.returnAmount ? <div className="return-line"><span>Return amount</span><b>+ {money(item.returnAmount)}</b></div> : null}<div className="calculation-total"><span>Total deductions</span><b>{money(item.totalDeductions)}</b></div></div></section><div className="net-summary"><span>Final net payable</span><strong>{money(item.netPayable)}</strong><small>{item.paymentMode === "bank" ? "Bank transfer" : "Cash payment"} · {item.accommodationType}</small></div><footer>{!locked ? <button className="secondary-button" onClick={onEdit}>Edit salary</button> : <button className="secondary-button" onClick={onClose}>Close</button>}<button className="primary-button" onClick={onPayslip}><Icon name="file" size={16} />View payslip</button></footer></aside></div>;
 }
 
-function PayslipModal({ item, vendor, unit, period, canExport, onClose }: { item: PayrollItem; vendor: Vendor; unit: ClientUnit; period: string; canExport: boolean; onClose: () => void }) {
+function PayslipModal({ item, vendor, unit, run, period, canExport, onClose }: { item: PayrollItem; vendor: Vendor; unit: ClientUnit; run: PayrollRun | null; period: string; canExport: boolean; onClose: () => void }) {
   const earnings = [["Basic", item.basic], ["DA", item.da], ["HRA", item.hra], ["Conveyance Allowance", item.conveyance], ["Food Allowance", item.foodAllowance], ["Night Allowance", item.nightAllowance], ["OT Wages", item.overtimeWages], ["Attendance Bonus", item.attendanceBonus], ["Arrears", item.arrears], ["Holiday Wages", item.holidayWages], ["Production Incentive", item.productionIncentive], ["Medical Allowance", item.medicalAllowance]] as Array<[string, number]>;
   const deductions = [["PF", item.pfDeduction], ["ESI", item.esiDeduction], ["Professional Tax", item.professionalTax], ["LWF", item.lwf], ["Canteen", item.canteen], ["Snacks", item.snacks], ["Tent", item.tent], ["Advance", item.advance], ["Others", item.otherDeduction], ["TDS", item.tds], ["Medical Insurance", item.medicalInsurance], ["Accommodation", item.accommodationDeduction]] as Array<[string, number]>;
-  return <div className="modal-layer"><button className="modal-scrim" aria-label="Close payslip" onClick={onClose} /><div className="payslip-modal"><div className="modal-toolbar"><div><strong>Salary slip preview</strong><span>Computer-generated document</span></div><div>{canExport ? <button className="secondary-button" onClick={() => window.print()}><Icon name="download" size={16} />Print / Save PDF</button> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}<button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div></div><article className="payslip-sheet"><header><div className="payslip-logo">JOY</div><div><h2>EMPLOYEE SALARY SLIP</h2><strong>{monthLabel(period).toUpperCase()}</strong></div></header><section className="payslip-company"><h3>{vendor.legalName}</h3><p>No.16, Krishna Complex, Avinashi–Coimbatore Road, Thennampalayam, Arasur, Tamil Nadu 641407</p><span>joyindia.in · info@joycorporatesolutions.com</span></section><div className="payslip-meta"><div><span>Employee ID</span><strong>{item.employeeCode}</strong></div><div><span>Employee name</span><strong>{item.employeeName}</strong></div><div><span>Department</span><strong>{item.department}</strong></div><div><span>Client / unit</span><strong>{unit.clientName} · {unit.unitName}</strong></div><div><span>Payable days</span><strong>{item.payableDays}</strong></div><div><span>OT hours</span><strong>{item.overtimeHours}</strong></div><div><span>Payment mode</span><strong>{item.paymentMode === "bank" ? "Bank transfer" : "Cash"}</strong></div><div><span>Accommodation</span><strong>{item.accommodationType}</strong></div></div><div className="payslip-columns"><section><h4><span>Earnings</span><b>Amount</b></h4>{earnings.map(([label, value]) => <div key={label}><span>{label}</span><b>{value ? money(value) : "—"}</b></div>)}<footer><span>Gross earnings</span><b>{money(item.grossEarnings)}</b></footer></section><section><h4><span>Deductions</span><b>Amount</b></h4>{deductions.map(([label, value]) => <div key={label}><span>{label}</span><b>{value ? money(value) : "—"}</b></div>)}<footer><span>Total deductions</span><b>{money(item.totalDeductions)}</b></footer></section></div><div className="payslip-net"><div><span>Net payable</span><strong>{money(item.netPayable)}</strong></div><p><span>Amount in words</span>{numberToWordsIndian(Math.round(item.netPayable))} Rupees Only</p></div><footer className="payslip-footnote">*** This is a computer-generated payslip and does not require a physical signature. ***</footer></article></div></div>;
+  const employerTitle = unit.payslipTitle ?? unit.clientName;
+  const employerSubtitle = unit.payslipSubtitle ?? `${unit.unitName} · Payroll partner: ${vendor.legalName}`;
+  const employerAddress = unit.payslipAddress ?? unit.location;
+  const employerContact = unit.payslipContact ?? "joyindia.in · info@joycorporatesolutions.com";
+  const footer = unit.payslipFooter ?? "This is a computer-generated payslip and does not require a physical signature.";
+  const range = run ? payrollPeriodRange(run.payPeriod, run.periodStart, run.periodEnd) : null;
+  return <div className="modal-layer"><button className="modal-scrim" aria-label="Close payslip" onClick={onClose} /><div className="payslip-modal"><div className="modal-toolbar"><div><strong>Employer-customized salary slip</strong><span>{employerTitle} · computer-generated document</span></div><div>{canExport ? <button className="secondary-button" onClick={() => window.print()}><Icon name="download" size={16} />Print / Save PDF</button> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}<button className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></div></div><article className="payslip-sheet"><header><div className="payslip-logo">JOY</div><div><h2>EMPLOYEE SALARY SLIP</h2><strong>{monthLabel(period).toUpperCase()}</strong></div></header><section className="payslip-company"><h3>{employerTitle}</h3><p>{employerSubtitle}</p><p>{employerAddress}</p><span>{employerContact}</span></section><div className="payslip-meta"><div><span>Employee ID</span><strong>{item.employeeCode}</strong></div><div><span>Employee name</span><strong>{item.employeeName}</strong></div><div><span>Department</span><strong>{item.department}</strong></div><div><span>Employer / unit</span><strong>{unit.clientName} · {unit.unitName}</strong></div><div><span>Payroll period</span><strong>{range ? `${range.start} to ${range.inclusiveEnd}` : monthLabel(period)}</strong></div><div><span>Working-day divisor</span><strong>{run?.workingDays ?? 26} days</strong></div><div><span>Payable days</span><strong>{item.payableDays}</strong></div><div><span>OT hours</span><strong>{item.overtimeHours}</strong></div><div><span>Payment mode</span><strong>{item.paymentMode === "bank" ? "Bank transfer" : "Cash"}</strong></div><div><span>Accommodation</span><strong>{item.accommodationType}</strong></div></div><div className="payslip-columns"><section><h4><span>Earnings</span><b>Amount</b></h4>{earnings.map(([label, value]) => <div key={label}><span>{label}</span><b>{value ? money(value) : "—"}</b></div>)}<footer><span>Gross earnings</span><b>{money(item.grossEarnings)}</b></footer></section><section><h4><span>Deductions</span><b>Amount</b></h4>{deductions.map(([label, value]) => <div key={label}><span>{label}</span><b>{value ? money(value) : "—"}</b></div>)}<footer><span>Total deductions</span><b>{money(item.totalDeductions)}</b></footer></section></div><div className="payslip-net"><div><span>Net payable</span><strong>{money(item.netPayable)}</strong></div><p><span>Amount in words</span>{numberToWordsIndian(Math.round(item.netPayable))} Rupees Only</p></div><footer className="payslip-footnote">*** {footer} ***</footer></article></div></div>;
 }
 
 function EmptyPayroll({ unit, canCreate, canImport, canOpenClients, onGoToVendors, onCreate, onImport }: { unit: ClientUnit | null; canCreate: boolean; canImport: boolean; canOpenClients: boolean; onGoToVendors: () => void; onCreate: () => void; onImport: () => void }) {
@@ -981,9 +1077,12 @@ function followingMonth(period: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function PayrollActionModal({ modal, vendors, employees, shifts, remarks, unit, vendorId, currentPeriod, currentRun, busy, onClose, onAction }: {
+function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, employees, shifts, remarks, unit, vendorId, currentPeriod, currentRun, busy, onClose, onAction }: {
   modal: ActiveModal;
   vendors: Vendor[];
+  units: ClientUnit[];
+  accommodationTypes: AccommodationType[];
+  rooms: AccommodationRoom[];
   employees: Employee[];
   shifts: ShiftDefinition[];
   remarks: PayrollRemark[];
@@ -1005,14 +1104,28 @@ function PayrollActionModal({ modal, vendors, employees, shifts, remarks, unit, 
   const [userRole, setUserRole] = useState<UserRole>(initialRole);
   const [permissionDraft, setPermissionDraft] = useState<PermissionMap>(() => ({ ...(accessProfile?.permissions ?? DEFAULT_PERMISSIONS[initialRole]) }));
   const [approvalDraft, setApprovalDraft] = useState(accessProfile?.canApprovePayroll ?? DEFAULT_APPROVAL_ACCESS[initialRole]);
+  const [clientScopeDraft, setClientScopeDraft] = useState<string[]>(accessProfile?.clientScope ?? []);
+  const [unitScopeDraft, setUnitScopeDraft] = useState<string[]>(accessProfile?.unitScope ?? []);
   const employee = modal.kind === "employee" ? modal.employee : undefined;
   const client = modal.kind === "vendor" ? modal.vendor : undefined;
   const employerUnit = modal.kind === "unit" ? modal.unit : undefined;
   const selectedShift = modal.kind === "shift" ? modal.shift : undefined;
   const selectedRemark = modal.kind === "remark" ? modal.remark : undefined;
+  const selectedType = modal.kind === "accommodation-type" ? modal.accommodationType : undefined;
+  const [employeeType, setEmployeeType] = useState(employee?.accommodationType ?? accommodationTypes.find((type) => type.name === "Tamil" && type.status === "active")?.name ?? accommodationTypes.find((type) => type.status === "active")?.name ?? "Tamil");
+  const [employeeRoomId, setEmployeeRoomId] = useState(employee?.roomId ?? "");
+  const [employeeRoomNumber, setEmployeeRoomNumber] = useState(employee?.roomNumber ?? "");
+  const initialRunMonth = currentRun ? followingMonth(currentPeriod) : currentPeriod;
+  const initialRunDates = calendarPeriod(initialRunMonth);
+  const [runMonth, setRunMonth] = useState(initialRunMonth);
+  const [runStart, setRunStart] = useState(initialRunDates.start);
+  const [runEnd, setRunEnd] = useState(initialRunDates.end);
+  const [runWorkingDays, setRunWorkingDays] = useState(currentRun?.workingDays ?? 26);
+  const activeAccommodationTypes = accommodationTypes.filter((type) => type.status === "active" || type.name === employee?.accommodationType);
+  const matchingRooms = rooms.filter((room) => room.status === "active" && accommodationTypes.find((type) => type.id === room.accommodationTypeId)?.name === employeeType);
   const shiftOptions = Array.from(new Set([...shifts.filter((shift) => shift.status === "active").map((shift) => shift.name), employee?.defaultShift, modal.kind === "attendance" ? modal.entry?.shiftCode : undefined].filter((value): value is string => Boolean(value))));
-  const title = modal.kind === "vendor" ? client ? "Edit client" : "Add client" : modal.kind === "unit" ? employerUnit ? "Edit employer unit" : "Add employer unit" : modal.kind === "employee" ? employee ? "Edit employee" : "Add employee" : modal.kind === "shift" ? selectedShift ? "Edit shift details" : "Add shift" : modal.kind === "remark" ? selectedRemark ? "Edit remark" : "Add remark" : modal.kind === "app-user" ? accessProfile ? "Edit user access" : "Add user access" : modal.kind === "run" ? "Create payroll month" : modal.kind === "attendance" ? "Update attendance" : modal.kind === "salary" ? "Edit salary calculation" : modal.kind === "accommodation" ? "Edit accommodation recovery" : "Import Excel workbook";
-  const submitLabel = modal.kind === "import" ? "Import into payroll" : modal.kind === "run" ? "Create payroll run" : modal.kind === "vendor" ? client ? "Save client" : "Add client" : modal.kind === "unit" ? employerUnit ? "Save employer unit" : "Add employer unit" : modal.kind === "shift" ? selectedShift ? "Save shift" : "Add shift" : modal.kind === "remark" ? selectedRemark ? "Save remark" : "Add remark" : modal.kind === "app-user" ? accessProfile ? "Save user access" : "Add user" : "Save changes";
+  const title = modal.kind === "vendor" ? client ? "Edit client" : "Add client" : modal.kind === "unit" ? employerUnit ? "Edit employer unit" : "Add employer unit" : modal.kind === "employee" ? employee ? "Edit employee" : "Add employee" : modal.kind === "accommodation-type" ? selectedType ? "Edit accommodation type" : "Add accommodation type" : modal.kind === "shift" ? selectedShift ? "Edit shift details" : "Add shift" : modal.kind === "remark" ? selectedRemark ? "Edit remark" : "Add remark" : modal.kind === "app-user" ? accessProfile ? "Edit user access" : "Add user access" : modal.kind === "run" ? "Create payroll month" : modal.kind === "attendance" ? "Update attendance" : modal.kind === "salary" ? "Edit salary calculation" : modal.kind === "accommodation" ? "Edit accommodation recovery" : "Import Excel workbook";
+  const submitLabel = modal.kind === "import" ? "Import into payroll" : modal.kind === "run" ? "Create payroll run" : modal.kind === "vendor" ? client ? "Save client" : "Add client" : modal.kind === "unit" ? employerUnit ? "Save employer unit" : "Add employer unit" : modal.kind === "accommodation-type" ? selectedType ? "Save accommodation type" : "Add accommodation type" : modal.kind === "shift" ? selectedShift ? "Save shift" : "Add shift" : modal.kind === "remark" ? selectedRemark ? "Save remark" : "Add remark" : modal.kind === "app-user" ? accessProfile ? "Save user access" : "Add user" : "Save changes";
 
   async function inspectFile(file: File, period: string) {
     setSelectedFile(file);
@@ -1036,24 +1149,28 @@ function PayrollActionModal({ modal, vendors, employees, shifts, remarks, unit, 
     if (modal.kind === "vendor") await onAction("save-client", client ? "Client details updated" : "Client created", { ...fields, id: client?.id });
     else if (modal.kind === "unit") await onAction("save-unit", employerUnit ? "Employer unit updated" : "Employer unit created", { ...fields, id: employerUnit?.id });
     else if (modal.kind === "employee") await onAction("save-employee", employee ? "Employee details updated" : "Employee added to payroll", { employee: { ...fields, id: employee?.id } });
+    else if (modal.kind === "accommodation-type") await onAction("save-accommodation-type", selectedType ? "Accommodation type updated" : "Accommodation type added", { ...fields, id: selectedType?.id });
     else if (modal.kind === "shift") await onAction("save-shift", selectedShift ? "Shift details updated" : "Shift added", { ...fields, id: selectedShift?.id });
     else if (modal.kind === "remark") await onAction("save-remark", selectedRemark ? "Remark updated" : "Remark added", { ...fields, id: selectedRemark?.id });
-    else if (modal.kind === "app-user") await onAction("save-app-user", accessProfile ? "User access updated" : "User access created", { id: accessProfile?.id, email: fields.email, fullName: fields.fullName, role: userRole, permissions: permissionDraft, canApprovePayroll: approvalDraft });
-    else if (modal.kind === "run") await onAction("create-run", "Monthly payroll run created", { payPeriod: fields.payPeriod });
+    else if (modal.kind === "app-user") await onAction("save-app-user", accessProfile ? "User access updated" : "User access created", { id: accessProfile?.id, email: fields.email, fullName: fields.fullName, role: userRole, permissions: permissionDraft, canApprovePayroll: approvalDraft, clientScope: clientScopeDraft, unitScope: unitScopeDraft });
+    else if (modal.kind === "run") await onAction("create-run", "Custom monthly payroll run created", { payPeriod: fields.payPeriod, periodStart: fields.periodStart, periodEnd: fields.periodEnd, workingDays: fields.workingDays });
     else if (modal.kind === "attendance") await onAction("save-attendance", "Attendance, shift and payroll updated", { employeeId: modal.employee.id, attendanceDate: modal.date, ...fields });
     else if (modal.kind === "salary") await onAction("save-payroll-item", "Employee earnings and deductions saved", { itemId: modal.item.id, fields });
     else if (modal.kind === "accommodation") await onAction("save-accommodation", "Accommodation deductions saved", { employeeId: String(fields.employeeId), fields });
     else if (modal.kind === "import" && parsed) await onAction("import-workbook", `Imported ${parsed.employees.length} employees and ${parsed.attendance.length} attendance entries`, { ...parsed, payPeriod: importPeriod });
   }
 
-  const recoveryFields = ["rent", "bus", "food", "advance", "rationShare", "idCard", "medical", "ticket", "shoe", "aadhaarUpdate", "bankAccountCharge", "tshirt", "oldPending", "returnAmount"] as const;
+  const recoveryFields = ["rent", "bus", "food", "advance", "gasShare", "rationShare", "provisionShare", "idCard", "medical", "ticket", "shoe", "aadhaarUpdate", "bankAccountCharge", "tshirt", "oldPending", "returnAmount"] as const;
+  const toggleScope = (setter: (value: string[]) => void, current: string[], id: string, checked: boolean) => setter(checked ? [...new Set([...current, id])] : current.filter((entry) => entry !== id));
 
   return <div className="modal-layer action-modal-layer"><button className="modal-scrim" aria-label="Close form" onClick={onClose} /><form className={`action-modal ${modal.kind === "salary" || modal.kind === "app-user" ? "action-modal-wide" : ""}`} onSubmit={submit}><header className="action-modal-header"><div><span className="eyebrow">{modal.kind === "app-user" ? "Identity & module permissions" : unit ? `${unit.clientName} · ${unit.unitName}` : "Payroll configuration"}</span><h2>{title}</h2></div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><Icon name="close" /></button></header><div className="action-modal-body"><datalist id="payroll-remark-options">{remarks.filter((remark) => remark.status === "active").map((remark) => <option key={remark.id} value={remark.notes ? `${remark.title}: ${remark.notes}` : remark.title} />)}</datalist>
     {modal.kind === "vendor" ? <div className="form-grid"><label><span>Client short code *</span><input name="code" defaultValue={client?.code} placeholder="JMS" maxLength={15} required /></label><label><span>Client display name *</span><input name="name" defaultValue={client?.name} placeholder="Company or client name" required /></label><label className="form-span"><span>Registered legal name</span><input name="legalName" defaultValue={client?.legalName} placeholder="Legal company or proprietor name" /></label><label><span>EPF establishment code</span><input name="epfCode" defaultValue={client?.epfCode ?? ""} placeholder="Optional" /></label><label><span>ESI establishment code</span><input name="esiCode" defaultValue={client?.esiCode ?? ""} placeholder="Optional" /></label><label><span>GSTIN</span><input name="gstin" defaultValue={client?.gstin ?? ""} placeholder="Optional" /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={client?.remarks ?? ""} placeholder="Optional client notes" /></label></div> : null}
 
-    {modal.kind === "unit" ? <div className="form-grid"><label className="form-span"><span>Client *</span><select name="vendorId" defaultValue={employerUnit?.vendorId ?? vendorId} required>{vendors.filter((vendor) => vendor.status === "active" || vendor.id === employerUnit?.vendorId).map((vendor) => <option value={vendor.id} key={vendor.id}>{vendor.name}</option>)}</select></label><label><span>Employer company *</span><input name="clientName" defaultValue={employerUnit?.clientName} placeholder="Watertec India" required /></label><label><span>Factory / unit name *</span><input name="unitName" defaultValue={employerUnit?.unitName} placeholder="Unit I" required /></label><label><span>Location *</span><input name="location" defaultValue={employerUnit?.location} placeholder="Coimbatore" required /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={employerUnit?.remarks ?? ""} placeholder="Optional employer notes" /></label></div> : null}
+    {modal.kind === "unit" ? <div className="form-grid"><label className="form-span"><span>Client *</span><select name="vendorId" defaultValue={employerUnit?.vendorId ?? vendorId} required>{vendors.filter((vendor) => vendor.status === "active" || vendor.id === employerUnit?.vendorId).map((vendor) => <option value={vendor.id} key={vendor.id}>{vendor.name}</option>)}</select></label><label><span>Employer company *</span><input name="clientName" defaultValue={employerUnit?.clientName} placeholder="Watertec India" required /></label><label><span>Factory / unit name *</span><input name="unitName" defaultValue={employerUnit?.unitName} placeholder="Unit I" required /></label><label><span>Location *</span><input name="location" defaultValue={employerUnit?.location} placeholder="Coimbatore" required /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={employerUnit?.remarks ?? ""} placeholder="Optional employer notes" /></label><div className="form-note form-span"><strong>Employer-customized salary slip</strong><span>Leave any field blank to use the employer name, location, and Joy payroll partner defaults.</span></div><label className="form-span"><span>Payslip employer heading</span><input name="payslipTitle" defaultValue={employerUnit?.payslipTitle ?? ""} placeholder="Employer legal / display name" /></label><label className="form-span"><span>Payslip subtitle</span><input name="payslipSubtitle" defaultValue={employerUnit?.payslipSubtitle ?? ""} placeholder="Factory, division, payroll partner, or registration detail" /></label><label className="form-span"><span>Payslip address</span><textarea name="payslipAddress" defaultValue={employerUnit?.payslipAddress ?? ""} rows={2} placeholder="Employer address shown on the salary slip" /></label><label className="form-span"><span>Payslip contact line</span><input name="payslipContact" defaultValue={employerUnit?.payslipContact ?? ""} placeholder="Website · email · phone" /></label><label className="form-span"><span>Payslip footer</span><input name="payslipFooter" defaultValue={employerUnit?.payslipFooter ?? ""} placeholder="Customized salary slip declaration" /></label></div> : null}
 
-    {modal.kind === "employee" ? <div className="form-grid"><label><span>Employee code *</span><input name="employeeCode" defaultValue={employee?.employeeCode} placeholder="J1007" required /></label><label><span>Employee name *</span><input name="name" defaultValue={employee?.name} placeholder="Full name" required /></label><label><span>Department *</span><input name="department" defaultValue={employee?.department ?? "Production"} required /></label><label><span>Date of joining *</span><input name="dateOfJoining" type="date" defaultValue={employee?.dateOfJoining ?? `${currentPeriod}-01`} required /></label><label><span>Basic salary / daily rate (₹)</span><input name="salaryAmount" type="number" min="0" step="0.01" defaultValue={employee?.salaryAmount ?? 0} required /></label><label><span>Salary basis</span><select name="salaryBasis" defaultValue={employee?.salaryBasis ?? "monthly"}><option value="monthly">Monthly</option><option value="daily">Daily</option></select></label><label><span>Default shift</span><select name="defaultShift" defaultValue={employee?.defaultShift ?? shiftOptions.find((shift) => shift === "General") ?? shiftOptions[0]}>{shiftOptions.map((shift) => <option key={shift}>{shift}</option>)}</select></label><label><span>Payment mode</span><select name="paymentMode" defaultValue={employee?.paymentMode ?? "cash"}><option value="cash">Cash</option><option value="bank">Bank transfer</option></select></label><label><span>UAN</span><input name="uanMasked" defaultValue={employee?.uanMasked ?? ""} placeholder="Optional unless PF applies" /></label><label><span>ESI number</span><input name="esiMasked" defaultValue={employee?.esiMasked ?? ""} placeholder="Optional unless ESI applies" /></label><label><span>Bank account number</span><input name="bankAccountMasked" defaultValue={employee?.bankAccountMasked ?? ""} /></label><label><span>IFSC code</span><input name="ifscMasked" defaultValue={employee?.ifscMasked ?? ""} /></label><label><span>Bank name</span><input name="bankName" defaultValue={employee?.bankName ?? ""} /></label><label><span>Accommodation type</span><select name="accommodationType" defaultValue={employee?.accommodationType ?? "Tamil Own"}>{["Joy Room", "Outside Room", "Tamil Own"].map((type) => <option key={type}>{type}</option>)}</select></label><label><span>Room number</span><input name="roomNumber" defaultValue={employee?.roomNumber ?? ""} placeholder="AR1, OR2, Tamil…" /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={employee?.remarks ?? ""} placeholder="Optional employee notes" /></label></div> : null}
+    {modal.kind === "employee" ? <div className="form-grid"><label><span>Employee code *</span><input name="employeeCode" defaultValue={employee?.employeeCode} placeholder="J1007" required /></label><label><span>Employee name *</span><input name="name" defaultValue={employee?.name} placeholder="Full name" required /></label><label><span>Department *</span><input name="department" defaultValue={employee?.department ?? "Production"} required /></label><label><span>Date of joining *</span><input name="dateOfJoining" type="date" defaultValue={employee?.dateOfJoining ?? `${currentPeriod}-01`} required /></label><label><span>Basic salary / daily rate (₹)</span><input name="salaryAmount" type="number" min="0" step="0.01" defaultValue={employee?.salaryAmount ?? 0} required /></label><label><span>Salary basis</span><select name="salaryBasis" defaultValue={employee?.salaryBasis ?? "monthly"}><option value="monthly">Monthly</option><option value="daily">Daily</option></select></label><label><span>Default shift</span><select name="defaultShift" defaultValue={employee?.defaultShift ?? shiftOptions.find((shift) => shift === "General") ?? shiftOptions[0]}>{shiftOptions.map((shift) => <option key={shift}>{shift}</option>)}</select></label><label><span>Payment mode</span><select name="paymentMode" defaultValue={employee?.paymentMode ?? "cash"}><option value="cash">Cash</option><option value="bank">Bank transfer</option></select></label><label><span>UAN</span><input name="uanMasked" defaultValue={employee?.uanMasked ?? ""} placeholder="Optional unless PF applies" /></label><label><span>ESI number</span><input name="esiMasked" defaultValue={employee?.esiMasked ?? ""} placeholder="Optional unless ESI applies" /></label><label><span>Bank account number</span><input name="bankAccountMasked" defaultValue={employee?.bankAccountMasked ?? ""} /></label><label><span>IFSC code</span><input name="ifscMasked" defaultValue={employee?.ifscMasked ?? ""} /></label><label><span>Bank name</span><input name="bankName" defaultValue={employee?.bankName ?? ""} /></label><label><span>Accommodation type *</span><select name="accommodationType" value={employeeType} onChange={(event) => { setEmployeeType(event.target.value); setEmployeeRoomId(""); setEmployeeRoomNumber(""); }} required>{activeAccommodationTypes.map((type) => <option key={type.id} value={type.name}>{type.name}</option>)}</select></label><label><span>Existing room</span><select name="roomId" value={employeeRoomId} onChange={(event) => { const id = event.target.value; setEmployeeRoomId(id); setEmployeeRoomNumber(matchingRooms.find((room) => room.id === id)?.roomNumber ?? ""); }}><option value="">No existing room selected</option>{matchingRooms.map((room) => <option key={room.id} value={room.id}>{room.roomNumber}{room.capacity ? ` · capacity ${room.capacity}` : ""}</option>)}</select></label><label><span>Room number</span><input name="roomNumber" value={employeeRoomNumber} onChange={(event) => { setEmployeeRoomNumber(event.target.value); setEmployeeRoomId(""); }} placeholder="Choose above or type a new room number" /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={employee?.remarks ?? ""} placeholder="Optional employee notes" /></label></div> : null}
+
+    {modal.kind === "accommodation-type" ? <div className="form-grid"><label className="form-span"><span>Accommodation type name *</span><input name="name" defaultValue={selectedType?.name ?? ""} placeholder="Tamil, Outside Room, Joy Room…" required /></label><label className="form-span"><span>Remarks</span><textarea name="remarks" defaultValue={selectedType?.remarks ?? ""} rows={3} placeholder="Optional allocation or recovery guidance" /></label><div className="form-note form-span">Active accommodation types appear in employee and room forms. A type with active employee assignments cannot be deactivated or removed.</div></div> : null}
 
     {modal.kind === "shift" ? <div className="form-grid"><label className="form-span"><span>Shift name *</span><input name="name" defaultValue={selectedShift?.name} placeholder="General, Morning, Night, Weekend…" required /></label><label><span>Start time *</span><input name="startTime" type="time" defaultValue={selectedShift?.startTime ?? "09:00"} required /></label><label><span>End time *</span><input name="endTime" type="time" defaultValue={selectedShift?.endTime ?? "18:00"} required /></label><label className="form-span"><span>Shift remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={selectedShift?.remarks ?? ""} placeholder="Transport, break, attendance, or other shift notes" /></label><div className="form-note form-span">An end time earlier than the start time is treated as a next-day shift.</div></div> : null}
 
@@ -1061,12 +1178,13 @@ function PayrollActionModal({ modal, vendors, employees, shifts, remarks, unit, 
 
     {modal.kind === "app-user" ? <div className="user-access-form">
       <div className="form-grid"><label><span>Sign-in email *</span><input name="email" type="email" defaultValue={accessProfile?.email ?? ""} placeholder="person@company.com" required /></label><label><span>Display name</span><input name="fullName" defaultValue={accessProfile?.fullName ?? ""} placeholder="Employee or team member name" /></label><label className="form-span"><span>Starting role *</span><select value={userRole} onChange={(event) => { const role = event.target.value as UserRole; setUserRole(role); setPermissionDraft({ ...DEFAULT_PERMISSIONS[role] }); setApprovalDraft(DEFAULT_APPROVAL_ACCESS[role]); }}>{(Object.keys(ROLE_LABELS) as UserRole[]).map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label></div>
+      <section className="scope-assignment-panel"><header><div><span className="eyebrow">Organisation access</span><h3>{userRole === "super_admin" ? "Unrestricted access" : userRole === "payroll_team" ? "Assign clients" : "Assign employer units"}</h3></div><small>{userRole === "super_admin" ? "All current and future clients and units" : "At least one assignment is required"}</small></header>{userRole === "super_admin" ? <div className="form-note">Super Admin can access every client and employer unit.</div> : userRole === "payroll_team" ? <div className="scope-checkbox-grid">{vendors.filter((vendor) => vendor.status === "active" || clientScopeDraft.includes(vendor.id)).map((vendor) => <label key={vendor.id}><input type="checkbox" checked={clientScopeDraft.includes(vendor.id)} onChange={(event) => toggleScope(setClientScopeDraft, clientScopeDraft, vendor.id, event.target.checked)} /><span><strong>{vendor.name}</strong><small>{vendor.code}</small></span></label>)}</div> : <div className="scope-checkbox-grid">{vendors.map((vendor) => <div className="scope-client-group" key={vendor.id}><strong>{vendor.name}</strong>{units.filter((entry) => entry.vendorId === vendor.id && (entry.status === "active" || unitScopeDraft.includes(entry.id))).map((entry) => <label key={entry.id}><input type="checkbox" checked={unitScopeDraft.includes(entry.id)} onChange={(event) => toggleScope(setUnitScopeDraft, unitScopeDraft, entry.id, event.target.checked)} /><span><strong>{entry.clientName}</strong><small>{entry.unitName} · {entry.location}</small></span></label>)}</div>)}</div>}</section>
       <div className="permission-legend"><span><b>No access</b> Hidden and blocked</span><span><b>View only</b> Can review, cannot save</span><span><b>Full access</b> Can create, edit, import, or export</span></div>
       <section className="permission-matrix"><header><div><span className="eyebrow">Custom permissions</span><h3>Module access</h3></div><small>{userRole === "super_admin" ? "Super Admin always has full access" : "Change any role default"}</small></header>{ACCESS_MODULES.map((module) => <label key={module.id}><div><strong>{module.label}</strong><small>{module.description}</small></div><select aria-label={`${module.label} permission`} value={permissionDraft[module.id]} disabled={userRole === "super_admin"} onChange={(event) => setPermissionDraft((current) => ({ ...current, [module.id]: event.target.value as PermissionMap[typeof module.id] }))}><option value="none">No access</option><option value="view">View only</option><option value="manage">Full access</option></select></label>)}</section>
       <label className={`approval-authority ${userRole === "super_admin" ? "approval-authority-fixed" : ""}`}><input type="checkbox" checked={approvalDraft} disabled={userRole === "super_admin"} onChange={(event) => setApprovalDraft(event.target.checked)} /><span><strong>Allow final payroll approval</strong><small>This person can lock an approved salary run and unlock payment exports. Payroll Full access is also required.</small></span></label>
     </div> : null}
 
-    {modal.kind === "run" ? <div className="form-grid"><label className="form-span"><span>Payroll month *</span><input name="payPeriod" type="month" defaultValue={currentRun ? followingMonth(currentPeriod) : currentPeriod} required /></label><div className="form-note form-span">All employees already assigned to {unit?.clientName ?? "this unit"} will be added to the new payroll run automatically.</div></div> : null}
+    {modal.kind === "run" ? <div className="form-grid"><label className="form-span"><span>Payroll month / label *</span><input name="payPeriod" type="month" value={runMonth} onChange={(event) => { const value = event.target.value; const dates = calendarPeriod(value); setRunMonth(value); setRunStart(dates.start); setRunEnd(dates.end); }} required /></label><label><span>Calculation period starts *</span><input name="periodStart" type="date" value={runStart} onChange={(event) => setRunStart(event.target.value)} required /></label><label><span>Calculation period ends *</span><input name="periodEnd" type="date" value={runEnd} onChange={(event) => setRunEnd(event.target.value)} required /></label><label className="form-span"><span>Monthly working days *</span><input name="workingDays" type="number" min="1" max="62" value={runWorkingDays} onChange={(event) => setRunWorkingDays(Number(event.target.value))} required /></label><div className="form-note form-span">All active employees assigned to {unit?.clientName ?? "this unit"} will be added. The selected period controls attendance dates; working days controls the monthly salary divisor.</div></div> : null}
 
     {modal.kind === "attendance" ? <div className="form-grid"><div className="form-note form-span"><strong>{modal.employee.name}</strong><span>{modal.employee.employeeCode} · {new Date(`${modal.date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span></div><label><span>Attendance status *</span><select name="statusCode" defaultValue={modal.entry?.statusCode ?? "P"}>{Object.entries(statusMeta).map(([code, meta]) => <option value={code} key={code}>{code} — {meta.label}</option>)}</select></label><label><span>Shift on this date *</span><select name="shiftCode" defaultValue={modal.entry?.shiftCode ?? modal.employee.defaultShift}>{shiftOptions.map((shift) => <option key={shift}>{shift}</option>)}</select></label><label><span>Overtime hours</span><input name="overtimeHours" type="number" min="0" max="24" step="0.5" defaultValue={modal.entry?.overtimeHours ?? 0} /></label><label><span>Attendance remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={modal.entry?.remarks ?? ""} placeholder="Optional follow-up or daily remark" /></label></div> : null}
 

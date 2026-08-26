@@ -28,7 +28,7 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
 
   try {
     const database = await worker.getD1Database("DB");
-    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql"]) {
+    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql"]) {
       const sql = await readFile(new URL(`drizzle/${migration}`, root), "utf8");
       for (const statement of sql.split("--> statement-breakpoint")) {
         if (statement.trim()) await database.prepare(statement.trim()).run();
@@ -79,21 +79,21 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
     assert.equal(initial.appUsers[0].id, "USER-SITE-AUTOMATION");
     assert.equal(initial.appUsers[0].email, adminEmail);
 
-    let userState = await action({ action: "save-app-user", email: payrollEmail, fullName: "Payroll Maker", role: "payroll_team" });
+    let userState = await action({ action: "save-app-user", email: payrollEmail, fullName: "Payroll Maker", role: "payroll_team", clientScope: ["vendor-jms"] });
     const payrollProfile = userState.appUsers.find((profile) => profile.email === payrollEmail);
     assert.ok(payrollProfile);
     assert.equal(payrollProfile.permissions.payroll, "manage");
     assert.equal(payrollProfile.permissions.attendance, "view");
     assert.equal(payrollProfile.canApprovePayroll, false);
 
-    userState = await action({ action: "save-app-user", email: hrEmail, fullName: "HR Operator", role: "hr_team" });
+    userState = await action({ action: "save-app-user", email: hrEmail, fullName: "HR Operator", role: "hr_team", unitScope: ["unit-watertec-1"] });
     const hrProfile = userState.appUsers.find((profile) => profile.email === hrEmail);
     assert.ok(hrProfile);
     assert.equal(hrProfile.permissions.employees, "manage");
     assert.equal(hrProfile.permissions.payments, "none");
 
     const attendanceOnlyPermissions = Object.fromEntries(Object.keys(initial.currentUser.permissions).map((module) => [module, module === "attendance" ? "view" : "none"]));
-    userState = await action({ action: "save-app-user", email: attendanceEmail, fullName: "Attendance Viewer", role: "hr_team", permissions: attendanceOnlyPermissions });
+    userState = await action({ action: "save-app-user", email: attendanceEmail, fullName: "Attendance Viewer", role: "hr_team", unitScope: ["unit-watertec-1"], permissions: attendanceOnlyPermissions });
     const attendanceProfile = userState.appUsers.find((profile) => profile.email === attendanceEmail);
     assert.ok(attendanceProfile);
 
@@ -237,7 +237,7 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
     state = await action({ action: "save-accommodation", runId, employeeId: employee.id, fields: { roomNumber: "A1", rent: 300, bus: 50, returnAmount: 20 } });
 
     await actionAs(payrollEmail, { action: "approve", runId }, 403);
-    await action({ action: "save-app-user", id: payrollProfile.id, email: payrollProfile.email, fullName: payrollProfile.fullName, role: payrollProfile.role, permissions: payrollProfile.permissions, canApprovePayroll: true });
+    await action({ action: "save-app-user", id: payrollProfile.id, email: payrollProfile.email, fullName: payrollProfile.fullName, role: payrollProfile.role, permissions: payrollProfile.permissions, clientScope: ["vendor-jms", vendor.id], canApprovePayroll: true });
     state = await actionAs(payrollEmail, { action: "approve", runId });
     assert.equal(state.runs.find((entry) => entry.id === runId).status, "approved");
     await action({ action: "save-attendance", runId, employeeId: employee.id, attendanceDate: "2026-09-04", statusCode: "P" }, 409);

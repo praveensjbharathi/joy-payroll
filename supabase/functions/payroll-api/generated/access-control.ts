@@ -7,7 +7,7 @@ export const ACCESS_MODULES = [
   { id: "accommodation", label: "Accommodation", description: "Rooms, hostel recoveries, deductions, and return amounts" },
   { id: "payments", label: "Payments & Payslips", description: "Bank/cash outputs, payslips, and payment exports" },
   { id: "clients", label: "Clients & Employers", description: "Clients, employers, factory units, and status controls" },
-  { id: "masters", label: "Shifts & Remarks", description: "Shift timings and reusable operational remarks" },
+  { id: "masters", label: "Operational Masters", description: "Accommodation types, shift timings, and reusable operational remarks" },
   { id: "settings", label: "Rules & Settings", description: "Salary, statutory, overtime, attendance, and approval rules" },
   { id: "users", label: "Users & Access", description: "User profiles, roles, status, and permission customization" },
 ] as const;
@@ -40,7 +40,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, PermissionMap> = {
     users: "none",
   },
   hr_team: {
-    dashboard: "none",
+    dashboard: "view",
     payroll: "view",
     attendance: "manage",
     employees: "manage",

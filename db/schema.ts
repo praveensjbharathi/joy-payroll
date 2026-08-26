@@ -8,6 +8,8 @@ export const appUsers = sqliteTable("app_users", {
   role: text("role").notNull().default("hr_team"),
   status: text("status").notNull().default("active"),
   permissionsJson: text("permissions_json").notNull(),
+  clientScopeJson: text("client_scope_json").notNull().default("[]"),
+  unitScopeJson: text("unit_scope_json").notNull().default("[]"),
   canApprovePayroll: integer("can_approve_payroll").notNull().default(0),
   createdBy: text("created_by"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -28,6 +30,27 @@ export const vendors = sqliteTable("vendors", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const accommodationTypes = sqliteTable("accommodation_types", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull().references(() => vendors.id),
+  name: text("name").notNull(),
+  remarks: text("remarks"),
+  status: text("status").notNull().default("active"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("accommodation_type_client_name_unique").on(table.vendorId, table.name)]);
+
+export const accommodationRooms = sqliteTable("accommodation_rooms", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull().references(() => vendors.id),
+  accommodationTypeId: text("accommodation_type_id").notNull().references(() => accommodationTypes.id),
+  roomNumber: text("room_number").notNull(),
+  capacity: integer("capacity").notNull().default(0),
+  address: text("address"),
+  remarks: text("remarks"),
+  status: text("status").notNull().default("active"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("accommodation_room_client_type_number_unique").on(table.vendorId, table.accommodationTypeId, table.roomNumber)]);
+
 export const clientUnits = sqliteTable("client_units", {
   id: text("id").primaryKey(),
   vendorId: text("vendor_id").notNull().references(() => vendors.id),
@@ -36,6 +59,11 @@ export const clientUnits = sqliteTable("client_units", {
   location: text("location").notNull(),
   employeeCount: integer("employee_count").notNull().default(0),
   remarks: text("remarks"),
+  payslipTitle: text("payslip_title"),
+  payslipSubtitle: text("payslip_subtitle"),
+  payslipAddress: text("payslip_address"),
+  payslipContact: text("payslip_contact"),
+  payslipFooter: text("payslip_footer"),
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
@@ -48,12 +76,14 @@ export const employees = sqliteTable("employees", {
   name: text("name").notNull(),
   department: text("department").notNull(),
   dateOfJoining: text("date_of_joining").notNull(),
+  dateOfLeaving: text("date_of_leaving"),
   uanMasked: text("uan_masked"),
   esiMasked: text("esi_masked"),
   bankAccountMasked: text("bank_account_masked"),
   ifscMasked: text("ifsc_masked"),
   bankName: text("bank_name"),
-  accommodationType: text("accommodation_type").notNull().default("Tamil Own"),
+  accommodationType: text("accommodation_type").notNull().default("Tamil"),
+  roomId: text("room_id").references(() => accommodationRooms.id),
   roomNumber: text("room_number"),
   paymentMode: text("payment_mode").notNull().default("bank"),
   salaryAmount: real("salary_amount").notNull().default(0),
@@ -118,6 +148,9 @@ export const payrollRuns = sqliteTable("payroll_runs", {
   vendorId: text("vendor_id").notNull().references(() => vendors.id),
   clientUnitId: text("client_unit_id").notNull().references(() => clientUnits.id),
   payPeriod: text("pay_period").notNull(),
+  periodStart: text("period_start"),
+  periodEnd: text("period_end"),
+  workingDays: integer("working_days").notNull().default(26),
   status: text("status").notNull().default("draft"),
   employeeCount: integer("employee_count").notNull().default(0),
   grossEarnings: real("gross_earnings").notNull().default(0),
@@ -132,6 +165,21 @@ export const payrollRuns = sqliteTable("payroll_runs", {
   approvedAt: text("approved_at"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const accommodationRoomExpenses = sqliteTable("accommodation_room_expenses", {
+  id: text("id").primaryKey(),
+  roomId: text("room_id").notNull().references(() => accommodationRooms.id),
+  payPeriod: text("pay_period").notNull(),
+  gasAmount: real("gas_amount").notNull().default(0),
+  rationAmount: real("ration_amount").notNull().default(0),
+  provisionAmount: real("provision_amount").notNull().default(0),
+  occupantCount: integer("occupant_count").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  notes: text("notes"),
+  finalizedBy: text("finalized_by"),
+  finalizedAt: text("finalized_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("accommodation_room_period_unique").on(table.roomId, table.payPeriod)]);
 
 export const payrollItems = sqliteTable("payroll_items", {
   id: text("id").primaryKey(),
@@ -176,10 +224,27 @@ export const payrollItems = sqliteTable("payroll_items", {
   validationMessage: text("validation_message"),
 });
 
+export const payrollBatches = sqliteTable("payroll_batches", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => payrollRuns.id),
+  accommodationType: text("accommodation_type").notNull(),
+  employeeCount: integer("employee_count").notNull().default(0),
+  grossEarnings: real("gross_earnings").notNull().default(0),
+  netPayable: real("net_payable").notNull().default(0),
+  status: text("status").notNull().default("prepared"),
+  paymentReference: text("payment_reference"),
+  preparedBy: text("prepared_by"),
+  preparedAt: text("prepared_at"),
+  clearedBy: text("cleared_by"),
+  clearedAt: text("cleared_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("payroll_batch_run_accommodation_unique").on(table.runId, table.accommodationType)]);
+
 export const accommodationCharges = sqliteTable("accommodation_charges", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   runId: text("run_id").notNull().references(() => payrollRuns.id),
   employeeId: text("employee_id").notNull().references(() => employees.id),
+  roomExpenseId: text("room_expense_id").references(() => accommodationRoomExpenses.id),
   roomNumber: text("room_number"),
   idCard: real("id_card").notNull().default(0),
   rent: real("rent").notNull().default(0),
@@ -193,7 +258,9 @@ export const accommodationCharges = sqliteTable("accommodation_charges", {
   bankAccountCharge: real("bank_account_charge").notNull().default(0),
   tshirt: real("tshirt").notNull().default(0),
   oldPending: real("old_pending").notNull().default(0),
+  gasShare: real("gas_share").notNull().default(0),
   rationShare: real("ration_share").notNull().default(0),
+  provisionShare: real("provision_share").notNull().default(0),
   returnAmount: real("return_amount").notNull().default(0),
 });
 

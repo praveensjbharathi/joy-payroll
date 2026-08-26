@@ -520,6 +520,71 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .access-denied-card p { margin: 0; color: #59667a; font-size: 11px; line-height: 1.6; }
 .access-denied-card small { color: var(--muted-2); font-size: 9px; }
 
+.workforce-dashboard { margin-bottom: 22px; }
+.workforce-filter-panel { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.workforce-filter-panel h2, .payroll-period-panel h2, .scope-assignment-panel h3 { margin: 4px 0 0; color: #26354d; font-size: 14px; }
+.workforce-filters { display: flex; gap: 12px; }
+.workforce-filters label, .period-editor-fields label, .room-editor-form label, .room-expense-fields label, .room-allocation-controls label { display: grid; gap: 5px; color: #59677a; font-size: 9px; }
+.workforce-filters select, .period-editor-fields input, .room-editor-form input, .room-editor-form select, .room-expense-fields input, .room-allocation-controls select { min-height: 37px; padding: 8px 10px; border: 1px solid #dbe3ee; border-radius: 8px; background: #fff; color: #304059; font-size: 10px; }
+.workforce-filters select { min-width: 195px; }
+.workforce-number-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.enhancement-number-card { min-height: 108px; padding: 15px; display: grid; align-content: center; gap: 7px; border: 1px solid #e1e7ef; border-left: 4px solid #8ba0be; border-radius: 11px; background: #fff; box-shadow: var(--shadow); }
+.enhancement-number-card > span { color: #59677a; font-size: 9px; font-weight: 700; }
+.enhancement-number-card strong { color: #21324a; font-size: 25px; line-height: 1; }
+.enhancement-number-card small { color: #8390a2; font-size: 8px; }
+.enhancement-tone-blue { border-left-color: #397ae0; }
+.enhancement-tone-green { border-left-color: #20a66c; }
+.enhancement-tone-red { border-left-color: #dc5b63; }
+.enhancement-tone-amber { border-left-color: #e2a239; }
+.enhancement-tone-violet { border-left-color: #8867d5; }
+.workforce-positive { color: #21875d; font-weight: 700; }
+.workforce-pending { color: #ce4e55; font-weight: 700; }
+.aging-badge { padding: 4px 7px; border-radius: 999px; background: #edf4ff; color: #44638d; font-size: 8px; }
+.aging-overdue { background: #fff0ef; color: #ba4148; }
+.enhancement-empty { padding: 22px; color: #77859a; font-size: 10px; text-align: center; }
+.payroll-period-panel, .payroll-batch-panel, .room-control-center { margin-bottom: 17px; }
+.period-editor-fields { margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 13px; border: 0; }
+.batch-summary-strip { padding: 10px 18px; display: flex; flex-wrap: wrap; gap: 13px; border-top: 1px solid #edf0f4; border-bottom: 1px solid #edf0f4; background: #f8faff; color: #607089; font-size: 8px; }
+.enhancement-status { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 8px; font-weight: 700; }
+.status-positive { background: #e8f7ef; color: #17794f; }
+.status-pending { background: #fff4e8; color: #a76a15; }
+.status-muted { background: #f0f2f6; color: #788396; }
+.accommodation-type-filter-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.accommodation-filter-card { cursor: pointer; text-align: left; }
+.accommodation-filter-selected { border-color: #6a96df; background: #f6f9ff; }
+.accommodation-filter-card .accommodation-icon { font-size: 17px; font-weight: 800; }
+.room-row-selected { background: #f4f8ff; }
+.room-editor-form { margin: 0 16px 15px; padding: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 11px; border: 1px solid #dde7f5; border-radius: 10px; background: #f8faff; }
+.room-editor-actions, .room-expense-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.room-allocation-controls { padding: 0 0 15px; display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 10px; }
+.room-expense-fields { margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; gap: 10px; border: 0; }
+.room-expense-calculation { margin: 15px 0; padding: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 11px; border-radius: 8px; background: #f2f7ff; color: #48617d; font-size: 10px; }
+.room-expense-calculation strong { color: #244975; }
+.room-expense-calculation small { color: #7789a1; font-size: 8px; }
+.room-report-modal { position: fixed; inset: 5% 50% auto auto; z-index: 62; width: min(980px, calc(100vw - 38px)); max-height: 88vh; overflow: auto; transform: translateX(50%); border-radius: 14px; background: #fff; box-shadow: 0 30px 100px rgba(13,29,48,.28); }
+.room-report-pages { padding: 18px; display: grid; gap: 18px; }
+.room-report-page { min-height: 360px; padding: 22px; border: 1px solid #e0e7f0; border-radius: 10px; }
+.room-report-page > header { margin-bottom: 18px; padding-bottom: 13px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #e8edf4; }
+.room-report-page > header h2 { margin: 5px 0; color: #26374f; font-size: 17px; }
+.room-report-page > header p { margin: 0; color: #738198; font-size: 9px; }
+.room-report-page > header > strong { color: #31578b; font-size: 13px; }
+.room-report-summary { margin-bottom: 15px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.room-report-summary > div { padding: 10px; display: grid; gap: 5px; border-radius: 8px; background: #f6f8fc; }
+.room-report-summary span { color: #75839a; font-size: 8px; }
+.room-report-summary strong { color: #2c3f5b; font-size: 12px; }
+.room-report-page > footer { margin-top: 15px; color: #758198; font-size: 8px; }
+.scope-assignment-panel { padding: 12px; display: grid; gap: 12px; border: 1px solid #dbe5f1; border-radius: 10px; background: #f8faff; }
+.scope-assignment-panel > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.scope-assignment-panel > header > small { color: #728197; font-size: 8px; }
+.scope-checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.scope-checkbox-grid > label, .scope-client-group > label { padding: 8px; display: flex; align-items: flex-start; gap: 8px; border: 1px solid #e0e7f0; border-radius: 8px; background: #fff; }
+.scope-checkbox-grid input { margin-top: 2px; accent-color: var(--blue); }
+.scope-checkbox-grid label > span { display: grid; gap: 3px; }
+.scope-checkbox-grid label strong, .scope-client-group > strong { color: #38485d; font-size: 9px; }
+.scope-checkbox-grid label small { color: #78879c; font-size: 8px; }
+.scope-client-group { display: grid; align-content: start; gap: 7px; }
+.scope-label-list { display: grid; gap: 4px; color: #44536a; font-size: 8px; }
+
 @media (max-width: 1260px) {
   .kpi-grid { grid-template-columns: repeat(3, 1fr); }
   .kpi-grid .metric-card:nth-child(4), .kpi-grid .metric-card:nth-child(5) { grid-column: span 1; }
@@ -527,6 +592,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .payment-summary-grid { grid-template-columns: 1fr 1fr; }
   .payment-summary-grid article:last-child { grid-column: 1 / -1; }
   .rules-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .room-expense-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 1060px) {
@@ -544,6 +610,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .workflow-step > i { display: none; }
   .period-selector { display: none !important; }
   .period-divider { display: none; }
+  .workforce-filter-panel { align-items: flex-start; flex-direction: column; }
+  .period-editor-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -582,6 +650,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .attendance-toolbar { flex-wrap: wrap; justify-content: flex-end; }
   .access-intro { align-items: flex-start; flex-direction: column; }
   .permission-matrix > label { grid-template-columns: 1fr; gap: 7px; }
+  .workforce-filters { width: 100%; flex-direction: column; }
+  .workforce-filters select { min-width: 0; }
+  .workforce-number-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .room-editor-form, .room-expense-fields, .room-report-summary, .scope-checkbox-grid { grid-template-columns: 1fr 1fr; }
+  .room-allocation-controls { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {
@@ -596,11 +669,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .form-grid { grid-template-columns: 1fr; }
   .vendor-actions { align-items: flex-start; }
   .empty-payroll > div { flex-wrap: wrap; justify-content: center; }
+  .workforce-number-grid, .period-editor-fields, .room-editor-form, .room-expense-fields, .scope-checkbox-grid { grid-template-columns: 1fr; }
 }
 
 @media print {
   body * { visibility: hidden !important; }
   .payslip-sheet, .payslip-sheet * { visibility: visible !important; }
   .payslip-sheet { position: absolute; inset: 0; width: 100%; min-height: auto; margin: 0; padding: 20px; box-shadow: none; }
+  .room-report-pages, .room-report-pages * { visibility: visible !important; }
+  .room-report-modal { position: absolute; inset: 0; width: 100%; max-height: none; overflow: visible; transform: none; border-radius: 0; box-shadow: none; }
+  .room-report-pages { padding: 0; }
+  .room-report-page { page-break-after: always; break-after: page; border: 0; border-radius: 0; }
+  .room-report-page:last-child { page-break-after: auto; break-after: auto; }
   @page { size: A4; margin: 8mm; }
 }

@@ -71,6 +71,12 @@ route = replaceRequired(
 );
 route = replaceRequired(
   route,
+  'from "../../../lib/payroll-operations";',
+  'from "./payroll-operations.ts";',
+  "the accommodation, date-period, and access-scope operations",
+);
+route = replaceRequired(
+  route,
   "async function requireAppAccess(db: Db): Promise<AppAccess> {",
   "async function requireAppAccess(db: Db, identity: AuthenticatedUser | null): Promise<AppAccess> {",
   "per-request identity injection",
@@ -130,6 +136,10 @@ await Promise.all([
   readFile(join(projectRoot, "lib/payroll-calculations.ts"), "utf8").then(
     (source) =>
       writeFile(join(generatedDirectory, "payroll-calculations.ts"), banner + source),
+  ),
+  readFile(join(projectRoot, "lib/payroll-operations.ts"), "utf8").then(
+    (source) =>
+      writeFile(join(generatedDirectory, "payroll-operations.ts"), banner + source),
   ),
 ]);
 
