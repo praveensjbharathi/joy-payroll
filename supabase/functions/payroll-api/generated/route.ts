@@ -1130,16 +1130,15 @@ function permissionPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
-async function inviteSupabaseUser(email: string) {
+async function createSupabaseAuthUser(email: string, password: string) {
   const deno = (globalThis as unknown as { Deno?: { env: { get(name: string): string | undefined } } }).Deno;
   const supabaseUrl = deno?.env.get("SUPABASE_URL");
   const serviceKey = deno?.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) return;
-  const redirect = deno?.env.get("PAYROLL_APP_URL") ?? "https://joy-payroll.praveen-red-07.workers.dev";
-  const response = await fetch(`${supabaseUrl}/auth/v1/invite?redirect_to=${encodeURIComponent(redirect)}`, { method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+  const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, { method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ email, password, email_confirm: true }) });
   if (!response.ok) {
     const detail = await response.text();
-    if (!detail.toLowerCase().includes("already") && response.status !== 422) throw new RequestError("User profile was not created because the Supabase invitation email could not be sent", 502);
+    if (!detail.toLowerCase().includes("already") && response.status !== 422) throw new RequestError("Supabase sign-in account could not be created", 502);
   }
 }
 
@@ -1192,7 +1191,9 @@ async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
     return;
   }
   const id = `USER-${crypto.randomUUID()}`;
-  await inviteSupabaseUser(email);
+  const temporaryPassword = textValue(payload.temporaryPassword, "Temporary password");
+  if (temporaryPassword.length < 12) throw new RequestError("Temporary password must contain at least 12 characters");
+  await createSupabaseAuthUser(email, temporaryPassword);
   await db.insert(appUsers).values({ id, ...values, status: "active", createdBy: access.identity.email, createdAt: now });
   await writeAudit(db, "user_created", "app_user", id, `Added ${email} as ${role.replaceAll("_", " ")}`, access.identity.email);
 }
