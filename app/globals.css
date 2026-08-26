@@ -683,3 +683,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .room-report-page:last-child { page-break-after: auto; break-after: auto; }
   @page { size: A4; margin: 8mm; }
 }
+
+.id-card-modal { position: absolute; inset: 3vh auto auto 50%; width: min(520px,94vw); max-height:94vh; overflow:auto; transform:translateX(-50%); border-radius:14px; background:#eef2f7; box-shadow:0 24px 70px rgba(5,17,31,.28); }
+.employee-id-card { width:340px; min-height:540px; margin:24px auto; padding:24px; display:flex; flex-direction:column; align-items:center; gap:10px; border-radius:20px; background:#fff; text-align:center; box-shadow:0 8px 28px rgba(22,33,48,.13); }
+.employee-id-card header { width:100%; padding:14px; border-radius:12px; background:#145dc7; color:#fff; font-size:18px; font-weight:800; letter-spacing:.08em; }
+.employee-id-photo { width:92px; height:92px; display:grid; place-items:center; border-radius:50%; background:#e8f0ff; color:#145dc7; font-size:28px; font-weight:800; }
+.employee-id-card h2 { margin:2px 0 0; font-size:21px; }.employee-id-card>strong{color:#416080}.employee-id-card dl{width:100%;margin:8px 0;text-align:left}.employee-id-card dl div{padding:7px 0;display:flex;justify-content:space-between;border-bottom:1px solid #e6eaf0}.employee-id-card dt{color:#7b8798}.employee-id-card dd{margin:0;font-weight:700}.employee-id-card img{width:150px;height:150px}.employee-id-card small{color:#778294}
+.operations-view .form-grid h2 { margin:0 0 6px; }.operations-view .metric-card { min-height:100px; }
+.payslip-field-selector { padding:12px; border:1px solid var(--line); border-radius:10px; }.payslip-field-selector>strong{display:block;margin-bottom:10px}
+@media print { .id-card-modal { position:static; width:auto; transform:none; box-shadow:none; background:#fff; }.id-card-modal .modal-toolbar,.id-card-modal+.modal-scrim{display:none}.employee-id-card{box-shadow:none;border:1px solid #ccd5e1} }

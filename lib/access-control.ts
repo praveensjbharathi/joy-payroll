@@ -7,19 +7,21 @@ export const ACCESS_MODULES = [
   { id: "payments", label: "Payments & Payslips", description: "Bank/cash outputs, payslips, and payment exports" },
   { id: "clients", label: "Clients & Employers", description: "Clients, employers, factory units, and status controls" },
   { id: "masters", label: "Operational Masters", description: "Accommodation types, shift timings, and reusable operational remarks" },
+  { id: "operations", label: "Vehicles & EB", description: "Company vehicles, reminders, trips, fuel, expenses, and hostel/office EB readings" },
   { id: "settings", label: "Rules & Settings", description: "Salary, statutory, overtime, attendance, and approval rules" },
   { id: "users", label: "Users & Access", description: "User profiles, roles, status, and permission customization" },
 ] as const;
 
 export type AccessModule = (typeof ACCESS_MODULES)[number]["id"];
 export type AccessLevel = "none" | "view" | "manage";
-export type UserRole = "super_admin" | "payroll_team" | "hr_team";
+export type UserRole = "super_admin" | "payroll_team" | "hr_team" | "field_hr";
 export type PermissionMap = Record<AccessModule, AccessLevel>;
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: "Super Admin",
-  payroll_team: "Payroll Team",
-  hr_team: "HR Team",
+  payroll_team: "Payroll HR",
+  hr_team: "HR Manager",
+  field_hr: "Field HR",
 };
 
 const allManage = Object.fromEntries(ACCESS_MODULES.map((module) => [module.id, "manage"])) as PermissionMap;
@@ -35,6 +37,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, PermissionMap> = {
     payments: "manage",
     clients: "view",
     masters: "view",
+    operations: "view",
     settings: "view",
     users: "none",
   },
@@ -47,8 +50,13 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, PermissionMap> = {
     payments: "none",
     clients: "view",
     masters: "manage",
+    operations: "manage",
     settings: "none",
     users: "none",
+  },
+  field_hr: {
+    dashboard: "view", payroll: "view", attendance: "manage", employees: "manage", accommodation: "manage",
+    payments: "none", clients: "view", masters: "view", operations: "view", settings: "none", users: "none",
   },
 };
 
@@ -56,10 +64,11 @@ export const DEFAULT_APPROVAL_ACCESS: Record<UserRole, boolean> = {
   super_admin: true,
   payroll_team: false,
   hr_team: false,
+  field_hr: false,
 };
 
 export function normalizeRole(value: unknown): UserRole {
-  return value === "super_admin" || value === "payroll_team" || value === "hr_team" ? value : "hr_team";
+  return value === "super_admin" || value === "payroll_team" || value === "hr_team" || value === "field_hr" ? value : "field_hr";
 }
 
 export function normalizePermissions(role: UserRole, value: unknown): PermissionMap {

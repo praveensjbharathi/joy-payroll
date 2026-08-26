@@ -28,7 +28,7 @@ test("client, employer, employee, shift, remark, payroll, and workbook managemen
 
   try {
     const database = await worker.getD1Database("DB");
-    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql", "0005_unit_attendance_cycle_payslip_fields.sql"]) {
+    for (const migration of ["0000_superb_goblin_queen.sql", "0001_icy_tony_stark.sql", "0002_sparkling_dark_beast.sql", "0003_elite_maginty.sql", "0004_payroll_accommodation_access_enhancements.sql", "0005_unit_attendance_cycle_payslip_fields.sql", "0006_direct_employee_vehicle_utility_operations.sql"]) {
       const sql = await readFile(new URL(`drizzle/${migration}`, root), "utf8");
       for (const statement of sql.split("--> statement-breakpoint")) {
         if (statement.trim()) await database.prepare(statement.trim()).run();

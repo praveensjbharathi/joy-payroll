@@ -2,10 +2,12 @@
 /* eslint-disable react/no-unescaped-entities */
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import QRCode from "qrcode";
 import { parsePayrollWorkbook, type WorkbookImport } from "../lib/excel-import";
 import { defaultPayrollRules, deductionFields, earningFields } from "../lib/payroll-calculations";
 import { calendarPeriod, payrollPeriodRange } from "../lib/payroll-operations";
 import { AccommodationControlCenter, PayrollBatchPanel, PayrollPeriodEditor, WorkforceDashboard } from "./payroll-enhancements";
+import { OperationsView } from "./operations-view";
 import {
   ACCESS_MODULES,
   DEFAULT_APPROVAL_ACCESS,
@@ -27,6 +29,7 @@ type Section =
   | "payments"
   | "vendors"
   | "masters"
+  | "operations"
   | "users"
   | "settings";
 
@@ -102,7 +105,16 @@ export type Employee = {
   remarks: string | null;
   complianceStatus: string;
   status: string;
+  employmentType: string;
+  processingStage: string;
+  finalizedBy: string | null;
+  finalizedAt: string | null;
 };
+
+export type Vehicle = { id: string; vendorId: string; registrationNumber: string; vehicleName: string; vehicleType: string; currentOdometer: number; permitExpiry: string | null; insuranceExpiry: string | null; fcExpiry: string | null; pollutionExpiry: string | null; nextServiceDate: string | null; nextServiceKm: number | null; tyreChangedDate: string | null; tyreChangedKm: number | null; lastWaterWashDate: string | null; lastWheelAlignmentDate: string | null; status: string; remarks: string | null };
+export type VehicleRecord = { id: string; vehicleId: string; recordDate: string; recordType: string; tripFrom: string | null; tripTo: string | null; purpose: string | null; startKm: number | null; endKm: number | null; litres: number; amount: number; nextDueDate: string | null; nextDueKm: number | null; remarks: string | null; status: string };
+export type UtilityMeter = { id: string; vendorId: string; locationType: string; locationName: string; meterNumber: string | null; status: string; remarks: string | null };
+export type EbReading = { id: string; meterId: string; readingDate: string; readingValue: number; unitsConsumed: number; amount: number; remarks: string | null; status: string };
 
 export type PayrollRun = {
   id: string;
@@ -322,6 +334,10 @@ export type AppData = {
   remarks: PayrollRemark[];
   currentUser: AppUserProfile;
   appUsers: AppUserProfile[];
+  vehicles: Vehicle[];
+  vehicleRecords: VehicleRecord[];
+  utilityMeters: UtilityMeter[];
+  ebReadings: EbReading[];
   selectedRunId?: string;
 };
 
@@ -349,6 +365,7 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "payments", label: "Payments & Payslips", icon: "bank" },
   { id: "vendors", label: "Clients & Employers", icon: "building" },
   { id: "masters", label: "Operational Masters", icon: "calendar" },
+  { id: "operations", label: "Vehicles & EB", icon: "building" },
   { id: "users", label: "Users & Access", icon: "users" },
   { id: "settings", label: "Rules & Settings", icon: "settings" },
 ];
@@ -362,6 +379,7 @@ const sectionPermission: Record<Section, AccessModule> = {
   payments: "payments",
   vendors: "clients",
   masters: "masters",
+  operations: "operations",
   users: "users",
   settings: "settings",
 };
@@ -375,6 +393,7 @@ const sectionTitles: Record<Section, { eyebrow: string; title: string; descripti
   payments: { eyebrow: "Disbursement", title: "Payments & payslips", description: "Bank-ready rows, cash list and employee salary slips after approval." },
   vendors: { eyebrow: "Organisation structure", title: "Clients, employers & units", description: "Add, edit, deactivate, or delete every client and employer factory unit." },
   masters: { eyebrow: "Operational master data", title: "Accommodation, shifts & remarks", description: "Add, edit, deactivate, or remove accommodation types, shift timings, and reusable remarks for each client." },
+  operations: { eyebrow: "Administration controls", title: "Vehicle & EB operations", description: "Trips, fuel, mileage, compliance reminders, expenses, and daily hostel/office electricity readings." },
   users: { eyebrow: "Security & responsibility", title: "Users & access", description: "Assign roles and customize what each person can view or manage." },
   settings: { eyebrow: "Calculation governance", title: "Payroll rules & settings", description: "Configurable earning, deduction, attendance and approval rules." },
 };
@@ -683,13 +702,14 @@ export default function PayrollApp({
           {activeSection === "dashboard" ? <><WorkforceDashboard data={data} />{currentRun ? <Dashboard run={currentRun} items={currentItems} employees={operationalEmployees} data={data} onNavigate={(section) => mayView(section) ? setActiveSection(section) : setToast("Your profile does not have access to that module")} /> : null}</> : null}
           {activeSection === "payroll" && currentRun ? <><PayrollPeriodEditor key={currentRun.id} run={currentRun} canManage={mayManage("payroll")} isActing={isActing} onAction={performAction} /><PayrollRunView run={currentRun} items={currentItems} isActing={isActing} canManage={mayManage("payroll")} canManageEmployees={mayManage("employees")} canApprove={data.currentUser.canApprovePayroll} onAction={performAction} onSelect={setSelectedItem} onEmployees={() => setActiveSection("employees")} /><PayrollBatchPanel run={currentRun} items={currentItems} batches={data.payrollBatches.filter((batch) => batch.runId === currentRun.id)} canPrepare={mayManage("payroll")} canClear={mayManage("payments")} isActing={isActing} onAction={performAction} /></> : null}
           {activeSection === "attendance" && currentRun ? <AttendanceView period={currentRun.payPeriod} periodStart={currentRun.periodStart} periodEnd={currentRun.periodEnd} items={currentItems} employees={operationalEmployees} attendance={data.attendance.filter((entry) => { const range = payrollPeriodRange(currentRun.payPeriod, currentRun.periodStart, currentRun.periodEnd); return entry.attendanceDate >= range.start && entry.attendanceDate < range.end && operationalEmployees.some((employee) => employee.id === entry.employeeId); })} canManage={mayManage("attendance")} onEdit={(employee, date, entry) => setModal({ kind: "attendance", employee, date, entry })} onImport={() => setModal({ kind: "import" })} locked={currentRun.status === "approved" || !mayManage("attendance")} /> : null}
-          {activeSection === "employees" && currentUnit ? <EmployeesView employees={currentEmployees} canManage={mayManage("employees")} onAdd={() => setModal({ kind: "employee" })} onEdit={(employee) => setModal({ kind: "employee", employee })} onImport={() => setModal({ kind: "import" })} onLeft={(employee) => setModal({ kind: "employee-left", employee })} onReactivate={(employee) => void performAction("reactivate-employee", `${employee.name} reactivated`, { employeeId: employee.id })} /> : null}
+          {activeSection === "employees" && currentUnit ? <EmployeesView employees={currentEmployees} canManage={mayManage("employees")} onAdd={() => setModal({ kind: "employee" })} onEdit={(employee) => setModal({ kind: "employee", employee })} onImport={() => setModal({ kind: "import" })} onLeft={(employee) => setModal({ kind: "employee-left", employee })} onReactivate={(employee) => void performAction("reactivate-employee", `${employee.name} reactivated`, { employeeId: employee.id })} onWorkflow={(employee) => void performAction("advance-employee-workflow", `${employee.name} moved to the next approval stage`, { employeeId: employee.id })} /> : null}
           {activeSection === "employees" && !currentUnit ? <EmptyPayroll unit={null} canCreate={mayManage("payroll")} canImport={mayManage("employees")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} /> : null}
           {activeSection === "accommodation" && currentVendor ? <><AccommodationControlCenter vendorId={activeVendorId} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} expenses={data.roomExpenses} charges={data.accommodationCharges} runs={data.runs} payPeriod={currentRun?.payPeriod ?? activePeriod ?? new Date().toISOString().slice(0, 7)} canManage={mayManage("accommodation")} isActing={isActing} onAction={performAction} onRoomStatus={(room) => updateRecordStatus("room", room.id, room.status, `room ${room.roomNumber}`)} onDeleteRoom={(room) => deleteRecord("room", room.id, `room ${room.roomNumber}`)} />{currentRun ? <AccommodationView types={currentTypes} items={currentItems} employees={currentEmployees} charges={data.accommodationCharges.filter((charge) => charge.runId === currentRun.id)} canManage={mayManage("accommodation")} onAdd={() => setModal({ kind: "accommodation" })} onEdit={(employee, charge) => setModal({ kind: "accommodation", employee, charge })} locked={currentRun.status === "approved" || !mayManage("accommodation")} /> : null}</> : null}
           {activeSection === "payments" && currentRun ? <><PaymentsView run={currentRun} items={currentItems} employees={currentEmployees} canExport={mayManage("payments")} onPayslip={setPayslipItem} /><PayrollBatchPanel run={currentRun} items={currentItems} batches={data.payrollBatches.filter((batch) => batch.runId === currentRun.id)} canPrepare={mayManage("payroll")} canClear={mayManage("payments")} isActing={isActing} onAction={performAction} /></> : null}
           {activeSection === "vendors" ? <VendorsView vendors={data.vendors} units={data.units} activeVendorId={activeVendorId} canManage={mayManage("vendors")} onSelect={(vendorId, unitId) => { setActiveVendorId(vendorId); setActiveUnitId(unitId); }} onAddVendor={() => setModal({ kind: "vendor" })} onEditVendor={(vendor) => setModal({ kind: "vendor", vendor })} onAddUnit={() => setModal({ kind: "unit" })} onEditUnit={(unit) => setModal({ kind: "unit", unit })} onVendorStatus={(vendor) => updateRecordStatus("client", vendor.id, vendor.status, vendor.name)} onDeleteVendor={(vendor) => deleteRecord("client", vendor.id, vendor.name)} onUnitStatus={(unit) => updateRecordStatus("unit", unit.id, unit.status, `${unit.clientName} · ${unit.unitName}`)} onDeleteUnit={(unit) => deleteRecord("unit", unit.id, `${unit.clientName} · ${unit.unitName}`)} /> : null}
           {activeSection === "masters" && currentVendor ? <MasterDataView client={currentVendor} types={currentTypes} rooms={data.accommodationRooms} employees={data.employees} shifts={currentShifts} remarks={currentRemarks} canManage={mayManage("masters")} onAddType={() => setModal({ kind: "accommodation-type" })} onEditType={(accommodationType) => setModal({ kind: "accommodation-type", accommodationType })} onTypeStatus={(type) => updateRecordStatus("accommodation_type", type.id, type.status, type.name)} onDeleteType={(type) => deleteRecord("accommodation_type", type.id, type.name)} onAddShift={() => setModal({ kind: "shift" })} onEditShift={(shift) => setModal({ kind: "shift", shift })} onShiftStatus={(shift) => updateRecordStatus("shift", shift.id, shift.status, shift.name)} onDeleteShift={(shift) => deleteRecord("shift", shift.id, shift.name)} onAddRemark={() => setModal({ kind: "remark" })} onEditRemark={(remark) => setModal({ kind: "remark", remark })} onRemarkStatus={(remark) => updateRecordStatus("remark", remark.id, remark.status, remark.title)} onDeleteRemark={(remark) => deleteRecord("remark", remark.id, remark.title)} /> : null}
           {activeSection === "masters" && !currentVendor ? <EmptyPayroll unit={null} canCreate={mayManage("payroll")} canImport={mayManage("masters")} canOpenClients={mayView("vendors")} onGoToVendors={() => setActiveSection("vendors")} onCreate={() => setModal({ kind: "run" })} onImport={() => setModal({ kind: "import" })} /> : null}
+          {activeSection === "operations" ? <OperationsView data={data} canManage={mayManage("operations")} canApprove={data.currentUser.role === "super_admin" || data.currentUser.role === "hr_team"} isActing={isActing} onAction={performAction} /> : null}
           {activeSection === "users" ? <UsersAccessView users={data.appUsers} vendors={data.vendors} units={data.units} currentUser={data.currentUser} canManage={data.currentUser.role === "super_admin" && mayManage("users")} onAdd={() => setModal({ kind: "app-user" })} onEdit={(profile) => setModal({ kind: "app-user", profile })} onStatus={(profile) => updateRecordStatus("app_user", profile.id, profile.status, profile.fullName ?? profile.email)} onDelete={(profile) => deleteRecord("app_user", profile.id, profile.fullName ?? profile.email)} /> : null}
           {activeSection === "settings" && currentVendor ? <SettingsView key={currentVendor.id} vendor={currentVendor} rules={currentRules} canManage={mayManage("settings")} isActing={isActing} onSave={(rules) => performAction("save-rules", "Payroll rules saved", { vendorId: currentVendor.id, rules })} /> : null}
         </main>
@@ -879,9 +899,10 @@ function AttendanceView({ period, periodStart, periodEnd, items, employees, atte
   );
 }
 
-function EmployeesView({ employees, canManage, onAdd, onEdit, onImport, onLeft, onReactivate }: { employees: Employee[]; canManage: boolean; onAdd: () => void; onEdit: (employee: Employee) => void; onImport: () => void; onLeft: (employee: Employee) => void; onReactivate: (employee: Employee) => void }) {
+function EmployeesView({ employees, canManage, onAdd, onEdit, onImport, onLeft, onReactivate, onWorkflow }: { employees: Employee[]; canManage: boolean; onAdd: () => void; onEdit: (employee: Employee) => void; onImport: () => void; onLeft: (employee: Employee) => void; onReactivate: (employee: Employee) => void; onWorkflow: (employee: Employee) => void }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [cardEmployee, setCardEmployee] = useState<Employee | null>(null);
   const activeEmployees = employees.filter((employee) => employee.status === "active");
   const ready = activeEmployees.filter((employee) => employee.complianceStatus === "ready").length;
   const visible = employees.filter((employee) => `${employee.employeeCode} ${employee.name} ${employee.department}`.toLowerCase().includes(query.toLowerCase()) && (statusFilter === "all" || employee.status === statusFilter));
@@ -894,9 +915,16 @@ function EmployeesView({ employees, canManage, onAdd, onEdit, onImport, onLeft, 
   return (
     <div className="section-stack">
       <section className="kpi-grid attendance-kpis"><MetricCard label="Active employees" value={String(activeEmployees.length)} note={`${employees.length - activeEmployees.length} left / inactive records`} tone="blue" icon="users" /><MetricCard label="Payroll ready" value={String(ready)} note={`${Math.round((ready / Math.max(activeEmployees.length, 1)) * 100)}% complete`} tone="green" icon="check" /><MetricCard label="Statutory pending" value={String(activeEmployees.filter((employee) => !employee.uanMasked || !employee.esiMasked).length)} note="UAN or ESI missing" tone="red" icon="alert" /><MetricCard label="Bank pending" value={String(activeEmployees.filter((employee) => !employee.bankAccountMasked || !employee.ifscMasked).length)} note="Account number or IFSC missing" tone="amber" icon="bank" /><MetricCard label="Room allocated" value={String(activeEmployees.filter((employee) => employee.roomId).length)} note="Employees assigned to rooms" tone="violet" icon="home" /></section>
-      <section className="panel table-panel"><div className="table-toolbar"><div className="search-field"><Icon name="search" size={17} /><input aria-label="Search employee master" placeholder="Search employee master" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="filter-tabs"><button className={statusFilter === "all" ? "filter-active" : ""} onClick={() => setStatusFilter("all")}>All</button><button className={statusFilter === "active" ? "filter-active" : ""} onClick={() => setStatusFilter("active")}>Active</button><button className={statusFilter === "inactive" ? "filter-active" : ""} onClick={() => setStatusFilter("inactive")}>Left</button></div>{canManage ? <><button className="secondary-button" onClick={exportEmployees}><Icon name="download" size={16} />Export CSV</button><button className="secondary-button" onClick={onImport}>Import Excel</button><button className="primary-button" onClick={onAdd}>+ Add employee</button></> : <span className="access-mode-note"><Icon name="eye" size={15} />View only</span>}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Employee</th><th>Joining / left date</th><th>Salary / shift</th><th>UAN</th><th>ESI</th><th>Bank / IFSC</th><th>Accommodation</th><th>Payment</th><th>Readiness</th><th>Status</th>{canManage ? <th>Actions</th> : null}</tr></thead><tbody>{visible.map((employee) => <tr key={employee.id}><td><EmployeeCell name={employee.name} code={employee.employeeCode} detail={employee.department} /></td><td>{new Date(`${employee.dateOfJoining}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}{employee.dateOfLeaving ? <small>Left: {new Date(`${employee.dateOfLeaving}T00:00:00`).toLocaleDateString("en-IN")}</small> : null}</td><td><strong>{money(employee.salaryAmount)}</strong><small>{employee.salaryBasis} · {employee.defaultShift}</small></td><td><FieldState value={employee.uanMasked} /></td><td><FieldState value={employee.esiMasked} /></td><td><FieldState value={employee.bankAccountMasked && employee.ifscMasked ? `${employee.bankAccountMasked} · ${employee.ifscMasked}` : null} /></td><td><strong>{employee.accommodationType}</strong><small>{employee.roomNumber ?? "—"}</small></td><td><span className="mode-pill">{employee.paymentMode === "bank" ? "Bank" : "Cash"}</span></td><td><StatusPill status={employee.complianceStatus === "ready" ? "Ready" : "Review"} /></td><td><StatusPill status={employee.status === "active" ? "Active" : "Left"} /></td>{canManage ? <td><div className="record-actions"><button className="record-action" onClick={() => onEdit(employee)}>Edit</button>{employee.status === "active" ? <button className="record-action record-delete" onClick={() => onLeft(employee)}>Put left date</button> : <button className="record-action" onClick={() => onReactivate(employee)}>Reactivate</button>}</div></td> : null}</tr>)}</tbody></table></div>{!visible.length ? <EmptyState icon="users" title="No employees found" detail="Add employees manually or import an Excel workbook." /> : null}</section>
+      <section className="panel table-panel"><div className="table-toolbar"><div className="search-field"><Icon name="search" size={17} /><input aria-label="Search employee master" placeholder="Search employee master" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="filter-tabs"><button className={statusFilter === "all" ? "filter-active" : ""} onClick={() => setStatusFilter("all")}>All</button><button className={statusFilter === "active" ? "filter-active" : ""} onClick={() => setStatusFilter("active")}>Active</button><button className={statusFilter === "inactive" ? "filter-active" : ""} onClick={() => setStatusFilter("inactive")}>Left</button></div>{canManage ? <><button className="secondary-button" onClick={exportEmployees}>Export CSV</button><button className="secondary-button" onClick={onImport}>Import Excel</button><button className="primary-button" onClick={onAdd}>+ Add employee</button></> : null}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>Employee</th><th>Type / dates</th><th>Salary</th><th>Compliance</th><th>Workflow</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visible.map((employee) => <tr key={employee.id}><td><EmployeeCell name={employee.name} code={employee.employeeCode} detail={employee.department} /></td><td><strong>{employee.employmentType === "direct" ? "Direct Joy employee" : "Client employee"}</strong><small>Joined {employee.dateOfJoining}{employee.dateOfLeaving ? ` · Left ${employee.dateOfLeaving}` : ""}</small></td><td>{money(employee.salaryAmount)}<small>{employee.salaryBasis} · {employee.defaultShift}</small></td><td><FieldState value={employee.uanMasked && employee.esiMasked ? "EPF / ESI ready" : null} /><small>{employee.bankAccountMasked ? "Bank ready" : "Bank pending"}</small></td><td><StatusPill status={readableField(employee.processingStage)} />{canManage && employee.processingStage !== "approved" ? <button className="record-action" onClick={() => onWorkflow(employee)}>Finalize next stage</button> : null}</td><td><StatusPill status={employee.status === "active" ? "Active" : "Left"} /></td><td><div className="record-actions"><button className="record-action" onClick={() => setCardEmployee(employee)}>ID card + QR</button>{canManage ? <><button className="record-action" onClick={() => onEdit(employee)}>Edit</button>{employee.status === "active" ? <button className="record-action record-delete" onClick={() => onLeft(employee)}>Put left date</button> : <button className="record-action" onClick={() => onReactivate(employee)}>Reactivate</button>}</> : null}</div></td></tr>)}</tbody></table></div></section>
+      {cardEmployee ? <EmployeeIdCard employee={cardEmployee} onClose={() => setCardEmployee(null)} /> : null}
     </div>
   );
+}
+
+function EmployeeIdCard({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  const [qr, setQr] = useState("");
+  useEffect(() => { void QRCode.toDataURL(JSON.stringify({ employeeId: employee.id, employeeCode: employee.employeeCode, name: employee.name, department: employee.department }), { width: 280, margin: 1 }).then(setQr); }, [employee]);
+  return <div className="modal-layer"><button className="modal-scrim" onClick={onClose} aria-label="Close ID card" /><div className="id-card-modal"><div className="modal-toolbar"><strong>Employee ID card</strong><div><button className="secondary-button" onClick={() => window.print()}>Print / Save PDF</button><button className="icon-button" onClick={onClose}>×</button></div></div><article className="employee-id-card"><header>JOY GROUPS</header><div className="employee-id-photo">{initials(employee.name)}</div><h2>{employee.name}</h2><strong>{employee.department}</strong><dl><div><dt>Employee ID</dt><dd>{employee.employeeCode}</dd></div><div><dt>Joining date</dt><dd>{employee.dateOfJoining}</dd></div><div><dt>Employment</dt><dd>{employee.employmentType === "direct" ? "Direct" : "Client assigned"}</dd></div></dl>{qr ? <img src={qr} alt={`QR code for ${employee.employeeCode}`} /> : null}<small>Scan to verify employee identity details</small></article></div></div>;
 }
 
 function AccommodationView({ types, items, employees, charges, canManage, onAdd, onEdit, locked }: { types: AccommodationType[]; items: PayrollItem[]; employees: Employee[]; charges: AccommodationCharge[]; canManage: boolean; onAdd: () => void; onEdit: (employee: Employee, charge: AccommodationCharge) => void; locked: boolean }) {
@@ -1176,7 +1204,10 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
     const fields = Object.fromEntries(new FormData(event.currentTarget));
     if (modal.kind === "vendor") await onAction("save-client", client ? "Client details updated" : "Client created", { ...fields, id: client?.id });
     else if (modal.kind === "unit") await onAction("save-unit", employerUnit ? "Employer unit updated" : "Employer unit created", { ...fields, payslipEarnings: unitEarnings, payslipDeductions: unitDeductions, id: employerUnit?.id });
-    else if (modal.kind === "employee") await onAction("save-employee", employee ? "Employee details updated" : "Employee added to payroll", { employee: { ...fields, id: employee?.id } });
+    else if (modal.kind === "employee") {
+      const employmentType = employee?.employmentType ?? (window.confirm("Is this a direct employee of Joy Manpower Service / Joy Corporate Solutions? Select OK for Direct, or Cancel for Client-assigned.") ? "direct" : "client");
+      await onAction("save-employee", employee ? "Employee details updated" : "Employee added to payroll", { employee: { ...fields, employmentType, id: employee?.id } });
+    }
     else if (modal.kind === "employee-left") await onAction("mark-employee-left", `${modal.employee.name} marked as left; history preserved`, { employeeId: modal.employee.id, leftDate: fields.leftDate });
     else if (modal.kind === "accommodation-type") await onAction("save-accommodation-type", selectedType ? "Accommodation type updated" : "Accommodation type added", { ...fields, id: selectedType?.id });
     else if (modal.kind === "shift") await onAction("save-shift", selectedShift ? "Shift details updated" : "Shift added", { ...fields, id: selectedShift?.id });

@@ -98,7 +98,82 @@ export const employees = pgTable("employees", {
   remarks: text("remarks"),
   complianceStatus: text("compliance_status").notNull().default("ready"),
   status: text("status").notNull().default("active"),
+  employmentType: text("employment_type").notNull().default("client"),
+  processingStage: text("processing_stage").notNull().default("field_hr_draft"),
+  finalizedBy: text("finalized_by"),
+  finalizedAt: text("finalized_at"),
 });
+
+export const vehicles = pgTable("vehicles", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull().references(() => vendors.id),
+  registrationNumber: text("registration_number").notNull().unique(),
+  vehicleName: text("vehicle_name").notNull(),
+  vehicleType: text("vehicle_type").notNull().default("car"),
+  currentOdometer: doublePrecision("current_odometer").notNull().default(0),
+  permitExpiry: text("permit_expiry"),
+  insuranceExpiry: text("insurance_expiry"),
+  fcExpiry: text("fc_expiry"),
+  pollutionExpiry: text("pollution_expiry"),
+  nextServiceDate: text("next_service_date"),
+  nextServiceKm: doublePrecision("next_service_km"),
+  tyreChangedDate: text("tyre_changed_date"),
+  tyreChangedKm: doublePrecision("tyre_changed_km"),
+  lastWaterWashDate: text("last_water_wash_date"),
+  lastWheelAlignmentDate: text("last_wheel_alignment_date"),
+  status: text("status").notNull().default("active"),
+  remarks: text("remarks"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const vehicleRecords = pgTable("vehicle_records", {
+  id: text("id").primaryKey(),
+  vehicleId: text("vehicle_id").notNull().references(() => vehicles.id),
+  recordDate: text("record_date").notNull(),
+  recordType: text("record_type").notNull(),
+  tripFrom: text("trip_from"),
+  tripTo: text("trip_to"),
+  purpose: text("purpose"),
+  startKm: doublePrecision("start_km"),
+  endKm: doublePrecision("end_km"),
+  litres: doublePrecision("litres").notNull().default(0),
+  amount: doublePrecision("amount").notNull().default(0),
+  vendorName: text("vendor_name"),
+  nextDueDate: text("next_due_date"),
+  nextDueKm: doublePrecision("next_due_km"),
+  remarks: text("remarks"),
+  enteredBy: text("entered_by"),
+  approvedBy: text("approved_by"),
+  approvedAt: text("approved_at"),
+  status: text("status").notNull().default("draft"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const utilityMeters = pgTable("utility_meters", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull().references(() => vendors.id),
+  locationType: text("location_type").notNull(),
+  locationName: text("location_name").notNull(),
+  meterNumber: text("meter_number"),
+  status: text("status").notNull().default("active"),
+  remarks: text("remarks"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const ebReadings = pgTable("eb_readings", {
+  id: text("id").primaryKey(),
+  meterId: text("meter_id").notNull().references(() => utilityMeters.id),
+  readingDate: text("reading_date").notNull(),
+  readingValue: doublePrecision("reading_value").notNull(),
+  unitsConsumed: doublePrecision("units_consumed").notNull().default(0),
+  amount: doublePrecision("amount").notNull().default(0),
+  remarks: text("remarks"),
+  enteredBy: text("entered_by"),
+  approvedBy: text("approved_by"),
+  approvedAt: text("approved_at"),
+  status: text("status").notNull().default("draft"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("eb_meter_reading_date_unique").on(table.meterId, table.readingDate)]);
 
 export const shiftDefinitions = pgTable("shift_definitions", {
   id: text("id").primaryKey(),

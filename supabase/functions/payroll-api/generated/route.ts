@@ -12,6 +12,10 @@ import {
   auditEvents,
   clientUnits,
   employees,
+  vehicles,
+  vehicleRecords,
+  utilityMeters,
+  ebReadings,
   payrollItems,
   payrollBatches,
   payrollRemarks,
@@ -228,11 +232,12 @@ async function enforceActionScope(db: Db, access: AppAccess, action: string, pay
 function actionPermission(action: string, payload: Payload): { module: AccessModule; level: "manage" } | null {
   if (action === "save-app-user" || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "app_user")) return { module: "users", level: "manage" };
   if (["create-vendor", "save-client", "create-unit", "save-unit"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["client", "unit"].includes(String(payload.entityType)))) return { module: "clients", level: "manage" };
-  if (["save-employee", "mark-employee-left", "reactivate-employee"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "employee")) return { module: "employees", level: "manage" };
+  if (["save-employee", "mark-employee-left", "reactivate-employee", "advance-employee-workflow"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "employee")) return { module: "employees", level: "manage" };
   if (["save-shift", "save-remark", "save-accommodation-type"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["shift", "remark", "accommodation_type"].includes(String(payload.entityType)))) return { module: "masters", level: "manage" };
   if (["save-attendance", "delete-attendance"].includes(action)) return { module: "attendance", level: "manage" };
   if (["save-accommodation", "delete-accommodation", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
   if (["clear-payroll-batch", "reopen-payroll-batch"].includes(action)) return { module: "payments", level: "manage" };
+  if (["save-vehicle", "save-vehicle-record", "save-utility-meter", "save-eb-reading", "approve-operation-record"].includes(action)) return { module: "operations", level: "manage" };
   if (action === "save-rules") return { module: "settings", level: "manage" };
   if (action === "import-workbook") return { module: payload.sourceType === "salary" ? "payroll" : payload.sourceType === "csv" ? "employees" : "attendance", level: "manage" };
   if (["create-run", "update-run-period", "prepare-payroll-batch", "prepare-payroll-batches", "save-payroll-item", "resolve-issues", "recalculate", "reopen", "reset-demo", "delete-payroll-run"].includes(action)) return { module: "payroll", level: "manage" };
@@ -463,7 +468,7 @@ function payrollItem(
 async function loadAppData(access: AppAccess) {
   /* Supabase production databases intentionally start without demo payroll records. */
   const db = getDb();
-  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows] = await Promise.all([
+  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings] = await Promise.all([
     db.select().from(vendors).orderBy(asc(vendors.name)),
     db.select().from(clientUnits).orderBy(asc(clientUnits.clientName)),
     db.select().from(employees).orderBy(asc(employees.employeeCode)),
@@ -530,6 +535,10 @@ async function loadAppData(access: AppAccess) {
     db.select().from(accommodationRooms).orderBy(asc(accommodationRooms.roomNumber)),
     db.select().from(accommodationRoomExpenses).orderBy(desc(accommodationRoomExpenses.payPeriod)),
     db.select().from(payrollBatches).orderBy(asc(payrollBatches.accommodationType)),
+    db.select().from(vehicles).orderBy(asc(vehicles.registrationNumber)),
+    db.select().from(vehicleRecords).orderBy(desc(vehicleRecords.recordDate)),
+    db.select().from(utilityMeters).orderBy(asc(utilityMeters.locationName)),
+    db.select().from(ebReadings).orderBy(desc(ebReadings.readingDate)),
   ]);
 
   const unrestricted = access.profile.role === "super_admin";
@@ -638,6 +647,10 @@ async function loadAppData(access: AppAccess) {
     remarks: seesAny(["clients", "masters", "attendance", "employees"]) ? remarkRows : [],
     currentUser: access.profile,
     appUsers: userRows.map(appUserProfile),
+    vehicles: canView(permissions, "operations") ? allVehicles.filter((vehicle) => visibleVendorIds.has(vehicle.vendorId)) : [],
+    vehicleRecords: canView(permissions, "operations") ? allVehicleRecords.filter((record) => allVehicles.some((vehicle) => vehicle.id === record.vehicleId && visibleVendorIds.has(vehicle.vendorId))) : [],
+    utilityMeters: canView(permissions, "operations") ? allMeters.filter((meter) => visibleVendorIds.has(meter.vendorId)) : [],
+    ebReadings: canView(permissions, "operations") ? allEbReadings.filter((reading) => allMeters.some((meter) => meter.id === reading.meterId && visibleVendorIds.has(meter.vendorId))) : [],
   };
 }
 
@@ -879,6 +892,7 @@ function employeeValues(payload: Record<string, unknown>, vendorId: string, unit
     salaryBasis: payload.salaryBasis === "daily" ? "daily" : "monthly",
     defaultShift: optionalValue(payload.defaultShift) ?? "General",
     remarks: optionalValue(payload.remarks),
+    employmentType: payload.employmentType === "direct" ? "direct" : "client",
   };
 }
 
@@ -1215,7 +1229,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         if (!existing || existing.clientUnitId !== unitId) throw new RequestError("Employee not found in the selected unit", 404);
         await db.update(employees).set({ ...values, complianceStatus }).where(eq(employees.id, employeeId));
       } else {
-        await db.insert(employees).values({ id, ...values, complianceStatus });
+        await db.insert(employees).values({ id, ...values, complianceStatus, processingStage: "field_hr_draft" });
       }
       const [saved] = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
       const openRuns = await db.select().from(payrollRuns).where(eq(payrollRuns.clientUnitId, unitId));
@@ -1374,6 +1388,21 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         await db.insert(payrollRemarks).values({ id, ...values });
       }
       await writeAudit(db, existingId ? "remark_updated" : "remark_created", "remark", id, `${existingId ? "Updated" : "Added"} ${category} remark: ${title}`, actorEmail);
+    } else if (action === "advance-employee-workflow") {
+      const employeeId = textValue(payload.employeeId, "Employee");
+      const [record] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      if (!record) throw new RequestError("Employee not found", 404);
+      const transitions: Record<string, { next: string; roles: string[] }> = {
+        field_hr_draft: { next: "field_hr_finalized", roles: ["field_hr", "hr_team", "super_admin"] },
+        field_hr_finalized: { next: "payroll_processed", roles: ["payroll_team", "super_admin"] },
+        payroll_processed: { next: "hr_manager_reviewed", roles: ["hr_team", "super_admin"] },
+        hr_manager_reviewed: { next: "approved", roles: ["super_admin"] },
+      };
+      const transition = transitions[record.processingStage];
+      if (!transition) throw new RequestError("Employee workflow is already approved", 409);
+      if (!transition.roles.includes(access.profile.role)) throw new RequestError("This step requires the assigned hierarchy role", 403);
+      await db.update(employees).set({ processingStage: transition.next, finalizedBy: actorEmail, finalizedAt: new Date().toISOString() }).where(eq(employees.id, employeeId));
+      await writeAudit(db, "employee_workflow_advanced", "employee", employeeId, `${record.name} moved to ${transition.next}`, actorEmail);
     } else if (action === "mark-employee-left") {
       const employeeId = textValue(payload.employeeId, "Employee");
       const leftDate = dateValue(payload.leftDate, "Left date");
@@ -1679,6 +1708,48 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         await db.update(payrollBatches).set({ status: "prepared", paymentReference: null, clearedBy: null, clearedAt: null, updatedAt: new Date().toISOString() }).where(eq(payrollBatches.id, batch.id));
         await writeAudit(db, "payroll_batch_reopened", "payroll_batch", batch.id, `Reopened ${batch.accommodationType} payment clearance`, actorEmail);
       }
+    } else if (action === "save-vehicle") {
+      const vendorId = textValue(payload.vendorId, "Joy company");
+      const id = optionalValue(payload.id) ?? `VEH-${crypto.randomUUID()}`;
+      const values = { vendorId, registrationNumber: textValue(payload.registrationNumber, "Registration number").toUpperCase(), vehicleName: textValue(payload.vehicleName, "Vehicle name"), vehicleType: optionalValue(payload.vehicleType) ?? "car", currentOdometer: positiveValue(payload.currentOdometer ?? 0, "Current odometer"), permitExpiry: optionalValue(payload.permitExpiry), insuranceExpiry: optionalValue(payload.insuranceExpiry), fcExpiry: optionalValue(payload.fcExpiry), pollutionExpiry: optionalValue(payload.pollutionExpiry), nextServiceDate: optionalValue(payload.nextServiceDate), nextServiceKm: payload.nextServiceKm ? positiveValue(payload.nextServiceKm, "Next service km") : null, tyreChangedDate: optionalValue(payload.tyreChangedDate), tyreChangedKm: payload.tyreChangedKm ? positiveValue(payload.tyreChangedKm, "Tyre changed km") : null, lastWaterWashDate: optionalValue(payload.lastWaterWashDate), lastWheelAlignmentDate: optionalValue(payload.lastWheelAlignmentDate), remarks: optionalValue(payload.remarks) };
+      const [existing] = await db.select().from(vehicles).where(eq(vehicles.id, id)).limit(1);
+      if (existing) await db.update(vehicles).set(values).where(eq(vehicles.id, id)); else await db.insert(vehicles).values({ id, ...values });
+      await writeAudit(db, existing ? "vehicle_updated" : "vehicle_created", "vehicle", id, `${existing ? "Updated" : "Added"} vehicle ${values.registrationNumber}`, actorEmail);
+    } else if (action === "save-vehicle-record") {
+      const vehicleId = textValue(payload.vehicleId, "Vehicle");
+      const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.id, vehicleId)).limit(1);
+      if (!vehicle) throw new RequestError("Vehicle not found", 404);
+      const id = optionalValue(payload.id) ?? `VREC-${crypto.randomUUID()}`;
+      const startKm = payload.startKm ? positiveValue(payload.startKm, "Start km") : null;
+      const endKm = payload.endKm ? positiveValue(payload.endKm, "End km") : null;
+      if (startKm !== null && endKm !== null && endKm < startKm) throw new RequestError("End km cannot be below start km");
+      const values = { vehicleId, recordDate: dateValue(payload.recordDate, "Record date"), recordType: textValue(payload.recordType, "Record type"), tripFrom: optionalValue(payload.tripFrom), tripTo: optionalValue(payload.tripTo), purpose: optionalValue(payload.purpose), startKm, endKm, litres: positiveValue(payload.litres ?? 0, "Litres"), amount: positiveValue(payload.amount ?? 0, "Amount"), vendorName: optionalValue(payload.vendorName), nextDueDate: optionalValue(payload.nextDueDate), nextDueKm: payload.nextDueKm ? positiveValue(payload.nextDueKm, "Next due km") : null, remarks: optionalValue(payload.remarks), enteredBy: actorEmail, status: "draft" };
+      await db.insert(vehicleRecords).values({ id, ...values });
+      if (endKm !== null && endKm > vehicle.currentOdometer) await db.update(vehicles).set({ currentOdometer: endKm }).where(eq(vehicles.id, vehicleId));
+      await writeAudit(db, "vehicle_record_created", "vehicle_record", id, `Added ${values.recordType} record for ${vehicle.registrationNumber}`, actorEmail);
+    } else if (action === "save-utility-meter") {
+      const vendorId = textValue(payload.vendorId, "Joy company");
+      const id = optionalValue(payload.id) ?? `METER-${crypto.randomUUID()}`;
+      const values = { vendorId, locationType: payload.locationType === "office" ? "office" : "hostel", locationName: textValue(payload.locationName, "Location name"), meterNumber: optionalValue(payload.meterNumber), remarks: optionalValue(payload.remarks) };
+      const [existing] = await db.select().from(utilityMeters).where(eq(utilityMeters.id, id)).limit(1);
+      if (existing) await db.update(utilityMeters).set(values).where(eq(utilityMeters.id, id)); else await db.insert(utilityMeters).values({ id, ...values });
+    } else if (action === "save-eb-reading") {
+      const meterId = textValue(payload.meterId, "EB meter");
+      const [meter] = await db.select().from(utilityMeters).where(eq(utilityMeters.id, meterId)).limit(1);
+      if (!meter) throw new RequestError("EB meter not found", 404);
+      const readingDate = dateValue(payload.readingDate, "Reading date");
+      const readingValue = positiveValue(payload.readingValue, "Meter reading");
+      const [previous] = await db.select().from(ebReadings).where(and(eq(ebReadings.meterId, meterId), lt(ebReadings.readingDate, readingDate))).orderBy(desc(ebReadings.readingDate)).limit(1);
+      if (previous && readingValue < previous.readingValue) throw new RequestError("Reading cannot be below the previous reading");
+      await db.insert(ebReadings).values({ id: `EB-${crypto.randomUUID()}`, meterId, readingDate, readingValue, unitsConsumed: previous ? roundMoney(readingValue - previous.readingValue) : 0, amount: positiveValue(payload.amount ?? 0, "EB amount"), remarks: optionalValue(payload.remarks), enteredBy: actorEmail, status: "draft" });
+    } else if (action === "approve-operation-record") {
+      if (!access.profile.canApprovePayroll && access.profile.role !== "hr_team") throw new RequestError("HR Manager or Super Admin approval is required", 403);
+      const recordType = textValue(payload.recordType, "Record type");
+      const id = textValue(payload.id, "Record");
+      const approval = { status: "approved", approvedBy: actorEmail, approvedAt: new Date().toISOString() };
+      if (recordType === "vehicle") await db.update(vehicleRecords).set(approval).where(eq(vehicleRecords.id, id));
+      else if (recordType === "eb") await db.update(ebReadings).set(approval).where(eq(ebReadings.id, id));
+      else throw new RequestError("Unsupported approval record");
     } else if (action === "save-rules") {
       const vendorId = textValue(payload.vendorId, "Payroll entity");
       const fields = typeof payload.rules === "object" && payload.rules !== null ? payload.rules as Record<string, unknown> : {};
