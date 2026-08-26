@@ -42,6 +42,7 @@ export const accommodationTypes = sqliteTable("accommodation_types", {
 export const hostels = sqliteTable("hostels", {
   id: text("id").primaryKey(),
   vendorId: text("vendor_id").notNull().references(() => vendors.id),
+  accommodationTypeId: text("accommodation_type_id").references(() => accommodationTypes.id),
   name: text("name").notNull(),
   address: text("address"),
   inchargeName: text("incharge_name"),

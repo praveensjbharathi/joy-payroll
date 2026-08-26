@@ -1721,12 +1721,15 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       }
     } else if (action === "save-hostel") {
       const vendorId = textValue(payload.vendorId, "Client"); const id = optionalValue(payload.id) ?? `HOSTEL-${crypto.randomUUID()}`;
-      const values = { vendorId, name: textValue(payload.name, "Hostel name"), address: optionalValue(payload.address), inchargeName: optionalValue(payload.inchargeName), ebMeterNumber: optionalValue(payload.ebMeterNumber), remarks: optionalValue(payload.remarks) };
+      const accommodationTypeId = textValue(payload.accommodationTypeId, "Accommodation type");
+      const [hostelType] = await db.select().from(accommodationTypes).where(eq(accommodationTypes.id, accommodationTypeId)).limit(1);
+      if (!hostelType || hostelType.vendorId !== vendorId) throw new RequestError("Select an accommodation type from this client", 409);
+      const values = { vendorId, accommodationTypeId, name: textValue(payload.name, "Hostel name"), address: optionalValue(payload.address), inchargeName: optionalValue(payload.inchargeName), ebMeterNumber: optionalValue(payload.ebMeterNumber), remarks: optionalValue(payload.remarks) };
       const [existing] = await db.select().from(hostels).where(eq(hostels.id,id)).limit(1); if(existing) await db.update(hostels).set(values).where(eq(hostels.id,id)); else await db.insert(hostels).values({id,...values});
     } else if (action === "assign-room-hostel") {
       const roomId=textValue(payload.roomId,"Room"); const hostelId=textValue(payload.hostelId,"Hostel");
       const [room]=await db.select().from(accommodationRooms).where(eq(accommodationRooms.id,roomId)).limit(1); const [hostel]=await db.select().from(hostels).where(eq(hostels.id,hostelId)).limit(1);
-      if(!room||!hostel||room.vendorId!==hostel.vendorId) throw new RequestError("Select a room and hostel from the same client",409); await db.update(accommodationRooms).set({hostelId}).where(eq(accommodationRooms.id,roomId));
+      if(!room||!hostel||room.vendorId!==hostel.vendorId||room.accommodationTypeId!==hostel.accommodationTypeId) throw new RequestError("Room and hostel must use the same accommodation type",409); await db.update(accommodationRooms).set({hostelId}).where(eq(accommodationRooms.id,roomId));
     } else if (action === "save-hostel-utility") {
       const hostelId=textValue(payload.hostelId,"Hostel"); const readingDate=dateValue(payload.readingDate,"Reading date"); const utilityType=textValue(payload.utilityType,"Utility type");
       if(!["eb","water_purchase"].includes(utilityType)) throw new RequestError("Unsupported hostel utility type");
