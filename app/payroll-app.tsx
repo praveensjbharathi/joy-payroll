@@ -105,6 +105,7 @@ export type Employee = {
   salaryBasis: string;
   defaultShift: string;
   shiftPattern: string;
+  applicableShiftsJson: string;
   remarks: string | null;
   complianceStatus: string;
   status: string;
@@ -284,7 +285,7 @@ export type RoomExpense = {
 };
 
 export type Hostel = { id: string; vendorId: string; accommodationTypeId: string | null; name: string; address: string | null; inchargeName: string | null; ebMeterNumber: string | null; status: string; remarks: string | null };
-export type HostelUtilityReading = { id: string; hostelId: string; readingDate: string; utilityType: "eb" | "water_purchase"; readingValue: number; consumption: number; tankerQuantity: number; amount: number; remarks: string | null; status: string; approvedBy: string | null; approvedAt: string | null };
+export type HostelUtilityReading = { id: string; hostelId: string; readingDate: string; utilityType: "eb" | "water" | "payment" | "housekeeping" | "other"; readingValue: number; consumption: number; tankerQuantity: number; amount: number; activityName: string | null; remarks: string | null; status: string; approvedBy: string | null; approvedAt: string | null };
 
 export type PayrollBatch = {
   id: string;
@@ -376,7 +377,7 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "accommodation", label: "Accommodation", icon: "home" },
   { id: "hostels", label: "Hostel Master", icon: "building" },
   { id: "payments", label: "Payments & Payslips", icon: "bank" },
-  { id: "vendors", label: "Clients & Employers", icon: "building" },
+  { id: "vendors", label: "Group Companies & Clients", icon: "building" },
   { id: "masters", label: "Operational Masters", icon: "calendar" },
   { id: "operations", label: "Vehicles & EB", icon: "building" },
   { id: "users", label: "Users & Access", icon: "users" },
@@ -406,7 +407,7 @@ const sectionTitles: Record<Section, { eyebrow: string; title: string; descripti
   accommodation: { eyebrow: "Accommodation rooms & recoveries", title: "Room allocations & shared deductions", description: "Accommodation-type masters, room allocations, gas, ration, provision, and printable room-wise breakups." },
   hostels: { eyebrow: "Hostel hierarchy & utilities", title: "Hostel master", description: "Select accommodation type first, create hostels beneath it, map rooms, and track hostel-wise EB and water daily." },
   payments: { eyebrow: "Disbursement", title: "Payments & payslips", description: "Bank-ready rows, cash list and employee salary slips after approval." },
-  vendors: { eyebrow: "Organisation structure", title: "Clients, employers & units", description: "Add, edit, deactivate, or delete every client and employer factory unit." },
+  vendors: { eyebrow: "Organisation structure", title: "Group companies, clients & locations", description: "Joy companies are group companies; their customer employers are clients with operating locations." },
   masters: { eyebrow: "Operational master data", title: "Accommodation, shifts & remarks", description: "Add, edit, deactivate, or remove accommodation types, shift timings, and reusable remarks for each client." },
   operations: { eyebrow: "Administration controls", title: "Vehicle & EB operations", description: "Trips, fuel, mileage, compliance reminders, expenses, and daily hostel/office electricity readings." },
   users: { eyebrow: "Security & responsibility", title: "Users & access", description: "Assign roles and customize what each person can view or manage." },
@@ -672,17 +673,17 @@ export default function PayrollApp({
           <button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Icon name="menu" /></button>
           <div className="topbar-selectors">
             <label>
-              <span>Client</span>
+              <span>Group of company</span>
               <select value={activeVendorId} onChange={(event) => selectVendor(event.target.value)}>
-                {!data.vendors.some((client) => client.status === "active") ? <option value="">Add a client</option> : null}
+                {!data.vendors.some((client) => client.status === "active") ? <option value="">Add a group company</option> : null}
                 {data.vendors.filter((client) => client.status === "active").map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
               </select>
             </label>
             <span className="selector-divider" />
             <label>
-              <span>Employer / unit</span>
+              <span>Client name / location</span>
               <select value={activeUnitId} onChange={(event) => setActiveUnitId(event.target.value)}>
-                {!vendorUnits.length ? <option value="">Add an employer unit</option> : null}
+                {!vendorUnits.length ? <option value="">Add a client location</option> : null}
                 {vendorUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.clientName} · {unit.unitName}</option>)}
               </select>
             </label>
@@ -1185,6 +1186,9 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
   const [employeeType, setEmployeeType] = useState(employee?.accommodationType ?? accommodationTypes.find((type) => type.name === "Tamil" && type.status === "active")?.name ?? accommodationTypes.find((type) => type.status === "active")?.name ?? "Tamil");
   const [employeeRoomId, setEmployeeRoomId] = useState(employee?.roomId ?? "");
   const [employeeRoomNumber, setEmployeeRoomNumber] = useState(employee?.roomNumber ?? "");
+  const initialEmployeeShifts = configuredFields(employee?.applicableShiftsJson, employee?.defaultShift ? [employee.defaultShift] : ["General"]);
+  const [employeeShiftPattern, setEmployeeShiftPattern] = useState(employee?.shiftPattern === "rotational" ? "rotational" : "regular");
+  const [employeeShifts, setEmployeeShifts] = useState<string[]>(initialEmployeeShifts);
   const initialRunMonth = currentRun ? followingMonth(currentPeriod) : currentPeriod;
   const initialRunDates = unitAttendanceCycle(initialRunMonth, unit);
   const [runMonth, setRunMonth] = useState(initialRunMonth);
@@ -1222,7 +1226,9 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
     else if (modal.kind === "unit") await onAction("save-unit", employerUnit ? "Employer unit updated" : "Employer unit created", { ...fields, payslipEarnings: unitEarnings, payslipDeductions: unitDeductions, id: employerUnit?.id });
     else if (modal.kind === "employee") {
       const employmentType = employee?.employmentType ?? (window.confirm("Is this a direct employee of Joy Manpower Service / Joy Corporate Solutions? Select OK for Direct, or Cancel for Client-assigned.") ? "direct" : "client");
-      await onAction("save-employee", employee ? "Employee details updated" : "Employee added to payroll", { employee: { ...fields, employmentType, id: employee?.id } });
+      if (employeeShiftPattern === "rotational" && employeeShifts.length < 2) { window.alert("Select at least 2 applicable shifts for a rotational employee."); return; }
+      const applicable = employeeShiftPattern === "regular" ? [employeeShifts[0] ?? shiftOptions[0] ?? "General"] : employeeShifts;
+      await onAction("save-employee", employee ? "Employee details updated" : "Employee added to payroll", { employee: { ...fields, shiftPattern: employeeShiftPattern, defaultShift: applicable[0], applicableShiftsJson: JSON.stringify(applicable), paymentMode: "bank", employmentType, id: employee?.id } });
     }
     else if (modal.kind === "employee-left") await onAction("mark-employee-left", `${modal.employee.name} marked as left; history preserved`, { employeeId: modal.employee.id, leftDate: fields.leftDate });
     else if (modal.kind === "accommodation-type") await onAction("save-accommodation-type", selectedType ? "Accommodation type updated" : "Accommodation type added", { ...fields, id: selectedType?.id });
@@ -1245,6 +1251,8 @@ function PayrollActionModal({ modal, vendors, units, accommodationTypes, rooms, 
     {modal.kind === "unit" ? <div className="form-grid"><label className="form-span"><span>Client *</span><select name="vendorId" defaultValue={employerUnit?.vendorId ?? vendorId} required>{vendors.filter((vendor) => vendor.status === "active" || vendor.id === employerUnit?.vendorId).map((vendor) => <option value={vendor.id} key={vendor.id}>{vendor.name}</option>)}</select></label><label><span>Employer company *</span><input name="clientName" defaultValue={employerUnit?.clientName} placeholder="Watertec India" required /></label><label><span>Factory / unit name *</span><input name="unitName" defaultValue={employerUnit?.unitName} placeholder="Unit I" required /></label><label><span>Location *</span><input name="location" defaultValue={employerUnit?.location} placeholder="Coimbatore" required /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={employerUnit?.remarks ?? ""} placeholder="Optional employer notes" /></label><div className="form-note form-span"><strong>Unit-wise attendance cycle</strong><span>Example: start 26 and end 25 means previous month 26th through current month 25th.</span></div><label><span>Cycle start day *</span><input name="attendanceCycleStartDay" type="number" min="1" max="31" defaultValue={employerUnit?.attendanceCycleStartDay ?? 1} required /></label><label><span>Cycle end day *</span><input name="attendanceCycleEndDay" type="number" min="1" max="31" defaultValue={employerUnit?.attendanceCycleEndDay ?? 31} required /></label><label className="form-span"><span>Default working days *</span><input name="attendanceWorkingDays" type="number" min="1" max="31" defaultValue={employerUnit?.attendanceWorkingDays ?? 26} required /></label><div className="form-note form-span"><strong>Employer-customized salary slip</strong><span>These settings can be changed during unit creation or later through Edit employer unit.</span></div><label className="form-span"><span>Payslip employer heading</span><input name="payslipTitle" defaultValue={employerUnit?.payslipTitle ?? ""} placeholder="Employer legal / display name" /></label><label className="form-span"><span>Payslip subtitle</span><input name="payslipSubtitle" defaultValue={employerUnit?.payslipSubtitle ?? ""} placeholder="Factory, division, payroll partner, or registration detail" /></label><label className="form-span"><span>Payslip address</span><textarea name="payslipAddress" defaultValue={employerUnit?.payslipAddress ?? ""} rows={2} placeholder="Employer address shown on the salary slip" /></label><label className="form-span"><span>Payslip contact line</span><input name="payslipContact" defaultValue={employerUnit?.payslipContact ?? ""} placeholder="Website · email · phone" /></label><label className="form-span"><span>Payslip footer</span><input name="payslipFooter" defaultValue={employerUnit?.payslipFooter ?? ""} placeholder="Customized salary slip declaration" /></label><section className="form-span payslip-field-selector"><strong>Payslip earnings to show *</strong><div className="scope-checkbox-grid">{earningFields.map((field) => <label key={field}><input type="checkbox" checked={unitEarnings.includes(field)} onChange={(event) => setUnitEarnings(event.target.checked ? [...unitEarnings, field] : unitEarnings.filter((value) => value !== field))} /><span>{readableField(field)}</span></label>)}</div></section><section className="form-span payslip-field-selector"><strong>Payslip deductions to show *</strong><div className="scope-checkbox-grid">{deductionFields.map((field) => <label key={field}><input type="checkbox" checked={unitDeductions.includes(field)} onChange={(event) => setUnitDeductions(event.target.checked ? [...unitDeductions, field] : unitDeductions.filter((value) => value !== field))} /><span>{readableField(field)}</span></label>)}</div></section></div> : null}
 
     {modal.kind === "employee-left" ? <div className="form-grid"><div className="form-note form-span"><strong>{leftEmployee?.name} · {leftEmployee?.employeeCode}</strong><span>The employee master, attendance, payroll, accommodation, and payment history will remain preserved.</span></div><label className="form-span"><span>Employee left date *</span><input name="leftDate" type="date" min={leftEmployee?.dateOfJoining} defaultValue={leftEmployee?.dateOfLeaving ?? new Date().toISOString().slice(0, 10)} required /></label></div> : null}
+
+    {modal.kind === "employee" ? <section className="employee-shift-selector"><div className="form-note"><strong>Shift pattern *</strong><span>Select one regular timing, or every rotational shift applicable to this employee.</span></div><div className="shift-pattern-options"><label><input type="radio" checked={employeeShiftPattern === "regular"} onChange={() => { setEmployeeShiftPattern("regular"); setEmployeeShifts([employeeShifts[0] ?? shiftOptions[0] ?? "General"]); }} /><span>Regular shift</span></label><label><input type="radio" checked={employeeShiftPattern === "rotational"} onChange={() => setEmployeeShiftPattern("rotational")} /><span>Rotational shift</span></label></div>{employeeShiftPattern === "regular" ? <label><span>Regular shift timing *</span><select value={employeeShifts[0] ?? ""} onChange={(event) => setEmployeeShifts([event.target.value])} required>{shiftOptions.map((shift) => <option key={shift} value={shift}>{shift}</option>)}</select></label> : <fieldset><legend>Applicable shifts * (minimum 2)</legend><div className="scope-checkbox-grid">{shiftOptions.map((shift) => <label key={shift}><input type="checkbox" checked={employeeShifts.includes(shift)} onChange={(event) => setEmployeeShifts(event.target.checked ? [...new Set([...employeeShifts, shift])] : employeeShifts.filter((value) => value !== shift))} /><span>{shift}</span></label>)}</div></fieldset>}</section> : null}
 
     {modal.kind === "employee" ? <div className="form-grid"><label><span>Employee code *</span><input name="employeeCode" defaultValue={employee?.employeeCode} placeholder="J1007" required /></label><label><span>Employee name *</span><input name="name" defaultValue={employee?.name} placeholder="Full name" required /></label><label><span>Department *</span><input name="department" defaultValue={employee?.department ?? "Production"} required /></label><label><span>Date of joining *</span><input name="dateOfJoining" type="date" defaultValue={employee?.dateOfJoining ?? `${currentPeriod}-01`} required /></label><label><span>Basic salary / daily rate (₹)</span><input name="salaryAmount" type="number" min="0" step="0.01" defaultValue={employee?.salaryAmount ?? 0} required /></label><label><span>Salary basis</span><select name="salaryBasis" defaultValue={employee?.salaryBasis ?? "monthly"}><option value="monthly">Monthly</option><option value="daily">Daily</option></select></label><label><span>Default shift</span><select name="defaultShift" defaultValue={employee?.defaultShift ?? shiftOptions.find((shift) => shift === "General") ?? shiftOptions[0]}>{shiftOptions.map((shift) => <option key={shift}>{shift}</option>)}</select></label><label><span>Payment mode</span><select name="paymentMode" defaultValue={employee?.paymentMode ?? "cash"}><option value="cash">Cash</option><option value="bank">Bank transfer</option></select></label><label><span>UAN</span><input name="uanMasked" defaultValue={employee?.uanMasked ?? ""} placeholder="Optional unless PF applies" /></label><label><span>ESI number</span><input name="esiMasked" defaultValue={employee?.esiMasked ?? ""} placeholder="Optional unless ESI applies" /></label><label><span>Bank account number</span><input name="bankAccountMasked" defaultValue={employee?.bankAccountMasked ?? ""} /></label><label><span>IFSC code</span><input name="ifscMasked" defaultValue={employee?.ifscMasked ?? ""} /></label><label><span>Bank name</span><input name="bankName" defaultValue={employee?.bankName ?? ""} /></label><label><span>Accommodation type *</span><select name="accommodationType" value={employeeType} onChange={(event) => { setEmployeeType(event.target.value); setEmployeeRoomId(""); setEmployeeRoomNumber(""); }} required>{activeAccommodationTypes.map((type) => <option key={type.id} value={type.name}>{type.name}</option>)}</select></label><label><span>Existing room</span><select name="roomId" value={employeeRoomId} onChange={(event) => { const id = event.target.value; setEmployeeRoomId(id); setEmployeeRoomNumber(matchingRooms.find((room) => room.id === id)?.roomNumber ?? ""); }}><option value="">No existing room selected</option>{matchingRooms.map((room) => <option key={room.id} value={room.id}>{room.roomNumber}{room.capacity ? ` · capacity ${room.capacity}` : ""}</option>)}</select></label><label><span>Room number</span><input name="roomNumber" value={employeeRoomNumber} onChange={(event) => { setEmployeeRoomNumber(event.target.value); setEmployeeRoomId(""); }} placeholder="Choose above or type a new room number" /></label><label><span>Other remarks</span><input name="remarks" list="payroll-remark-options" defaultValue={employee?.remarks ?? ""} placeholder="Optional employee notes" /></label></div> : null}
 

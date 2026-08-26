@@ -15,7 +15,7 @@ export const ACCESS_MODULES = [
 
 export type AccessModule = (typeof ACCESS_MODULES)[number]["id"];
 export type AccessLevel = "none" | "view" | "manage";
-export type UserRole = "super_admin" | "payroll_team" | "hr_team" | "field_hr";
+export type UserRole = "super_admin" | "payroll_team" | "hr_team" | "field_hr" | "hostel_incharge";
 export type PermissionMap = Record<AccessModule, AccessLevel>;
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -23,6 +23,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   payroll_team: "Payroll HR",
   hr_team: "HR Manager",
   field_hr: "Field HR",
+  hostel_incharge: "Hostel In-charge",
 };
 
 const allManage = Object.fromEntries(ACCESS_MODULES.map((module) => [module.id, "manage"])) as PermissionMap;
@@ -59,6 +60,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, PermissionMap> = {
     dashboard: "view", payroll: "view", attendance: "manage", employees: "manage", accommodation: "manage",
     payments: "none", clients: "view", masters: "view", operations: "view", settings: "none", users: "none",
   },
+  hostel_incharge: { dashboard: "view", payroll: "none", attendance: "none", employees: "view", accommodation: "manage", payments: "none", clients: "view", masters: "view", operations: "none", settings: "none", users: "none" },
 };
 
 export const DEFAULT_APPROVAL_ACCESS: Record<UserRole, boolean> = {
@@ -66,10 +68,11 @@ export const DEFAULT_APPROVAL_ACCESS: Record<UserRole, boolean> = {
   payroll_team: false,
   hr_team: false,
   field_hr: false,
+  hostel_incharge: false,
 };
 
 export function normalizeRole(value: unknown): UserRole {
-  return value === "super_admin" || value === "payroll_team" || value === "hr_team" || value === "field_hr" ? value : "field_hr";
+  return value === "super_admin" || value === "payroll_team" || value === "hr_team" || value === "field_hr" || value === "hostel_incharge" ? value : "field_hr";
 }
 
 export function normalizePermissions(role: UserRole, value: unknown): PermissionMap {

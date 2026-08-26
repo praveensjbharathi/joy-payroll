@@ -899,6 +899,7 @@ function employeeValues(payload: Record<string, unknown>, vendorId: string, unit
     salaryBasis: payload.salaryBasis === "daily" ? "daily" : "monthly",
     defaultShift: optionalValue(payload.defaultShift) ?? "General",
     shiftPattern: payload.shiftPattern === "rotational" ? "rotational" : "general",
+    applicableShiftsJson: typeof payload.applicableShiftsJson === "string" ? payload.applicableShiftsJson : "[]",
     remarks: optionalValue(payload.remarks),
     employmentType: payload.employmentType === "direct" ? "direct" : "client",
   };
@@ -1275,9 +1276,15 @@ export async function POST(request: Request) {
       const id = existingId ?? `ROOM-${crypto.randomUUID()}`;
       const capacity = positiveValue(payload.capacity ?? 0, "Room capacity", 1000);
       if (!Number.isInteger(capacity)) throw new RequestError("Room capacity must be a whole number");
+      const hostelId = optionalValue(payload.hostelId);
+      if (hostelId) {
+        const [hostel] = await db.select().from(hostels).where(eq(hostels.id, hostelId)).limit(1);
+        if (!hostel || hostel.vendorId !== vendorId || hostel.accommodationTypeId !== accommodationTypeId || hostel.status !== "active") throw new RequestError("Choose an active stored hostel under this accommodation type", 409);
+      }
       const values = {
         vendorId,
         accommodationTypeId,
+        hostelId,
         roomNumber: textValue(payload.roomNumber, "Room number"),
         capacity,
         address: optionalValue(payload.address),
@@ -1732,10 +1739,10 @@ export async function POST(request: Request) {
       if(!room||!hostel||room.vendorId!==hostel.vendorId||room.accommodationTypeId!==hostel.accommodationTypeId) throw new RequestError("Room and hostel must use the same accommodation type",409); await db.update(accommodationRooms).set({hostelId}).where(eq(accommodationRooms.id,roomId));
     } else if (action === "save-hostel-utility") {
       const hostelId=textValue(payload.hostelId,"Hostel"); const readingDate=dateValue(payload.readingDate,"Reading date"); const utilityType=textValue(payload.utilityType,"Utility type");
-      if(!["eb","water_purchase"].includes(utilityType)) throw new RequestError("Unsupported hostel utility type");
+      if(!["eb","water","payment","housekeeping","other"].includes(utilityType)) throw new RequestError("Unsupported hostel utility type");
       const readingValue=positiveValue(payload.readingValue??0,"Reading"); const [previous]=await db.select().from(hostelUtilityReadings).where(and(eq(hostelUtilityReadings.hostelId,hostelId),eq(hostelUtilityReadings.utilityType,utilityType),lt(hostelUtilityReadings.readingDate,readingDate))).orderBy(desc(hostelUtilityReadings.readingDate)).limit(1);
       if(previous&&utilityType==="eb"&&readingValue<previous.readingValue) throw new RequestError("Reading cannot be below the previous reading");
-      await db.insert(hostelUtilityReadings).values({id:`HUTIL-${crypto.randomUUID()}`,hostelId,readingDate,utilityType,readingValue,consumption:previous&&utilityType==="eb"?roundMoney(readingValue-previous.readingValue):0,tankerQuantity:positiveValue(payload.tankerQuantity??0,"Water quantity"),amount:positiveValue(payload.amount??0,"Amount"),remarks:optionalValue(payload.remarks),enteredBy:actorEmail,status:"draft"});
+      await db.insert(hostelUtilityReadings).values({id:`HUTIL-${crypto.randomUUID()}`,hostelId,readingDate,utilityType,readingValue,consumption:previous&&utilityType==="eb"?roundMoney(readingValue-previous.readingValue):0,tankerQuantity:positiveValue(payload.tankerQuantity??0,"Water quantity"),amount:positiveValue(payload.amount??0,"Paid amount"),activityName:optionalValue(payload.activityName),remarks:optionalValue(payload.remarks),enteredBy:actorEmail,status:"draft"});
     } else if (action === "approve-hostel-utility") {
       if(!access.profile.canApprovePayroll&&access.profile.role!=="hr_team") throw new RequestError("HR Manager or Super Admin approval is required",403); const id=textValue(payload.id,"Reading"); await db.update(hostelUtilityReadings).set({status:"approved",approvedBy:actorEmail,approvedAt:new Date().toISOString()}).where(eq(hostelUtilityReadings.id,id));
     } else if (action === "save-vehicle") {

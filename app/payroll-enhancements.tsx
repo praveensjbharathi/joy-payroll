@@ -44,9 +44,16 @@ export function WorkforceDashboard({ data }: { data: AppData }) {
   const eligibleUnits = data.units.filter((unit) => clientId === "all" || unit.vendorId === clientId);
   const selectedEmployees = data.employees.filter((employee) => (clientId === "all" || employee.vendorId === clientId) && (unitId === "all" || employee.clientUnitId === unitId));
   const live = selectedEmployees.filter((employee) => employee.status === "active");
-  const left = selectedEmployees.filter((employee) => employee.status !== "active");
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const joined = selectedEmployees.filter((employee) => employee.dateOfJoining.startsWith(`${currentMonth}-`));
+  const currentDate = new Date(`${currentMonth}-01T00:00:00Z`);
+  currentDate.setUTCMonth(currentDate.getUTCMonth() - 1);
+  const previousMonth = currentDate.toISOString().slice(0, 7);
+  const monthEnd = (period: string) => new Date(Date.UTC(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const liveAtMonthEnd = (employee: Employee, period: string) => employee.dateOfJoining <= monthEnd(period) && (!employee.dateOfLeaving || employee.dateOfLeaving > monthEnd(period));
+  const currentLive = selectedEmployees.filter((employee) => liveAtMonthEnd(employee, currentMonth));
+  const previousLive = selectedEmployees.filter((employee) => liveAtMonthEnd(employee, previousMonth));
+  const currentLeft = selectedEmployees.filter((employee) => employee.dateOfLeaving?.startsWith(`${currentMonth}-`));
+  const previousLeft = selectedEmployees.filter((employee) => employee.dateOfLeaving?.startsWith(`${previousMonth}-`));
   const bankPending = live.filter((employee) => !employee.bankAccountMasked || !employee.ifscMasked);
   const epfPending = live.filter((employee) => !employee.uanMasked);
   const esiPending = live.filter((employee) => !employee.esiMasked);
@@ -69,7 +76,7 @@ export function WorkforceDashboard({ data }: { data: AppData }) {
   return <div className="section-stack workforce-dashboard">
     <section className="panel workforce-filter-panel"><div><span className="eyebrow">Scope selector</span><h2>Overall, client-wise & employer-unit-wise</h2></div><div className="workforce-filters"><label><span>Client</span><select value={clientId} onChange={(event) => { setClientId(event.target.value); setUnitId("all"); }}><option value="all">All accessible clients</option>{data.vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select></label><label><span>Employer / unit</span><select value={unitId} onChange={(event) => setUnitId(event.target.value)}><option value="all">All employer units</option>{eligibleUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.clientName} · {unit.unitName}</option>)}</select></label></div></section>
 
-    <section className="workforce-number-grid"><NumberCard label="Overall manpower" value={selectedEmployees.length} note="All employee records" tone="blue" /><NumberCard label="Live manpower" value={live.length} note="Currently active employees" tone="green" /><NumberCard label="Left manpower" value={left.length} note="Inactive / exited employees" tone="slate" /><NumberCard label="Joined this month" value={joined.length} note={`Joining dates in ${currentMonth}`} tone="violet" /></section>
+    <section className="workforce-number-grid"><NumberCard label="Current month live" value={currentLive.length} note={`Live at ${currentMonth} month-end`} tone="green" /><NumberCard label="Last month live" value={previousLive.length} note={`Live at ${previousMonth} month-end`} tone="blue" /><NumberCard label="Left this month" value={currentLeft.length} note={`Left dates in ${currentMonth}`} tone="violet" /><NumberCard label="Last month left" value={previousLeft.length} note={`Left dates in ${previousMonth}`} tone="slate" /></section>
 
     <section className="workforce-number-grid compliance-number-grid"><NumberCard label="Bank account pending" value={bankPending.length} note={`Account or IFSC missing · ${live.length} active`} tone="amber" /><NumberCard label="EPF / UAN pending" value={epfPending.length} note={`UAN missing · ${live.length} active`} tone="red" /><NumberCard label="ESI number pending" value={esiPending.length} note={`ESI number missing · ${live.length} active`} tone="red" /><NumberCard label="Fully compliant" value={live.length - pendingEmployees.length} note="Bank, IFSC, UAN & ESI available" tone="green" /></section>
 

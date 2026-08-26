@@ -692,3 +692,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .operations-view .form-grid h2 { margin:0 0 6px; }.operations-view .metric-card { min-height:100px; }
 .payslip-field-selector { padding:12px; border:1px solid var(--line); border-radius:10px; }.payslip-field-selector>strong{display:block;margin-bottom:10px}
 @media print { .id-card-modal { position:static; width:auto; transform:none; box-shadow:none; background:#fff; }.id-card-modal .modal-toolbar,.id-card-modal+.modal-scrim{display:none}.employee-id-card{box-shadow:none;border:1px solid #ccd5e1} }
+.action-modal label:has(select[name="defaultShift"]), .action-modal label:has(select[name="paymentMode"]) { display: none; }
+.employee-shift-selector { display: grid; gap: 14px; padding: 16px; margin-bottom: 16px; border: 1px solid #cfe0fa; border-radius: 14px; background: #f7faff; }
+.employee-shift-selector fieldset { border: 0; padding: 0; margin: 0; }
+.shift-pattern-options { display: flex; flex-wrap: wrap; gap: 16px; }
+.shift-pattern-options label { display: flex; align-items: center; gap: 8px; }
