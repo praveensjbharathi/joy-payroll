@@ -229,6 +229,7 @@ export const employees = sqliteTable("employees", {
   fatherName: text("father_name"),
   spouseName: text("spouse_name"),
   maritalStatus: text("marital_status"),
+  highestQualification: text("highest_qualification"),
   pfApplicable: integer("pf_applicable").notNull().default(1),
   pfWageAmount: real("pf_wage_amount").notNull().default(0),
   esiApplicable: integer("esi_applicable").notNull().default(1),

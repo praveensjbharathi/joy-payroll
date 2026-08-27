@@ -133,6 +133,7 @@ export type Employee = {
   fatherName: string | null;
   spouseName: string | null;
   maritalStatus: string | null;
+  highestQualification: string | null;
   pfApplicable: number;
   pfWageAmount: number;
   esiApplicable: number;
@@ -3206,7 +3207,7 @@ function EmployeeIdCard({
       />
       <div className="id-card-modal">
         <div className="modal-toolbar">
-          <strong>CR80 employee ID card · 85.6 × 54 mm</strong>
+          <strong>CR80 portrait employee ID card · 54 × 85.6 mm</strong>
           <div>
             <button className="secondary-button" onClick={() => window.print()}>
               Print / Save PDF
@@ -3248,8 +3249,8 @@ function EmployeeIdCard({
                     <dd>{employee.employeeCode}</dd>
                   </div>
                   <div>
-                    <dt>Mobile</dt>
-                    <dd>{employee.mobileNumber ?? "—"}</dd>
+                    <dt>Client employer</dt>
+                    <dd>{unit?.clientName ?? "—"}</dd>
                   </div>
                   <div>
                     <dt>Blood group</dt>
@@ -3793,31 +3794,43 @@ function PaymentsView({
           <button
             className="secondary-button"
             onClick={exportIndianBank}
-            disabled={
-              !bankItems.length || run.status !== "approved" || !canExport
-            }
+            disabled={!bankItems.length || !canExport}
           >
             Indian Bank Excel
           </button>
           <button
             className="secondary-button"
             onClick={exportCubAnyBank}
-            disabled={
-              !bankItems.length || run.status !== "approved" || !canExport
-            }
+            disabled={!bankItems.length || !canExport}
           >
             CUB Any Bank TXT
           </button>
           <button
             className="secondary-button"
             onClick={exportCubToCub}
-            disabled={
-              !bankItems.length || run.status !== "approved" || !canExport
-            }
+            disabled={!bankItems.length || !canExport}
           >
             CUB-to-CUB TXT
           </button>
         </div>
+      </section>
+      <section className="panel payroll-bank-flow">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">Easy payroll and bank-payment guide</span>
+            <h2>How wages become the bank upload file</h2>
+          </div>
+        </div>
+        <ol>
+          <li><strong>1. Attendance or client file</strong><span>Use approved attendance, or import the client salary register.</span></li>
+          <li><strong>2. Earnings</strong><span>Basic, DA, HRA, OT and other selected earnings are calculated or imported.</span></li>
+          <li><strong>3. Statutory deductions</strong><span>EPF, ESI, PT and LWF rules are applied according to employee settings.</span></li>
+          <li><strong>4. Recoveries</strong><span>Room rent, Gas, Ration, Provision, advance and other finalized deductions are subtracted.</span></li>
+          <li><strong>5. Final payable</strong><span>Gross earnings − statutory deductions − recoveries + returns.</span></li>
+          <li><strong>6. Bank validation</strong><span>Confirm employee account number, IFSC, bank name and payable amount.</span></li>
+          <li><strong>7. Download</strong><span>Select Indian Bank Excel, CUB Any Bank TXT or CUB-to-CUB TXT and upload it in the bank portal.</span></li>
+        </ol>
+        {run.status !== "approved" ? <p className="form-note"><strong>Draft warning:</strong> exports are available for authorized checking, but use the file for payment only after payroll approval.</p> : null}
       </section>
       {run.status !== "approved" ? (
         <section className="locked-banner">
@@ -6553,6 +6566,14 @@ function PayrollActionModal({
                     ),
                   )}
                 </select>
+              </label>
+              <label>
+                <span>Highest qualification</span>
+                <input
+                  name="highestQualification"
+                  defaultValue={employee?.highestQualification ?? ""}
+                  placeholder="Example: B.E., Diploma, ITI, 12th"
+                />
               </label>
               <label>
                 <span>Father name</span>

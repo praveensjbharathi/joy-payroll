@@ -73,6 +73,9 @@ export function HostelMaster({
     (h) => h.vendorId === vendorId && h.accommodationTypeId === typeId,
   );
   const [hostelId, setHostelId] = useState("");
+  const [allocationEmployeeId, setAllocationEmployeeId] = useState("");
+  const [allocationRoomId, setAllocationRoomId] = useState("");
+  const [allocationRent, setAllocationRent] = useState(0);
   const selected = typeHostels.find((h) => h.id === hostelId) ?? typeHostels[0];
   const selectedTypeName = activeTypes.find((t) => t.id === typeId)?.name ?? "";
   const isOutsideRoom = selectedTypeName.toLowerCase().includes("outside");
@@ -108,6 +111,23 @@ export function HostelMaster({
     report === "readings"
       ? ["eb", "water"].includes(r.utilityType)
       : !["eb", "water"].includes(r.utilityType),
+  );
+  const mappedUnitIds: string[] = selected
+    ? (() => {
+        try {
+          const parsed = JSON.parse(selected.clientScopeJson || "[]");
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
+  const unallocatedEmployees = employees.filter(
+    (employee) =>
+      employee.status === "active" &&
+      !employee.roomId &&
+      employee.accommodationType === selectedTypeName &&
+      mappedUnitIds.includes(employee.clientUnitId),
   );
   async function createHostel(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -146,6 +166,37 @@ export function HostelMaster({
       )
     )
       e.currentTarget.reset();
+  }
+  async function updateHostel(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selected) return;
+    const f = new FormData(e.currentTarget);
+    await onAction("save-hostel", `${placeLabel} updated`, {
+      id: selected.id,
+      vendorId,
+      accommodationTypeId: typeId,
+      name: f.get("name"),
+      address: f.get("address"),
+      inchargeName: f.get("inchargeName"),
+      ebMeterNumber: f.get("ebMeterNumber"),
+      clientScope: f.getAll("clientScope"),
+      remarks: f.get("remarks"),
+    });
+  }
+  async function allocateEmployee(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!allocationEmployeeId || !allocationRoomId) return;
+    if (
+      await onAction("allocate-room", "Employee allocated to room", {
+        employeeId: allocationEmployeeId,
+        roomId: allocationRoomId,
+        roomRentAmount: allocationRent,
+      })
+    ) {
+      setAllocationEmployeeId("");
+      setAllocationRoomId("");
+      setAllocationRent(0);
+    }
   }
   async function saveEntry(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -312,6 +363,48 @@ export function HostelMaster({
               </button>
             </form>
           ) : null}
+          {selected ? (
+            <div className="hostel-selected-record">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">View / edit selected {placeLabel.toLowerCase()}</span>
+                  <h2>{selected.name}</h2>
+                </div>
+                {canManage ? (
+                  <button
+                    type="button"
+                    className="record-action record-delete"
+                    disabled={isActing}
+                    onClick={() => {
+                      if (window.confirm(`Delete ${selected.name}? This is allowed only when it has no rooms or history.`))
+                        void onAction("delete-hostel", `${placeLabel} deleted`, { id: selected.id });
+                    }}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
+              <form className="form-grid" onSubmit={updateHostel}>
+                <label><span>Name *</span><input name="name" defaultValue={selected.name} required disabled={!canManage} /></label>
+                <label><span>Address / location</span><input name="address" defaultValue={selected.address ?? ""} disabled={!canManage} /></label>
+                <label><span>{isOutsideRoom ? "Area contact / owner" : "Hostel in-charge"}</span><input name="inchargeName" defaultValue={selected.inchargeName ?? ""} disabled={!canManage} /></label>
+                <label><span>EB meter number</span><input name="ebMeterNumber" defaultValue={selected.ebMeterNumber ?? ""} disabled={!canManage} /></label>
+                <section className="form-span payslip-field-selector">
+                  <strong>Mapped client employer units</strong>
+                  <div className="scope-checkbox-grid">
+                    {units.map((unit) => (
+                      <label key={unit.id}>
+                        <input type="checkbox" name="clientScope" value={unit.id} defaultChecked={mappedUnitIds.includes(unit.id)} disabled={!canManage} />
+                        <span>{unit.clientName} · {unit.unitName}</span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+                <label className="form-span"><span>Remarks</span><input name="remarks" defaultValue={selected.remarks ?? ""} disabled={!canManage} /></label>
+                {canManage ? <button className="primary-button form-span" disabled={isActing}>Save changes and client mapping</button> : null}
+              </form>
+            </div>
+          ) : null}
         </section>
       ) : null}
       {selected ? (
@@ -413,6 +506,24 @@ export function HostelMaster({
                 </tbody>
               </table>
             </div>
+          </section>
+          <section className="panel table-panel">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">Client-mapped room allocation</span>
+                <h2>Unallocated employees eligible for {selected.name}</h2>
+              </div>
+              <span className="muted-label">{unallocatedEmployees.length} employees</span>
+            </div>
+            {canManage ? (
+              <form className="form-grid" onSubmit={allocateEmployee}>
+                <label><span>Employee *</span><select value={allocationEmployeeId} onChange={(e) => setAllocationEmployeeId(e.target.value)} required><option value="">Select eligible employee</option>{unallocatedEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.employeeCode} · {employee.name}</option>)}</select></label>
+                <label><span>Room *</span><select value={allocationRoomId} onChange={(e) => setAllocationRoomId(e.target.value)} required><option value="">Select room</option>{hostelRooms.map((room) => <option key={room.id} value={room.id}>{room.roomNumber}</option>)}</select></label>
+                <label><span>Individual monthly rent (₹) *</span><input type="number" min="0" step="0.01" value={allocationRent} onChange={(e) => setAllocationRent(Number(e.target.value))} required /></label>
+                <button className="primary-button" disabled={isActing || !allocationEmployeeId || !allocationRoomId}>Allocate employee</button>
+              </form>
+            ) : null}
+            <div className="table-scroll"><table className="data-table"><thead><tr><th>Employee</th><th>Client employer</th><th>Accommodation type</th><th>Status</th></tr></thead><tbody>{unallocatedEmployees.map((employee) => { const unit = units.find((row) => row.id === employee.clientUnitId); return <tr key={employee.id}><td><strong>{employee.name}</strong><small>{employee.employeeCode}</small></td><td>{unit ? `${unit.clientName} · ${unit.unitName}` : "—"}</td><td>{employee.accommodationType}</td><td>Room unallocated</td></tr>; })}</tbody></table></div>
           </section>
           <section className="panel">
             <div className="panel-heading">

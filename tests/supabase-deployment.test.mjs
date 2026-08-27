@@ -18,6 +18,7 @@ const migrationPaths = [
   join(root, "supabase/migrations/20260827150000_employee_room_rent_photo.sql"),
   join(root, "supabase/migrations/20260827170000_employee_statutory_controls.sql"),
   join(root, "supabase/migrations/20260827190000_employee_identity_details.sql"),
+  join(root, "supabase/migrations/20260827133444_employee_highest_qualification.sql"),
 ];
 const payrollTables = [
   "app_users",

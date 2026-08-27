@@ -79,6 +79,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .advance-voucher dl div { display: grid; grid-template-columns: 180px 1fr; padding: 10px 0; border-bottom: 1px solid #e3e8ef; }
 .advance-voucher dd { margin: 0; font-weight: 700; }
 .advance-voucher footer { display: flex; justify-content: space-between; margin-top: 80px; }
+.voucher-brand-header { display:flex; align-items:center; justify-content:center; gap:16px; padding-bottom:16px; margin-bottom:14px; border-bottom:2px solid #145dc7; text-align:center; }
+.voucher-brand-header img { width:72px; height:56px; object-fit:contain; }
+.voucher-brand-header h2,.voucher-brand-header h3,.voucher-brand-header p { margin:3px 0; }
+.voucher-brand-header p { font-size:13px; }
+.payroll-bank-flow ol { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; padding:0; list-style:none; }
+.payroll-bank-flow li { display:grid; gap:6px; padding:14px; border:1px solid #d8e3f1; border-radius:12px; background:#f7faff; }
+.payroll-bank-flow li strong { color:#145dc7; font-size:14px; }
+.payroll-bank-flow li span { font-size:13px; line-height:1.45; }
 .bulk-payslip-pages { display: grid; gap: 0; background: #fff; }
 .bulk-payslip-pages .payslip-sheet { border-bottom: 1px dashed #8a94a3; }
 .room-recovery-full-report table { font-size: 8px; }
@@ -730,24 +738,25 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .shift-pattern-options label { display: flex; align-items: center; gap: 8px; }
 .operations-view .filter-tabs button:nth-child(2) { display: none; }
 
-/* ISO/IEC 7810 ID-1 (CR80): 85.6 mm × 54 mm, front and back. */
+/* ISO/IEC 7810 ID-1 (CR80), portrait orientation: 54 mm × 85.6 mm. */
 .employee-id-card-set { padding: 20px; display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; }
-.employee-id-card { box-sizing: border-box; width: 85.6mm; height: 54mm; min-height: 54mm; margin: 0; padding: 3.2mm; gap: 2mm; border-radius: 3mm; overflow: hidden; }
+.employee-id-card { box-sizing: border-box; width: 54mm; height: 85.6mm; min-height: 85.6mm; margin: 0; padding: 3.2mm; gap: 2mm; border-radius: 3mm; overflow: hidden; }
 .employee-id-card header { padding: 2.2mm; border-radius: 2mm; font-size: 10px; }
 .employee-id-card .id-card-company { justify-content: flex-start; }
 .employee-id-card .id-card-company img { width: 12mm; height: 8mm; }
 .id-card-company b { font-size: 10px; line-height: 1.15; }
 .id-card-company span { font-size: 6px; }
-.id-card-main { width: 100%; flex: 1; display: grid; grid-template-columns: 18mm 1fr 17mm; align-items: center; gap: 2mm; }
+.id-card-main { width: 100%; flex: 1; display: grid; grid-template-columns: 19mm 1fr; grid-template-areas: "photo person" "qr person"; align-items: center; gap: 2mm; }
 .employee-id-photo, .employee-id-photo-image { width: 18mm !important; height: 23mm !important; border-radius: 2mm; font-size: 18px; }
-.id-card-person { min-width: 0; text-align: left; }
+.employee-id-photo, .employee-id-photo-image { grid-area: photo; }
+.id-card-person { grid-area: person; min-width: 0; text-align: left; }
 .employee-id-card .id-card-person h2 { margin: 0; font-size: 13px; line-height: 1.1; }
 .id-card-person > strong { display: block; margin: 1mm 0; color: #416080; font-size: 8px; }
 .employee-id-card dl { margin: 0; }
 .employee-id-card dl div { padding: .6mm 0; gap: 2mm; font-size: 7px; }
 .employee-id-card dt { flex: 0 0 20mm; }
 .employee-id-card dd { overflow-wrap: anywhere; }
-.employee-id-card .id-card-qr { width: 17mm; height: 17mm; }
+.employee-id-card .id-card-qr { grid-area: qr; width: 17mm; height: 17mm; }
 .employee-id-card footer { width: 100%; padding-top: 1mm; border-top: .2mm solid #dfe6ef; color: #56708f; font-size: 6.5px; }
 .id-card-back { align-items: stretch; text-align: left; }
 .id-card-back dl { flex: 1; }
@@ -806,10 +815,19 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media print {
   .employee-id-card-set, .employee-id-card-set * { visibility: visible !important; }
   .id-card-modal { position: absolute; inset: 0; width: 100%; max-height: none; overflow: visible; transform: none; background: #fff; }
-  .employee-id-card-set { padding: 0; display: grid; grid-template-columns: 85.6mm 85.6mm; gap: 6mm; justify-content: start; }
-  .employee-id-card { width: 85.6mm; height: 54mm; break-inside: avoid; box-shadow: none; border: .2mm solid #aebdce; }
+  .employee-id-card-set { padding: 0; display: grid; grid-template-columns: 54mm 54mm; gap: 6mm; justify-content: start; }
+  .employee-id-card { width: 54mm; height: 85.6mm; break-inside: avoid; box-shadow: none; border: .2mm solid #aebdce; }
   .bulk-recovery-vouchers, .bulk-recovery-vouchers * { visibility: visible !important; }
   .bulk-recovery-vouchers { position: absolute; inset: 0; padding: 0; }
-  .bulk-recovery-vouchers .advance-voucher { page-break-after: always; break-after: page; }
+  .bulk-recovery-vouchers .advance-voucher { position: relative !important; inset: auto !important; max-width: none; min-height: 260mm; padding: 14mm; font-size: 12pt; page-break-after: always; break-after: page; }
+  .bulk-recovery-vouchers .advance-voucher h2 { font-size: 18pt; }
+  .bulk-recovery-vouchers .advance-voucher h3 { font-size: 14pt; }
+  .bulk-recovery-vouchers .advance-voucher dl div,
+  .bulk-recovery-vouchers .advance-voucher table { font-size: 11pt; }
   .bulk-recovery-vouchers .advance-voucher:last-child { page-break-after: auto; break-after: auto; }
+  .advance-voucher { font-size: 12pt; }
+  .advance-voucher .data-table th,
+  .advance-voucher .data-table td,
+  .advance-voucher dl div { font-size: 11pt !important; }
+  .voucher-brand-header p { font-size: 10pt; }
 }

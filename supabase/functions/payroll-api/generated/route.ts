@@ -504,6 +504,7 @@ function actionPermission(
   if (
     [
       "save-hostel",
+      "delete-hostel",
       "assign-room-hostel",
       "save-hostel-utility",
       "approve-hostel-utility",
@@ -2117,6 +2118,7 @@ function employeeValues(
     fatherName: optionalValue(payload.fatherName),
     spouseName: optionalValue(payload.spouseName),
     maritalStatus: optionalValue(payload.maritalStatus),
+    highestQualification: optionalValue(payload.highestQualification),
     pfApplicable: payload.pfApplicable === "no" ? 0 : 1,
     pfWageAmount: positiveValue(payload.pfWageAmount ?? 0, "PF wage"),
     esiApplicable: payload.esiApplicable === "no" ? 0 : 1,
@@ -5201,6 +5203,36 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       if (existing)
         await db.update(hostels).set(values).where(eq(hostels.id, id));
       else await db.insert(hostels).values({ id, ...values });
+    } else if (action === "delete-hostel") {
+      const id = textValue(payload.id, "Hostel");
+      const [hostel] = await db
+        .select()
+        .from(hostels)
+        .where(eq(hostels.id, id))
+        .limit(1);
+      if (!hostel) throw new RequestError("Hostel / local area not found", 404);
+      const linkedRooms = await db
+        .select({ id: accommodationRooms.id })
+        .from(accommodationRooms)
+        .where(eq(accommodationRooms.hostelId, id));
+      const history = await db
+        .select({ id: hostelUtilityReadings.id })
+        .from(hostelUtilityReadings)
+        .where(eq(hostelUtilityReadings.hostelId, id));
+      if (linkedRooms.length || history.length)
+        throw new RequestError(
+          "Remove or remap all rooms and preserve/clear hostel history before deleting this record",
+          409,
+        );
+      await db.delete(hostels).where(eq(hostels.id, id));
+      await writeAudit(
+        db,
+        "hostel_deleted",
+        "hostel",
+        id,
+        `Deleted unused hostel / local area ${hostel.name}`,
+        actorEmail,
+      );
     } else if (action === "assign-room-hostel") {
       const roomId = textValue(payload.roomId, "Room");
       const hostelId = textValue(payload.hostelId, "Hostel");

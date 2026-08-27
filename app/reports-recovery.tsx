@@ -9,6 +9,7 @@ import type {
   PayrollItem,
   PayrollRun,
   RecoveryEntry,
+  Vendor,
 } from "./payroll-app";
 
 type ReportRow = Array<string | number>;
@@ -55,6 +56,23 @@ const recoveryLabels: Record<string, string> = {
   oldPending: "Old pending",
   returnAmount: "Return amount",
 };
+
+function voucherBrand(vendor?: Vendor, unit?: ClientUnit) {
+  const companyName = vendor?.legalName ?? vendor?.name ?? "JOY GROUPS";
+  const corporate = companyName.toLowerCase().includes("corporate");
+  return {
+    companyName,
+    clientEmployer: unit
+      ? `${unit.clientName}${unit.unitName ? ` · ${unit.unitName}` : ""}`
+      : "Client employer",
+    address:
+      "8/40, 16 Krishna Complex, Thennampalayam, Arasur, Coimbatore - 641407",
+    email: corporate
+      ? "info@joycorporatesolutions.com"
+      : "operations@joyindia.in",
+    contact: "+91 90807 76580",
+  };
+}
 
 export function RecoveryCenter({
   run,
@@ -519,6 +537,12 @@ export function RecoveryCenter({
               employees.find((employee) => employee.id === voucherEmployeeId)
                 ?.clientUnitId,
           )}
+          vendor={data.vendors.find(
+            (vendor) =>
+              vendor.id ===
+              employees.find((employee) => employee.id === voucherEmployeeId)
+                ?.vendorId,
+          )}
           run={run}
           onClose={() => setVoucherEmployeeId(null)}
         />
@@ -530,6 +554,7 @@ export function RecoveryCenter({
           )}
           entries={entries}
           units={data.units}
+          vendors={data.vendors}
           run={run}
           onClose={() => setBulkVouchers(false)}
         />
@@ -545,6 +570,7 @@ function AdvanceVoucher({
   charge,
   entries,
   unit,
+  vendor,
   run,
   onClose,
 }: {
@@ -554,10 +580,12 @@ function AdvanceVoucher({
   charge?: AccommodationCharge;
   entries: RecoveryEntry[];
   unit?: ClientUnit;
+  vendor?: Vendor;
   run: PayrollRun | null;
   onClose: () => void;
 }) {
   const voucherNo = `DRV-${(run?.payPeriod ?? new Date().toISOString().slice(0, 7)).replace("-", "")}-${employee?.employeeCode ?? employeeId.slice(-6)}`;
+  const brand = voucherBrand(vendor, unit);
   const lines = entries
     .filter((row) => row.recoveryType !== "returnAmount")
     .map(
@@ -607,7 +635,17 @@ function AdvanceVoucher({
           </div>
         </div>
         <article className="advance-voucher">
-          <h2>{unit?.voucherHeader ?? unit?.clientName ?? "JOY GROUPS"}</h2>
+          <header className="voucher-brand-header">
+            {vendor?.logoDataUrl ? (
+              <img src={vendor.logoDataUrl} alt={`${brand.companyName} logo`} />
+            ) : null}
+            <div>
+              <h2>{brand.companyName}</h2>
+              <h3>{brand.clientEmployer}</h3>
+              <p>{brand.address}</p>
+              <p>{brand.email} · {brand.contact}</p>
+            </div>
+          </header>
           <h3>FINAL SALARY DEDUCTION ACKNOWLEDGEMENT</h3>
           <dl>
             <div>
@@ -678,6 +716,7 @@ function BulkRecoveryVouchers({
   rows,
   entries,
   units,
+  vendors,
   run,
   onClose,
 }: {
@@ -688,6 +727,7 @@ function BulkRecoveryVouchers({
   }>;
   entries: RecoveryEntry[];
   units: ClientUnit[];
+  vendors: Vendor[];
   run: PayrollRun | null;
   onClose: () => void;
 }) {
@@ -714,6 +754,8 @@ function BulkRecoveryVouchers({
         <div className="bulk-recovery-vouchers">
           {rows.map(({ employee, charge, item }) => {
             const unit = units.find((row) => row.id === employee.clientUnitId);
+            const vendor = vendors.find((row) => row.id === employee.vendorId);
+            const brand = voucherBrand(vendor, unit);
             const voucherNo = `DRV-${(run?.payPeriod ?? "").replace("-", "")}-${employee.employeeCode}`;
             const lines: Array<[string, number]> = entries
               .filter(
@@ -752,9 +794,17 @@ function BulkRecoveryVouchers({
               lines.push(["Provision share", charge.provisionShare]);
             return (
               <article className="advance-voucher" key={employee.id}>
-                <h2>
-                  {unit?.voucherHeader ?? unit?.clientName ?? "JOY GROUPS"}
-                </h2>
+                <header className="voucher-brand-header">
+                  {vendor?.logoDataUrl ? (
+                    <img src={vendor.logoDataUrl} alt={`${brand.companyName} logo`} />
+                  ) : null}
+                  <div>
+                    <h2>{brand.companyName}</h2>
+                    <h3>{brand.clientEmployer}</h3>
+                    <p>{brand.address}</p>
+                    <p>{brand.email} · {brand.contact}</p>
+                  </div>
+                </header>
                 <h3>FINAL SALARY DEDUCTION ACKNOWLEDGEMENT</h3>
                 <dl>
                   <div>
