@@ -1,0 +1,10 @@
+alter table employees add column mobile_number text;
+alter table employees add column emergency_contact_number text;
+alter table employees add column address_line text;
+alter table employees add column district text;
+alter table employees add column state_name text;
+alter table employees add column pincode text;
+alter table employees add column blood_group text;
+alter table employees add column father_name text;
+alter table employees add column spouse_name text;
+alter table employees add column marital_status text;

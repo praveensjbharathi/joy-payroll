@@ -1,0 +1,10 @@
+alter table public.employees add column if not exists mobile_number text;
+alter table public.employees add column if not exists emergency_contact_number text;
+alter table public.employees add column if not exists address_line text;
+alter table public.employees add column if not exists district text;
+alter table public.employees add column if not exists state_name text;
+alter table public.employees add column if not exists pincode text;
+alter table public.employees add column if not exists blood_group text;
+alter table public.employees add column if not exists father_name text;
+alter table public.employees add column if not exists spouse_name text;
+alter table public.employees add column if not exists marital_status text;
