@@ -39,7 +39,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <style>{`.id-card-front footer { display: none !important; }`}</style>
+        {children}
+      </body>
     </html>
   );
 }
