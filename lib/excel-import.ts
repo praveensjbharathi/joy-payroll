@@ -40,7 +40,7 @@ export type WorkbookImport = {
   salaryItems: ImportedSalaryItem[];
 };
 
-const validCodes = new Set(["P", "A", "L", "WO", "H", "HP"]);
+const validCodes = new Set(["P", "HD", "HALF DAY", "HALFDAY", "0.5P", "A", "L", "WO", "H", "HP"]);
 
 function xml(bytes: Uint8Array | undefined, name: string) {
   if (!bytes) throw new Error(`The workbook is missing ${name}.`);
@@ -169,7 +169,8 @@ function attendanceSheet(name: string, rows: SheetRow[], period: string): Workbo
     employee.defaultShift = text(row.get(shiftColumn)) || "General";
     imported.employees.push(employee);
     for (const dateColumn of dateColumns) {
-      const status = text(row.get(dateColumn.column)).toUpperCase();
+      const rawStatus = text(row.get(dateColumn.column)).toUpperCase();
+      const status = ["HALF DAY", "HALFDAY", "0.5P"].includes(rawStatus) ? "HD" : rawStatus;
       if (!validCodes.has(status)) continue;
       imported.attendance.push({ employeeCode: code, attendanceDate: `${period}-${String(dateColumn.day).padStart(2, "0")}`, statusCode: status, shiftCode: employee.defaultShift, overtimeHours: 0 });
     }

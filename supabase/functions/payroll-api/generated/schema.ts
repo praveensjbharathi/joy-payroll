@@ -132,6 +132,14 @@ export const employees = pgTable("employees", {
   accommodationType: text("accommodation_type").notNull().default("Tamil"),
   roomId: text("room_id").references(() => accommodationRooms.id),
   roomNumber: text("room_number"),
+  roomRentAmount: doublePrecision("room_rent_amount").notNull().default(0),
+  photoDataUrl: text("photo_data_url"),
+  pfApplicable: integer("pf_applicable").notNull().default(1),
+  pfWageAmount: doublePrecision("pf_wage_amount").notNull().default(0),
+  esiApplicable: integer("esi_applicable").notNull().default(1),
+  esiWageAmount: doublePrecision("esi_wage_amount").notNull().default(0),
+  ptApplicable: integer("pt_applicable").notNull().default(1),
+  lwfApplicable: integer("lwf_applicable").notNull().default(1),
   paymentMode: text("payment_mode").notNull().default("bank"),
   salaryAmount: doublePrecision("salary_amount").notNull().default(0),
   salaryBasis: text("salary_basis").notNull().default("monthly"),
@@ -421,6 +429,15 @@ export const recoveryEntries = pgTable("recovery_entries", {
   createdBy: text("created_by"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const recoveryFinalizations = pgTable("recovery_finalizations", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => payrollRuns.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  voucherNumber: text("voucher_number").notNull().unique(),
+  finalizedBy: text("finalized_by"),
+  finalizedAt: text("finalized_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("recovery_finalization_run_employee_unique").on(table.runId, table.employeeId)]);
 
 export const auditEvents = pgTable("audit_events", {
   id: integer("id").generatedByDefaultAsIdentity().primaryKey(),

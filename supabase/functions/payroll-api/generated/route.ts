@@ -24,6 +24,7 @@ import {
   payrollRules,
   payrollRuns,
   recoveryEntries,
+  recoveryFinalizations,
   shiftDefinitions,
   vendors,
 } from "./schema.ts";
@@ -261,7 +262,7 @@ function actionPermission(action: string, payload: Payload): { module: AccessMod
   if (["save-employee", "mark-employee-left", "reactivate-employee", "advance-employee-workflow"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "employee")) return { module: "employees", level: "manage" };
   if (["save-shift", "save-remark", "save-accommodation-type"].includes(action) || ((action === "set-record-status" || action === "delete-record") && ["shift", "remark", "accommodation_type"].includes(String(payload.entityType)))) return { module: "masters", level: "manage" };
   if (["save-attendance", "delete-attendance"].includes(action)) return { module: "attendance", level: "manage" };
-  if (["save-accommodation", "delete-accommodation", "save-recovery-entry", "delete-recovery-entry", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
+  if (["save-accommodation", "delete-accommodation", "save-recovery-entry", "delete-recovery-entry", "finalize-employee-recovery", "reopen-employee-recovery", "save-room", "allocate-room", "save-room-expense", "finalize-room-expense", "reopen-room-expense"].includes(action) || ((action === "set-record-status" || action === "delete-record") && payload.entityType === "room")) return { module: "accommodation", level: "manage" };
   if (["clear-payroll-batch", "reopen-payroll-batch"].includes(action)) return { module: "payments", level: "manage" };
   if (["save-vehicle", "save-vehicle-record", "save-utility-meter", "save-eb-reading", "approve-operation-record"].includes(action)) return { module: "operations", level: "manage" };
   if (["save-hostel", "assign-room-hostel", "save-hostel-utility", "approve-hostel-utility"].includes(action)) return { module: "accommodation", level: "manage" };
@@ -354,8 +355,8 @@ async function ensureDemoData() {
   const currentEmployees = await db.select({ id: employees.id }).from(employees).where(eq(employees.clientUnitId, "unit-watertec-1"));
   const employeeIds = new Set(currentEmployees.map((employee) => employee.id));
   const missingEmployees = employeeRows.filter((employee) => !employeeIds.has(employee.id));
-  for (let index = 0; index < missingEmployees.length; index += 4) {
-    await db.insert(employees).values(missingEmployees.slice(index, index + 4));
+  for (let index = 0; index < missingEmployees.length; index += 3) {
+    await db.insert(employees).values(missingEmployees.slice(index, index + 3));
   }
 
   const attendancePattern = [
@@ -495,7 +496,7 @@ function payrollItem(
 async function loadAppData(access: AppAccess) {
   /* Supabase production databases intentionally start without demo payroll records. */
   const db = getDb();
-  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allRecoveryRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings, allHostels, allHostelReadings] = await Promise.all([
+  const [allVendorRows, allUnitRows, allEmployeeRows, allRunRows, allItemRows, allAttendanceRows, allChargeRows, allRecoveryRows, allRecoveryFinalizationRows, allAuditRows, allRuleRows, allShiftRows, allRemarkRows, userRows, allTypeRows, allRoomRows, allRoomExpenseRows, allBatchRows, allVehicles, allVehicleRecords, allMeters, allEbReadings, allHostels, allHostelReadings] = await Promise.all([
     db.select().from(vendors).orderBy(asc(vendors.name)),
     db.select().from(clientUnits).orderBy(asc(clientUnits.clientName)),
     db.select().from(employees).orderBy(asc(employees.employeeCode)),
@@ -554,6 +555,7 @@ async function loadAppData(access: AppAccess) {
     db.select().from(attendanceEntries).orderBy(asc(attendanceEntries.attendanceDate), asc(attendanceEntries.employeeId)),
     db.select().from(accommodationCharges).orderBy(asc(accommodationCharges.roomNumber)),
     db.select().from(recoveryEntries).orderBy(desc(recoveryEntries.recoveryDate), desc(recoveryEntries.createdAt)),
+    db.select().from(recoveryFinalizations).orderBy(desc(recoveryFinalizations.finalizedAt)),
     db.select().from(auditEvents).orderBy(desc(auditEvents.createdAt)).limit(30),
     db.select().from(payrollRules).orderBy(asc(payrollRules.vendorId)),
     db.select().from(shiftDefinitions).orderBy(asc(shiftDefinitions.name)),
@@ -588,6 +590,7 @@ async function loadAppData(access: AppAccess) {
   const attendanceRows = allAttendanceRows.filter((entry) => visibleEmployeeIds.has(entry.employeeId));
   const chargeRows = allChargeRows.filter((charge) => visibleRunIds.has(charge.runId) && visibleEmployeeIds.has(charge.employeeId));
   const recoveryRows = allRecoveryRows.filter((entry) => visibleRunIds.has(entry.runId) && visibleEmployeeIds.has(entry.employeeId));
+  const recoveryFinalizationRows = allRecoveryFinalizationRows.filter((entry) => visibleRunIds.has(entry.runId) && visibleEmployeeIds.has(entry.employeeId));
   const auditRows = unrestricted ? allAuditRows : allAuditRows.filter((event) => event.actorEmail?.toLowerCase() === access.identity.email.toLowerCase());
   const ruleRows = allRuleRows.filter((rule) => visibleVendorIds.has(rule.vendorId));
   const shiftRows = allShiftRows.filter((shift) => visibleVendorIds.has(shift.vendorId));
@@ -672,6 +675,7 @@ async function loadAppData(access: AppAccess) {
     attendance: canView(permissions, "attendance") ? attendanceRows : [],
     accommodationCharges: canView(permissions, "accommodation") ? chargeRows : [],
     recoveryEntries: canView(permissions, "accommodation") ? recoveryRows : [],
+    recoveryFinalizations: canView(permissions, "accommodation") ? recoveryFinalizationRows : [],
     accommodationTypes: seesAny(["masters", "accommodation", "employees", "payroll", "payments"]) ? typeRows : [],
     accommodationRooms: seesAny(["accommodation", "employees", "payroll"]) ? roomRows : [],
     roomExpenses: canView(permissions, "accommodation") ? roomExpenseRows : [],
@@ -826,13 +830,13 @@ async function recalculateRun(db: Db, runId: string, recomputeAttendance = false
       Object.assign(next, attendanceSummary(entries, effectiveRules));
       if (employee.salaryAmount > 0) next.basic = salaryForAttendance(employee.salaryAmount, employee.salaryBasis, next.payableDays, effectiveRules);
       if (effectiveRules.overtimeHourlyRate > 0) next.overtimeWages = roundMoney(next.overtimeHours * overtimeMultiplier * effectiveRules.overtimeHourlyRate);
-      if (effectiveRules.pfRate > 0) next.pfDeduction = roundMoney(next.basic * effectiveRules.pfRate / 100);
-      if (effectiveRules.professionalTax > 0) next.professionalTax = effectiveRules.professionalTax;
-      if (effectiveRules.lwf > 0) next.lwf = effectiveRules.lwf;
+      if (effectiveRules.pfRate > 0) next.pfDeduction = employee.pfApplicable ? roundMoney(Math.min(employee.pfWageAmount || next.basic, 15000) * effectiveRules.pfRate / 100) : 0;
+      if (effectiveRules.professionalTax > 0) next.professionalTax = employee.ptApplicable ? effectiveRules.professionalTax : 0;
+      if (effectiveRules.lwf > 0) next.lwf = employee.lwfApplicable ? effectiveRules.lwf : 0;
     }
     const accommodation = accommodationTotal(chargeMap.get(employee.id));
     if (chargeMap.has(employee.id)) Object.assign(next, accommodation);
-    if (shouldRecompute && effectiveRules.esiRate > 0) next.esiDeduction = roundMoney(payrollTotals(next).grossEarnings * effectiveRules.esiRate / 100);
+    if (shouldRecompute && effectiveRules.esiRate > 0) { const gross = payrollTotals(next).grossEarnings; const esiWage = employee.esiWageAmount || gross; next.esiDeduction = employee.esiApplicable && esiWage <= 21000 ? roundMoney(esiWage * effectiveRules.esiRate / 100) : 0; }
     const totals = payrollTotals(next);
     Object.assign(next, {
       grossEarnings: totals.grossEarnings,
@@ -928,6 +932,14 @@ function employeeValues(payload: Record<string, unknown>, vendorId: string, unit
     accommodationType,
     roomId: optionalValue(payload.roomId),
     roomNumber: optionalValue(payload.roomNumber),
+    roomRentAmount: positiveValue(payload.roomRentAmount ?? 0, "Individual room rent"),
+    photoDataUrl: optionalValue(payload.photoDataUrl),
+    pfApplicable: payload.pfApplicable === "no" ? 0 : 1,
+    pfWageAmount: positiveValue(payload.pfWageAmount ?? 0, "PF wage"),
+    esiApplicable: payload.esiApplicable === "no" ? 0 : 1,
+    esiWageAmount: positiveValue(payload.esiWageAmount ?? 0, "ESI wage"),
+    ptApplicable: payload.ptApplicable === "no" ? 0 : 1,
+    lwfApplicable: payload.lwfApplicable === "no" ? 0 : 1,
     paymentMode,
     salaryAmount: positiveValue(payload.salaryAmount, "Salary amount"),
     salaryBasis: payload.salaryBasis === "daily" ? "daily" : "monthly",
@@ -1016,9 +1028,7 @@ async function finalizeRoomExpense(db: Db, expenseId: string, access: AppAccess)
     const run = runByEmployee.get(share.employeeId);
     if (!run) continue;
     const employee = occupants.find((candidate) => candidate.id === share.employeeId);
-    let rentSettings: Record<string, number> = {};
-    try { rentSettings = JSON.parse(room.rentSettingsJson || "{}"); } catch { rentSettings = {}; }
-    const fullRent = employee ? positiveValue(rentSettings[employee.clientUnitId] ?? 0, "Room rent") : 0;
+    const fullRent = employee ? positiveValue(employee.roomRentAmount ?? 0, "Room rent") : 0;
     const joinedLate = Boolean(employee?.dateOfJoining?.startsWith(`${expense.payPeriod}-`) && Number(employee.dateOfJoining.slice(8, 10)) > room.rentCutoffDay);
     const rent = roundMoney(fullRent * (joinedLate ? room.lateJoinRentPercent / 100 : 1));
     const values = {
@@ -1086,7 +1096,7 @@ async function importWorkbook(db: Db, payload: Payload, actorEmail: string | nul
     newRows.push(employee);
     existingByCode.set(code, employee as EmployeeRow);
   }
-  for (let index = 0; index < newRows.length; index += 4) await db.insert(employees).values(newRows.slice(index, index + 4));
+  for (let index = 0; index < newRows.length; index += 3) await db.insert(employees).values(newRows.slice(index, index + 3));
 
   const assigned = await db.select().from(employees).where(eq(employees.clientUnitId, unitId));
   const employeeByCode = new Map(assigned.map((employee) => [employee.employeeCode.toUpperCase(), employee]));
@@ -1403,7 +1413,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       requireUnitScope(access, employee.clientUnitId, employee.vendorId);
       const roomId = optionalValue(payload.roomId);
       if (!roomId) {
-        await db.update(employees).set({ roomId: null, roomNumber: null }).where(eq(employees.id, employee.id));
+        await db.update(employees).set({ roomId: null, roomNumber: null, roomRentAmount: 0 }).where(eq(employees.id, employee.id));
       } else {
         const [room] = await db.select().from(accommodationRooms).where(eq(accommodationRooms.id, roomId)).limit(1);
         const [type] = room ? await db.select().from(accommodationTypes).where(eq(accommodationTypes.id, room.accommodationTypeId)).limit(1) : [];
@@ -1411,7 +1421,8 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         if (employee.roomId && employee.roomId !== roomId) throw new RequestError("Remove the employee from the present room before allocating another room", 409);
         if (employee.accommodationType !== type.name) throw new RequestError(`This room is under ${type.name}. Change the employee accommodation type first`, 409);
         const assigned = await assignEmployeeAccommodation(db, employeeValues({ ...employee, roomId, roomNumber: room.roomNumber, accommodationType: employee.accommodationType }, employee.vendorId, employee.clientUnitId), employee.id);
-        await db.update(employees).set({ roomId: assigned.roomId, roomNumber: assigned.roomNumber, accommodationType: assigned.accommodationType }).where(eq(employees.id, employee.id));
+        const roomRentAmount = positiveValue(payload.roomRentAmount ?? 0, "Individual room rent");
+        await db.update(employees).set({ roomId: assigned.roomId, roomNumber: assigned.roomNumber, roomRentAmount, accommodationType: assigned.accommodationType }).where(eq(employees.id, employee.id));
       }
       const employeeRuns = await db.select().from(payrollRuns).where(eq(payrollRuns.clientUnitId, employee.clientUnitId));
       for (const run of employeeRuns.filter((candidate) => candidate.status !== "approved")) await recalculateRun(db, run.id, false);
@@ -1772,6 +1783,8 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
     } else if (action === "save-recovery-entry") {
       const run = await requireRun(db, runId, true);
       const employeeId = textValue(payload.employeeId, "Employee");
+      const [finalized] = await db.select().from(recoveryFinalizations).where(and(eq(recoveryFinalizations.runId, runId), eq(recoveryFinalizations.employeeId, employeeId))).limit(1);
+      if (finalized) throw new RequestError("Reopen this employee recovery before adding or editing deductions", 409);
       const [employee] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
       if (!employee || employee.clientUnitId !== run.clientUnitId) throw new RequestError("Employee not found in this payroll unit", 404);
       const recoveryDate = dateValue(payload.recoveryDate, "Recovery date");
@@ -1790,9 +1803,29 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       const recoveryId = textValue(payload.recoveryId, "Recovery entry");
       const [entry] = await db.select().from(recoveryEntries).where(and(eq(recoveryEntries.id, recoveryId), eq(recoveryEntries.runId, runId))).limit(1);
       if (!entry) throw new RequestError("Recovery entry not found", 404);
+      const [finalized] = await db.select().from(recoveryFinalizations).where(and(eq(recoveryFinalizations.runId, runId), eq(recoveryFinalizations.employeeId, entry.employeeId))).limit(1);
+      if (finalized) throw new RequestError("Reopen this employee recovery before deleting deductions", 409);
       await db.delete(recoveryEntries).where(eq(recoveryEntries.id, recoveryId));
       await syncDatedRecoveries(db, runId, entry.employeeId);
       await writeAudit(db, "recovery_deleted", "employee", entry.employeeId, `Deleted dated ${entry.recoveryType} recovery`, actorEmail);
+    } else if (action === "finalize-employee-recovery") {
+      if (!access.profile.canApprovePayroll && access.profile.role !== "super_admin") throw new RequestError("Final recovery approval requires Super Admin or authorised approval access", 403);
+      const run = await requireRun(db, runId, true);
+      const employeeId = textValue(payload.employeeId, "Employee");
+      const [employee] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      if (!employee || employee.clientUnitId !== run.clientUnitId) throw new RequestError("Employee not found in this payroll unit", 404);
+      const entries = await db.select().from(recoveryEntries).where(and(eq(recoveryEntries.runId, runId), eq(recoveryEntries.employeeId, employeeId)));
+      const [charge] = await db.select().from(accommodationCharges).where(and(eq(accommodationCharges.runId, runId), eq(accommodationCharges.employeeId, employeeId))).limit(1);
+      if (!entries.length && !charge) throw new RequestError("Add at least one recovery before finalizing", 409);
+      const voucherNumber = `DRV-${run.payPeriod.replace("-", "")}-${employee.employeeCode}`;
+      const [existing] = await db.select().from(recoveryFinalizations).where(and(eq(recoveryFinalizations.runId, runId), eq(recoveryFinalizations.employeeId, employeeId))).limit(1);
+      if (!existing) await db.insert(recoveryFinalizations).values({ id: `RECFIN-${crypto.randomUUID()}`, runId, employeeId, voucherNumber, finalizedBy: actorEmail, finalizedAt: new Date().toISOString() });
+      await writeAudit(db, "recovery_finalized", "employee", employeeId, `Finalized deductions and generated voucher ${voucherNumber}`, actorEmail);
+    } else if (action === "reopen-employee-recovery") {
+      if (!access.profile.canApprovePayroll && access.profile.role !== "super_admin") throw new RequestError("Recovery reopening requires Super Admin or authorised approval access", 403);
+      const employeeId = textValue(payload.employeeId, "Employee");
+      await db.delete(recoveryFinalizations).where(and(eq(recoveryFinalizations.runId, runId), eq(recoveryFinalizations.employeeId, employeeId)));
+      await writeAudit(db, "recovery_reopened", "employee", employeeId, "Reopened finalized employee deductions for correction", actorEmail);
     } else if (action === "save-accommodation") {
       const run = await requireRun(db, runId, true);
       const employeeId = textValue(payload.employeeId, "Employee");

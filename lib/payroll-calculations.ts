@@ -1,4 +1,4 @@
-export const ATTENDANCE_CODES = ["P", "A", "L", "WO", "H", "HP"] as const;
+export const ATTENDANCE_CODES = ["P", "HD", "A", "L", "WO", "H", "HP"] as const;
 
 export type AttendanceCode = (typeof ATTENDANCE_CODES)[number];
 
@@ -53,8 +53,8 @@ export function numberValue(value: unknown) {
 }
 
 export function attendanceSummary(entries: AttendanceInput[], rules: PayrollRuleInput) {
-  const presentDays = entries.filter((entry) => entry.statusCode === "P" || entry.statusCode === "HP").length;
-  const absentDays = entries.filter((entry) => entry.statusCode === "A").length;
+  const presentDays = entries.filter((entry) => entry.statusCode === "P" || entry.statusCode === "HP").length + entries.filter((entry) => entry.statusCode === "HD").length * 0.5;
+  const absentDays = entries.filter((entry) => entry.statusCode === "A").length + entries.filter((entry) => entry.statusCode === "HD").length * 0.5;
   const leaveDays = entries.filter((entry) => entry.statusCode === "L").length;
   const weekOffDays = entries.filter((entry) => entry.statusCode === "WO" || entry.statusCode === "H").length;
   const holidayPresentDays = entries.filter((entry) => entry.statusCode === "HP").length;
@@ -86,14 +86,14 @@ export function payrollTotals(item: Record<string, unknown>) {
 }
 
 export function validationForEmployee(
-  employee: { paymentMode: string; bankAccountMasked: string | null; ifscMasked: string | null; uanMasked: string | null; esiMasked: string | null; salaryAmount: number },
+  employee: { paymentMode: string; bankAccountMasked: string | null; ifscMasked: string | null; uanMasked: string | null; esiMasked: string | null; salaryAmount: number; pfApplicable?: number; esiApplicable?: number },
   rules: PayrollRuleInput,
 ) {
   const missing: string[] = [];
   if (employee.paymentMode === "bank" && !employee.bankAccountMasked) missing.push("bank account");
   if (employee.paymentMode === "bank" && !employee.ifscMasked) missing.push("IFSC");
-  if (rules.pfRate > 0 && !employee.uanMasked) missing.push("UAN");
-  if (rules.esiRate > 0 && !employee.esiMasked) missing.push("ESI number");
+  if (rules.pfRate > 0 && employee.pfApplicable !== 0 && !employee.uanMasked) missing.push("UAN");
+  if (rules.esiRate > 0 && employee.esiApplicable !== 0 && !employee.esiMasked) missing.push("ESI number");
   return {
     validationStatus: missing.length ? "review" : "ready",
     validationMessage: missing.length ? `${missing.join(", ")} pending` : null,

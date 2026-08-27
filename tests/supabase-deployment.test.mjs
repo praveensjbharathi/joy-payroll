@@ -14,6 +14,9 @@ const migrationPaths = [
   join(root, "supabase/migrations/20260826143000_payroll_source_mode.sql"),
   join(root, "supabase/migrations/20260827090000_recovery_auth_branding.sql"),
   join(root, "supabase/migrations/20260827110000_client_ot_voucher_hostel_scope.sql"),
+  join(root, "supabase/migrations/20260827130000_recovery_finalization.sql"),
+  join(root, "supabase/migrations/20260827150000_employee_room_rent_photo.sql"),
+  join(root, "supabase/migrations/20260827170000_employee_statutory_controls.sql"),
 ];
 const payrollTables = [
   "app_users",
