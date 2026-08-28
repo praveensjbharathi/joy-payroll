@@ -12,14 +12,15 @@ if (!databaseUrl) {
   throw new Error("Supabase did not provide the SUPABASE_DB_URL server secret.");
 }
 
-// Supabase uses transaction-pool mode, so prepared statements stay disabled.
-// A small pool lets the dashboard's independent read queries run concurrently
-// instead of serializing every table load through one database connection.
+// Supabase Edge Functions use the transaction pooler. Keep one short-lived
+// connection per isolate: the previous four-connection pool produced long
+// queueing stalls and 150-second gateway timeouts in production.
 const connection = postgres(databaseUrl, {
   prepare: false,
-  max: 4,
-  idle_timeout: 10,
-  connect_timeout: 8,
+  max: 1,
+  idle_timeout: 5,
+  connect_timeout: 5,
+  max_lifetime: 60,
 });
 const database = drizzle(connection);
 
