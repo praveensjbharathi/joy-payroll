@@ -17,9 +17,9 @@ await patch("app/employee-id-card.tsx", (source) => {
 
 await patch("supabase-frontend/live-enhancements.ts", (source) => {
   if (!source.includes("function cleanupLegacyIdToolbar")) {
-    source += `\nfunction cleanupLegacyIdToolbar(){document.querySelectorAll<HTMLElement>(\".id-card-modal .modal-toolbar\").forEach(toolbar=>{toolbar.querySelectorAll<HTMLElement>(\"strong,button\").forEach(el=>{const text=(el.textContent||\"\").trim().toLowerCase();if(text===\"cr80 portrait employee id card · 54 × 85.6 mm\"||text===\"download front jpg\"||text===\"download back jpg\")el.remove();});});}\nconst legacyIdToolbarObserver=new MutationObserver(cleanupLegacyIdToolbar);legacyIdToolbarObserver.observe(document.documentElement,{childList:true,subtree:true});cleanupLegacyIdToolbar();\n`;
+    source += `\nfunction cleanupLegacyIdToolbar(){document.querySelectorAll<HTMLElement>(\".id-card-modal .modal-toolbar\").forEach(toolbar=>{toolbar.querySelectorAll<HTMLElement>(\"strong\").forEach(el=>el.remove());toolbar.querySelectorAll<HTMLButtonElement>(\"button\").forEach(button=>{const text=(button.textContent||\"\").replace(/\\s+/g,\" \").trim().toLowerCase();const keep=text.includes(\"front hq jpg\")||text.includes(\"back hq jpg\")||text.includes(\"preparing front\")||text.includes(\"preparing back\")||text===\"×\"||button.classList.contains(\"icon-button\");if(!keep)button.remove();});});}\nconst legacyIdToolbarObserver=new MutationObserver(cleanupLegacyIdToolbar);legacyIdToolbarObserver.observe(document.documentElement,{childList:true,subtree:true});cleanupLegacyIdToolbar();\n`;
   }
   return source;
 });
 
-console.log("Removed legacy ID-card toolbar title and duplicate non-HQ JPG controls.");
+console.log("ID-card view now keeps only Download Front HQ JPG, Download Back HQ JPG and close.");
