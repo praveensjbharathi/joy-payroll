@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "fix:production": "node scripts/apply-production-fixes.mjs && node scripts/apply-payroll-register-completion.mjs && node scripts/apply-pending-workflow-completion-v2.mjs && node scripts/apply-room-recovery-summary.mjs && node scripts/apply-current-user-fixes.mjs && node scripts/fix-generated-payroll-export.mjs",
+    "fix:production": "node scripts/apply-production-fixes.mjs && node scripts/apply-payroll-register-completion.mjs && node scripts/apply-pending-workflow-completion-v2.mjs && node scripts/apply-room-recovery-summary.mjs && node scripts/apply-current-user-fixes.mjs && node scripts/fix-generated-payroll-export.mjs && node scripts/fix-current-user-generated-types.mjs",
     "install:ci": "bash scripts/install-ci.sh",
     "dev": "npm run fix:production && WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "dev:self-hosted": "npm run fix:production && JOY_DEPLOY_TARGET=cloudflare JOY_DEV_AUTH_EMAIL=praveen.red.07@gmail.com JOY_DEV_AUTH_NAME='Praveen B' WRANGLER_LOG_PATH=.wrangler/wrangler.log vite --host 0.0.0.0",
