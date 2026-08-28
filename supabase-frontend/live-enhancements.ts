@@ -1,3 +1,5 @@
+export {};
+
 // Runtime enhancements used by the self-hosted Cloudflare frontend.
 // Keep critical production-only presentation fixes here so they apply to the
 // shared React application, not only the Next.js shell.
@@ -41,8 +43,6 @@ function refreshHostelEditForm() {
   if (!name || name === lastHostel) return;
   lastHostel = name;
   const form = record.querySelector<HTMLFormElement>("form");
-  // React defaultValue inputs keep the prior hostel until reset. Reset after the
-  // selected record has rendered so View/Edit always shows the selected hostel.
   window.setTimeout(() => form?.reset(), 0);
 }
 
