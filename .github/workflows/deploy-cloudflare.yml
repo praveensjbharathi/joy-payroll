@@ -1,9 +1,8 @@
 name: Deploy Joy Payroll to Cloudflare
 
-# Manual-only for now. The current production app uses the Supabase backend,
-# while this self-hosted workflow requires Cloudflare API credentials plus
-# D1 and Zero Trust Access configuration that are not yet stored in GitHub.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +26,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.23.2
           cache: npm
 
       - name: Verify Cloudflare credentials
@@ -38,5 +37,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and deploy to Cloudflare Workers
-        run: npm run deploy:self-hosted
+      - name: Build Supabase frontend
+        run: npm run build:supabase
+
+      - name: Deploy static Supabase frontend to Cloudflare Worker
+        run: npx wrangler deploy --config wrangler.jsonc
