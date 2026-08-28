@@ -1,9 +1,9 @@
 name: Deploy Joy Payroll to Cloudflare
 
+# Manual-only for now. The current production app uses the Supabase backend,
+# while this self-hosted workflow requires Cloudflare API credentials plus
+# D1 and Zero Trust Access configuration that are not yet stored in GitHub.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -30,10 +30,13 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Verify Cloudflare credentials
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build and deploy to Cloudflare Workers
         run: npm run deploy:self-hosted
-
-# Deployment trigger refreshed by ChatGPT on 2026-08-28.
