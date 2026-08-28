@@ -35,3 +35,5 @@ jobs:
 
       - name: Build and deploy to Cloudflare Workers
         run: npm run deploy:self-hosted
+
+# Deployment trigger refreshed by ChatGPT on 2026-08-28.
