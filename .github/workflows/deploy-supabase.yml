@@ -1,6 +1,10 @@
 name: Deploy Joy Payroll API to Supabase
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-supabase.yml'
   workflow_dispatch:
 
 permissions:
