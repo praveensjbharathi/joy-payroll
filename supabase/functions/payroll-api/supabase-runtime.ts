@@ -12,12 +12,14 @@ if (!databaseUrl) {
   throw new Error("Supabase did not provide the SUPABASE_DB_URL server secret.");
 }
 
-// prepare:false is required for Supabase's transaction-pool connection mode.
+// Supabase uses transaction-pool mode, so prepared statements stay disabled.
+// A small pool lets the dashboard's independent read queries run concurrently
+// instead of serializing every table load through one database connection.
 const connection = postgres(databaseUrl, {
   prepare: false,
-  max: 1,
-  idle_timeout: 20,
-  connect_timeout: 10,
+  max: 4,
+  idle_timeout: 10,
+  connect_timeout: 8,
 });
 const database = drizzle(connection);
 
