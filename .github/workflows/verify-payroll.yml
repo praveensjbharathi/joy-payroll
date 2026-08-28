@@ -23,8 +23,28 @@ jobs:
       - run: npm run prepare:supabase
       - run: npx tsc --project tsconfig.supabase.json --noEmit
       - run: npm run build:supabase
+      - name: Bundle payroll API for direct deployment
+        run: |
+          mkdir -p supabase/functions/payroll-api-bundle
+          npx --yes esbuild supabase/functions/payroll-api/index.ts \
+            --bundle \
+            --platform=neutral \
+            --format=esm \
+            --target=es2022 \
+            --minify \
+            --external:@supabase/supabase-js \
+            --external:drizzle-orm \
+            --external:drizzle-orm/* \
+            --external:postgres \
+            --outfile=supabase/functions/payroll-api-bundle/index.ts
+          cp supabase/functions/payroll-api/deno.json supabase/functions/payroll-api-bundle/deno.json
       - uses: actions/upload-artifact@v4
         with:
           name: payroll-api-generated
           path: supabase/functions/payroll-api
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: payroll-api-bundle
+          path: supabase/functions/payroll-api-bundle
           if-no-files-found: error
