@@ -38,83 +38,13 @@ function cleanIdToolbar() {
   });
 }
 
-function moneyNumber(value: string | null | undefined) {
-  const normalized = String(value ?? "").replace(/[^0-9.-]+/g, "");
-  return Number(normalized) || 0;
-}
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-}
-
-function setupRoomRecoveryTools() {
-  const heading = Array.from(document.querySelectorAll<HTMLElement>("h2")).find((node) => node.textContent?.includes("Net salary") && node.textContent?.includes("final payable"));
-  const panel = heading?.closest<HTMLElement>(".panel");
-  if (!panel || panel.querySelector(".room-print-toolbar")) return;
-  const table = panel.querySelector<HTMLTableElement>("table");
-  if (!table) return;
-  const headerLabels = Array.from(table.tHead?.rows[0]?.cells ?? []).map((cell) => cell.textContent?.trim() ?? "");
-  const roomIndex = headerLabels.findIndex((label) => label === "Room");
-  if (roomIndex < 0) return;
-  const voucherIndex = headerLabels.findIndex((label) => label === "Voucher");
-  const gasIndex = headerLabels.findIndex((label) => label === "Gas");
-  const rationIndex = headerLabels.findIndex((label) => label === "Ration");
-  const provisionIndex = headerLabels.findIndex((label) => label === "Provision");
-  const rows = Array.from(table.tBodies[0]?.rows ?? []);
-  const rooms = [...new Set(rows.map((row) => row.cells[roomIndex]?.textContent?.trim() || "—").filter(Boolean))];
-  if (!rooms.length) return;
-
-  const toolbar = document.createElement("div");
-  toolbar.className = "room-print-toolbar";
-  const select = document.createElement("select");
-  rooms.forEach((room) => {
-    const option = document.createElement("option");
-    option.value = room;
-    option.textContent = room;
-    select.appendChild(option);
+function removeDuplicateRoomPrintToolbars() {
+  document.querySelectorAll<HTMLElement>(".panel").forEach((panel) => {
+    const heading = panel.querySelector<HTMLElement>("h2");
+    if (!heading?.textContent?.includes("Net salary") || !heading.textContent.includes("final payable")) return;
+    const toolbars = Array.from(panel.querySelectorAll<HTMLElement>(".room-print-toolbar"));
+    toolbars.slice(1).forEach((toolbar) => toolbar.remove());
   });
-  const one = document.createElement("button"); one.type = "button"; one.className = "secondary-button"; one.textContent = "Selected room · A4 landscape";
-  const all = document.createElement("button"); all.type = "button"; all.className = "primary-button"; all.textContent = "All rooms · A4 landscape";
-  toolbar.append(select, one, all);
-  panel.querySelector(".panel-heading")?.appendChild(toolbar);
-
-  const printRooms = (selectedRooms: string[]) => {
-    document.querySelector(".room-recovery-print-layer")?.remove();
-    const layer = document.createElement("div");
-    layer.className = "room-recovery-print-layer";
-    selectedRooms.forEach((roomName) => {
-      const sourceRows = rows.filter((row) => (row.cells[roomIndex]?.textContent?.trim() || "—") === roomName);
-      const gas = sourceRows.reduce((sum, row) => sum + (gasIndex >= 0 ? moneyNumber(row.cells[gasIndex]?.textContent) : 0), 0);
-      const ration = sourceRows.reduce((sum, row) => sum + (rationIndex >= 0 ? moneyNumber(row.cells[rationIndex]?.textContent) : 0), 0);
-      const provision = sourceRows.reduce((sum, row) => sum + (provisionIndex >= 0 ? moneyNumber(row.cells[provisionIndex]?.textContent) : 0), 0);
-      const shared = gas + ration + provision;
-
-      const sheet = document.createElement("section"); sheet.className = "room-recovery-print-sheet";
-      const h1 = document.createElement("h1"); h1.textContent = "FINALIZED ROOM-WISE SALARY RECOVERY STATEMENT";
-      const h2 = document.createElement("h2"); h2.textContent = `Room: ${roomName}`;
-      const summary = document.createElement("div"); summary.className = "room-recovery-summary";
-      summary.innerHTML = `<div><span>Gas</span><strong>${formatMoney(gas)}</strong></div><div><span>Ration</span><strong>${formatMoney(ration)}</strong></div><div><span>Provision</span><strong>${formatMoney(provision)}</strong></div><div><span>Roommates</span><strong>${sourceRows.length}</strong></div><div><span>Shared total</span><strong>${formatMoney(shared)}</strong></div>`;
-      const clone = table.cloneNode(true) as HTMLTableElement;
-      Array.from(clone.tBodies[0]?.rows ?? []).forEach((row) => {
-        const room = row.cells[roomIndex]?.textContent?.trim() || "—";
-        if (room !== roomName) row.remove();
-        else if (voucherIndex >= 0 && row.cells[voucherIndex]) row.deleteCell(voucherIndex);
-      });
-      const header = clone.tHead?.rows[0];
-      if (header && voucherIndex >= 0 && header.cells[voucherIndex]) header.deleteCell(voucherIndex);
-      sheet.append(h1, h2, summary, clone);
-      layer.appendChild(sheet);
-    });
-    document.body.appendChild(layer);
-    const pageStyle = document.createElement("style");
-    pageStyle.textContent = "@page{size:A4 landscape;margin:8mm;}";
-    document.head.appendChild(pageStyle);
-    const cleanup = () => { layer.remove(); pageStyle.remove(); window.removeEventListener("afterprint", cleanup); };
-    window.addEventListener("afterprint", cleanup);
-    window.print();
-    window.setTimeout(cleanup, 2500);
-  };
-  one.onclick = () => printRooms([select.value]);
-  all.onclick = () => printRooms(rooms);
 }
 
 function improveVoucherButtons() {
@@ -148,11 +78,11 @@ document.addEventListener("click", preparePortraitPrint, true);
 const observer = new MutationObserver(() => {
   addHierarchyGuide();
   cleanIdToolbar();
-  setupRoomRecoveryTools();
+  removeDuplicateRoomPrintToolbars();
   improveVoucherButtons();
 });
 observer.observe(document.documentElement, { childList: true, subtree: true });
 addHierarchyGuide();
 cleanIdToolbar();
-setupRoomRecoveryTools();
+removeDuplicateRoomPrintToolbars();
 improveVoucherButtons();
