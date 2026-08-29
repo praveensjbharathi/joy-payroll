@@ -6,38 +6,54 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const recoveryPath = join(root, "app/reports-recovery.tsx");
 let recovery = await readFile(recoveryPath, "utf8");
 
-// Recovery must show every employee belonging to the current payroll run.
+// Keep every employee belonging to the active payroll run visible in Recovery.
 recovery = recovery.replace(
-  /\.filter\(\(row\) => (?:row\.charge \|\| row\.dated\.length \|\| row\.shared > 0|Boolean\(row\.item\) \|\| row\.charge \|\| row\.dated\.length \|\| row\.shared > 0)\);/,
+  /\.filter\(\(row\) => (?:row\.charge \|\| row\.dated\.length \|\| row\.shared > 0|Boolean\(row\.item\) \|\| row\.charge \|\| row\.dated\.length \|\| row\.shared > 0)\);/g,
   '.filter((row) => Boolean(row.item) || row.charge || row.dated.length || row.shared > 0);',
 );
 
-// Add a resolved room only once. The build pipeline runs this script more than once.
-if (!recovery.includes("resolvedRoomNumber,")) {
+// Use a component helper instead of adding a scoped variable to each row object.
+// This makes the patch safe even when fix:production runs more than once.
+if (!recovery.includes("function getRecoveryRoomNumber(employee: Employee)")) {
   recovery = recovery.replace(
-    "      const dated = entries.filter((entry) => entry.employeeId === employee.id);\n      return {\n        employee,",
-    "      const dated = entries.filter((entry) => entry.employeeId === employee.id);\n      const resolvedRoomNumber = data.accommodationRooms.find((room) => room.id === employee.roomId)?.roomNumber ?? employee.roomNumber ?? \"—\";\n      return {\n        employee,\n        resolvedRoomNumber,",
+    '  const finalizations = run\n    ? data.recoveryFinalizations.filter((entry) => entry.runId === run.id)\n    : [];',
+    '  const finalizations = run\n    ? data.recoveryFinalizations.filter((entry) => entry.runId === run.id)\n    : [];\n  function getRecoveryRoomNumber(employee: Employee) {\n    return data.accommodationRooms.find((room) => room.id === employee.roomId)?.roomNumber ?? employee.roomNumber ?? "—";\n  }',
   );
 }
 
-// Convert only the Recovery totals map once. Never replace room cells elsewhere in the file.
-if (!recovery.includes("map(({ employee, resolvedRoomNumber, charge, individual, shared, item }) =>")) {
-  recovery = recovery.replace(
-    /\{employeeRows\.map\(\s*\(\{ employee, charge, individual, shared, item \}\) =>/,
-    '{employeeRows.filter(({ resolvedRoomNumber }) => !roomPrintRoom || resolvedRoomNumber === roomPrintRoom).map(({ employee, resolvedRoomNumber, charge, individual, shared, item }) =>',
-  );
-  recovery = recovery.replace(
-    /<td>\{employee\.roomNumber \?\? \"—\"\}<\/td>/,
-    '<td>{resolvedRoomNumber}</td>',
-  );
-}
+// Remove any older resolvedRoomNumber patch remnants from prior build attempts.
+recovery = recovery.replace(/\n\s*const resolvedRoomNumber = data\.accommodationRooms\.find\([\s\S]*?employee\.roomNumber \?\? "—";/g, "");
+recovery = recovery.replace(/\n\s*resolvedRoomNumber,/g, "");
+recovery = recovery.replace(/\(\{ employee, resolvedRoomNumber, charge, individual, shared, item \}\) =>/g, '({ employee, charge, individual, shared, item }) =>');
+recovery = recovery.replace(/\(\{ resolvedRoomNumber \}\) => !roomPrintRoom \|\| resolvedRoomNumber === roomPrintRoom/g, '({ employee }) => !roomPrintRoom || getRecoveryRoomNumber(employee) === roomPrintRoom');
+recovery = recovery.replace(/<td>\{resolvedRoomNumber\}<\/td>/g, '<td>{getRecoveryRoomNumber(employee)}</td>');
+
+// Screen room filter: one selected room shows only those employees; blank selection shows all.
+recovery = recovery.replace(
+  /\{employeeRows\.map\(\s*\(\{ employee, charge, individual, shared, item \}\) =>/,
+  '{employeeRows.filter(({ employee }) => !roomPrintRoom || getRecoveryRoomNumber(employee) === roomPrintRoom).map(({ employee, charge, individual, shared, item }) =>',
+);
+recovery = recovery.replace(
+  /<td>\{employee\.roomNumber \?\? "—"\}<\/td>/,
+  '<td>{getRecoveryRoomNumber(employee)}</td>',
+);
+
+// Room dropdown and print logic must use the same room resolver.
+recovery = recovery.replace(
+  /\.\.\.employeeRows\.map\(\(\{ employee \}\) => employee\.roomNumber \?\? "—"\)/g,
+  '...employeeRows.map(({ employee }) => getRecoveryRoomNumber(employee))',
+);
+recovery = recovery.replace(
+  /const roomEmployees = employeeRows\.filter\(\(\{ employee \}\) => employee\.roomNumber === roomName\);/g,
+  'const roomEmployees = employeeRows.filter(({ employee }) => getRecoveryRoomNumber(employee) === roomName);',
+);
 
 await writeFile(recoveryPath, recovery, "utf8");
 
 const livePath = join(root, "supabase-frontend/live-enhancements.ts");
 let live = await readFile(livePath, "utf8");
 
-// Remove only duplicate room toolbars. Never remove employee rows/panels.
+// Keep only the first Recovery room toolbar. Do not touch tables or employee rows.
 live = live.replace(/\n\/\/ Final Recovery safeguard:[\s\S]*?keepLeftRecoveryRoomControls\(\);\n?/g, "\n");
 live = live.replace(/\nfunction removeDuplicateRoomRecoveryTools\(\)[\s\S]*?removeDuplicateRoomRecoveryTools\(\);\n?/g, "\n");
 const safeCleanup = `function removeDuplicateRoomPrintToolbars() {\n  document.querySelectorAll<HTMLElement>(\".recovery-final-payable-panel\").forEach((panel) => {\n    const toolbars = Array.from(panel.querySelectorAll<HTMLElement>(\".room-print-toolbar\"));\n    toolbars.slice(1).forEach((toolbar) => toolbar.remove());\n  });\n}`;
@@ -50,4 +66,5 @@ if (!live.includes("joyRecoveryDuplicateOnlyObserver")) {
   live += `\nconst joyRecoveryDuplicateOnlyObserver = new MutationObserver(removeDuplicateRoomPrintToolbars);\njoyRecoveryDuplicateOnlyObserver.observe(document.documentElement, { childList: true, subtree: true });\nremoveDuplicateRoomPrintToolbars();\n`;
 }
 await writeFile(livePath, live, "utf8");
-console.log("Recovery fixed safely: payroll employees visible, roomId mapping applied once, one room toolbar retained.");
+
+console.log("Recovery completed: payroll employees restored, roomId resolver shared by view and print, duplicate toolbar safely removed.");
