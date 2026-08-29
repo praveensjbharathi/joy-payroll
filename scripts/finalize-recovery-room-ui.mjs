@@ -12,7 +12,7 @@ recovery = recovery.replace(
   '.filter((row) => Boolean(row.item) || row.charge || row.dated.length || row.shared > 0);',
 );
 
-// Resolve the displayed room from the employee's current roomId mapping first.
+// Add a resolved room only once. The build pipeline runs this script more than once.
 if (!recovery.includes("resolvedRoomNumber,")) {
   recovery = recovery.replace(
     "      const dated = entries.filter((entry) => entry.employeeId === employee.id);\n      return {\n        employee,",
@@ -20,15 +20,17 @@ if (!recovery.includes("resolvedRoomNumber,")) {
   );
 }
 
-// The dropdown is both the print selector and room-wise screen filter.
-recovery = recovery.replace(
-  /\{employeeRows\.map\(\s*\(\{ employee, charge, individual, shared, item \}\) =>/,
-  '{employeeRows.filter(({ resolvedRoomNumber }) => !roomPrintRoom || resolvedRoomNumber === roomPrintRoom).map(({ employee, resolvedRoomNumber, charge, individual, shared, item }) =>',
-);
-recovery = recovery.replace(
-  /<td>\{employee\.roomNumber \?\? \"—\"\}<\/td>/g,
-  '<td>{resolvedRoomNumber}</td>',
-);
+// Convert only the Recovery totals map once. Never replace room cells elsewhere in the file.
+if (!recovery.includes("map(({ employee, resolvedRoomNumber, charge, individual, shared, item }) =>")) {
+  recovery = recovery.replace(
+    /\{employeeRows\.map\(\s*\(\{ employee, charge, individual, shared, item \}\) =>/,
+    '{employeeRows.filter(({ resolvedRoomNumber }) => !roomPrintRoom || resolvedRoomNumber === roomPrintRoom).map(({ employee, resolvedRoomNumber, charge, individual, shared, item }) =>',
+  );
+  recovery = recovery.replace(
+    /<td>\{employee\.roomNumber \?\? \"—\"\}<\/td>/,
+    '<td>{resolvedRoomNumber}</td>',
+  );
+}
 
 await writeFile(recoveryPath, recovery, "utf8");
 
@@ -48,4 +50,4 @@ if (!live.includes("joyRecoveryDuplicateOnlyObserver")) {
   live += `\nconst joyRecoveryDuplicateOnlyObserver = new MutationObserver(removeDuplicateRoomPrintToolbars);\njoyRecoveryDuplicateOnlyObserver.observe(document.documentElement, { childList: true, subtree: true });\nremoveDuplicateRoomPrintToolbars();\n`;
 }
 await writeFile(livePath, live, "utf8");
-console.log("Recovery fixed at source: all payroll employees visible, roomId mapping applied, one room toolbar retained.");
+console.log("Recovery fixed safely: payroll employees visible, roomId mapping applied once, one room toolbar retained.");
