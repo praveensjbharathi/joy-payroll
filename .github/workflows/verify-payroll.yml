@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - release/production-excellence-v1
+      - release/shared-hostel-deduction-lock-v2
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -26,7 +27,7 @@ jobs:
       - name: Apply production safeguards once
         run: npm run fix:production
       - name: Verify requested production requirements
-        run: node --test tests/production-excellence.test.mjs
+        run: node --test tests/production-excellence.test.mjs tests/shared-hostel-deduction-lock.test.mjs
       - name: Run production-safe calculation and import regressions
         run: node --import tsx --test tests/excel-import.test.mjs tests/payroll-enhancements.test.mjs
       - name: Prepare Supabase production API from verified source
@@ -34,7 +35,7 @@ jobs:
       - name: Type-check Supabase production build
         run: npx tsc --project tsconfig.supabase.json --noEmit
       - name: Verify Supabase deployment contract
-        run: node --test tests/supabase-deployment.test.mjs tests/production-excellence.test.mjs
+        run: node --test tests/supabase-deployment.test.mjs tests/production-excellence.test.mjs tests/shared-hostel-deduction-lock.test.mjs
       - name: Build Cloudflare static application from verified source
         run: npx vite build --config vite.supabase.config.ts
       - name: Confirm Cloudflare static output
