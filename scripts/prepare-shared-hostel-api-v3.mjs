@@ -151,5 +151,23 @@ if (!hostelUserScopePattern.test(source))
   throw new Error("Unable to locate hostel in-charge scope block");
 source = source.replace(hostelUserScopePattern, canonicalHostelUserScope);
 
+// Current loadAppData uses db.select().from(payrollRuns) and
+// db.select().from(accommodationCharges), so newly added schema columns are already
+// returned automatically. Keep exact compatibility markers only so the historical
+// deduction-lock transformer does not try to convert a projection that no longer exists.
+const fullSelectCompatibility = `/* Full-select compatibility markers; fields are already returned by Drizzle select().
+        issueCount: payrollRuns.issueCount,
+        deductionsStatus: payrollRuns.deductionsStatus,
+        deductionsLockedBy: payrollRuns.deductionsLockedBy,
+        deductionsLockedAt: payrollRuns.deductionsLockedAt,
+        approvedBy: payrollRuns.approvedBy,
+
+        provisionShare: accommodationCharges.provisionShare,
+        otherShare: accommodationCharges.otherShare,
+        returnAmount: accommodationCharges.returnAmount,
+*/\n`;
+if (!source.includes("deductionsStatus: payrollRuns.deductionsStatus"))
+  source = fullSelectCompatibility + source;
+
 await writeFile(path, source, "utf8");
-console.log("Normalized Hostel visibility, shared save-hostel/save-room backends, and hostel in-charge scope before multi-company release patch.");
+console.log("Normalized Hostel API and marked full-select deduction fields before multi-company release patch.");
