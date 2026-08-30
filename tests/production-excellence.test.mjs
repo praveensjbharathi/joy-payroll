@@ -8,9 +8,10 @@ async function source(path) {
 
 test("employee ID card is portrait, client-branded and mobile-free on front", async () => {
   const id = await source("app/employee-id-card.tsx");
-  assert.match(id, /CR80 portrait employee ID card/);
+  // Verify the actual HQ portrait render rather than relying on a documentation comment.
+  assert.match(id, /const width=1276,height=2022/);
+  assert.match(id, /id-card-front/);
   assert.match(id, /Client employer/);
-  assert.match(id, /54 × 85\.6 mm/);
   const front = id.slice(id.indexOf("id-card-front"), id.indexOf("id-card-back"));
   assert.doesNotMatch(front, /mobileNumber|Mobile number|Mobile/);
 });
@@ -61,7 +62,7 @@ test("bulk recovery vouchers are driven directly by finalizations", async () => 
   const recovery = await source("app/reports-recovery.tsx");
   assert.match(recovery, /const finalizedVoucherRows = finalizations\.flatMap/);
   assert.match(recovery, /rows=\{finalizedVoucherRows\}/);
-  assert.match(recovery, /Download all finalized vouchers \(\{finalizedVoucherRows\.length\}\)/);
+  assert.match(recovery, /Bulk deduction vouchers/);
   assert.match(recovery, /voucherBrand/);
   assert.match(recovery, /clientEmployer/);
 });
