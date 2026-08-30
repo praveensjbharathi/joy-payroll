@@ -1,0 +1,67 @@
+<BulkRecoveryVouchers
+          rows={finalizedVoucherRows}
+          entries={entries}
+          units={data.units}
+          vendors={data.vendors}
+          run={run}
+          onClose={() => setBulkVouchers(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function AdvanceVoucher({
+  employeeId,
+  employee,
+  item,
+  charge,
+  entries,
+  unit,
+  vendor,
+  run,
+  onClose,
+}: {
+  employeeId: string;
+  employee?: Employee;
+  item?: PayrollItem;
+  charge?: AccommodationCharge;
+  entries: RecoveryEntry[];
+  unit?: ClientUnit;
+  vendor?: Vendor;
+  run: PayrollRun | null;
+  onClose: () => void;
+}) {
+  const voucherNo = `DRV-${(run?.payPeriod ?? new Date().toISOString().slice(0, 7)).replace("-", "")}-${employee?.employeeCode ?? employeeId.slice(-6)}`;
+  const brand = voucherBrand(vendor, unit);
+  const lines = entries
+    .filter((row) => row.recoveryType !== "returnAmount")
+    .map(
+      (row) =>
+        [
+          recoveryLabels[row.recoveryType] ?? row.recoveryType,
+          row.amount,
+        ] as const,
+    );
+  if (charge) {
+    for (const [field, label] of [
+      ["rent", "Room rent"],
+      ["bus", "Bus"],
+      ["food", "Food"],
+      ["advance", "Salary advance"],
+      ["idCard", "ID card"],
+      ["medical", "Medical"],
+      ["ticket", "Ticket"],
+      ["shoe", "Shoe"],
+      ["aadhaarUpdate", "Aadhaar update"],
+      ["bankAccountCharge", "Bank account charge"],
+      ["tshirt", "T-shirt"],
+      ["oldPending", "Old pending"],
+    ] as const) {
+      const value = charge[field];
+      if (value && !lines.some(([existing]) => existing === label))
+        lines.push([label, value]);
+    }
+    if (charge.gasShare) lines.push(["Gas share", charge.gasShare]);
+    if (charge.rationShare) lines.push(["Ration share", charge.rationShare]);
+    if (charge.prov

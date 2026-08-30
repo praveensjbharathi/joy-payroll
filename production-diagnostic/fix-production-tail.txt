@@ -36,15 +36,6 @@ Recovery V6 collision cleanup applied: legacy hostel-only form removed and vouch
 Dynamic accommodation category/sub-category applied: Operational Master type -> Hostel/Area Master sub-category -> Room.
 Hostel/Area Master creation fixed and Add Recovery for Rooms now includes date-wise entry flow.
 Exact requested Hostel/Area Master dropdown flow and date-first Room Recovery flow applied.
-file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:111
-    throw new Error("Bulk voucher rows were not redirected to the finalization register");
-          ^
+Applied Joy Payroll production excellence v1 safeguards.
 
-Error: Bulk voucher rows were not redirected to the finalization register
-    at file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:111:11
-    at patch (file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:10:16)
-    at async file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:91:1
-
-Node.js v22.23.2
-
-RESULT=failure
+RESULT=success
