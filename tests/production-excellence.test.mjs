@@ -58,6 +58,22 @@ test("hostel master supports edit delete mapping and unallocated employee alloca
   assert.match(hostel, /allocate-room/);
 });
 
+test("normal form actions stay on payroll-api and only payslip email uses salary-slip-mailer", async () => {
+  const payroll = await source("app/payroll-app.tsx");
+  const performStart = payroll.indexOf("  async function performAction(");
+  const performEnd = payroll.indexOf("  async function updateRecordStatus(", performStart);
+  assert.ok(performStart >= 0 && performEnd > performStart, "performAction block must exist");
+  const performAction = payroll.slice(performStart, performEnd);
+  assert.match(performAction, /fetch\(apiEndpoint/);
+  assert.doesNotMatch(performAction, /salary-slip-mailer/);
+
+  const payslipStart = payroll.indexOf("function PayslipModal(");
+  assert.ok(payslipStart >= 0, "PayslipModal must exist");
+  const payslip = payroll.slice(payslipStart);
+  assert.match(payslip, /salary-slip-mailer/);
+  assert.match(payslip, /itemId: item\.id/);
+});
+
 test("bulk recovery vouchers are driven directly by finalizations", async () => {
   const recovery = await source("app/reports-recovery.tsx");
   assert.match(recovery, /const finalizedVoucherRows = finalizations\.flatMap/);
