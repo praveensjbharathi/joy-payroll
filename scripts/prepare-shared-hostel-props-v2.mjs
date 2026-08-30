@@ -60,10 +60,41 @@ recovery = recovery.replace(
   '{run.status === "approved" ? "Reopen payroll to add recovery" : "Add dated recovery"}',
   "Add dated recovery",
 );
+
+// Pre-apply final summary outputs so historical labels/formatting cannot block
+// the new deduction-lock transformer.
 recovery = recovery.replace(
-  /<th>Gas\s*\/\s*Ration\s*\/\s*Provision(?:[^<]*)<\/th>/,
-  "<th>Gas / Ration / Provision</th>",
+  /(<th>Individual recovery<\/th>\s*)<th>[^<]*<\/th>(\s*<th>Return<\/th>)/,
+  "$1<th>Room shared recoveries</th>$2",
 );
+recovery = recovery.replace(
+  /charge\.gasShare\s*\+\s*charge\.rationShare\s*\+\s*charge\.provisionShare(?!\s*\+\s*charge\.otherShare)/,
+  "charge.gasShare + charge.rationShare + charge.provisionShare + charge.otherShare",
+);
+recovery = recovery.replace(
+  /(<th>Provision<\/th>\s*)(?!<th>Other<\/th>)/,
+  "$1<th>Other</th>\n                ",
+);
+if (!recovery.includes("expense.otherAmount.toFixed(2)")) {
+  recovery = recovery.replace(
+    /(<td>₹\{expense\.provisionAmount\.toFixed\(2\)\}<\/td>\s*)<td>\s*<strong>/,
+    "$1<td>₹{expense.otherAmount.toFixed(2)}</td>\n                  <td>\n                    <strong>",
+  );
+  recovery = recovery.replace(
+    /expense\.provisionAmount\)\s*\//,
+    "expense.provisionAmount +\n                          expense.otherAmount) /",
+  );
+}
+if (!recovery.includes('lines.push(["Other room share", charge.otherShare])')) {
+  recovery = recovery.replace(
+    /if \(charge\.provisionShare\)\s*lines\.push\(\["Provision share", charge\.provisionShare\]\);/,
+    'if (charge.provisionShare) lines.push(["Provision share", charge.provisionShare]);\n    if (charge.otherShare) lines.push(["Other room share", charge.otherShare]);',
+  );
+  recovery = recovery.replace(
+    /if \(charge\.provisionShare\)\s*\n\s*lines\.push\(\["Provision share", charge\.provisionShare\]\);/,
+    'if (charge.provisionShare) lines.push(["Provision share", charge.provisionShare]);\n    if (charge.otherShare) lines.push(["Other room share", charge.otherShare]);',
+  );
+}
 
 if (!recovery.includes("Room-wise day ledger")) {
   const labelIndex = recovery.indexOf("Recovery totals by applicable employee");
@@ -79,4 +110,4 @@ if (!recovery.includes("Room-wise day ledger")) {
 }
 
 await writeFile(recoveryPath, recovery, "utf8");
-console.log("Normalized shared-hostel props and recovery summary labels before deduction-lock release build.");
+console.log("Normalized shared-hostel props and final recovery summary outputs before deduction-lock release build.");
