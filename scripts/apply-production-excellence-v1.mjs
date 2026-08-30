@@ -12,8 +12,6 @@ async function patch(path, transform) {
 }
 
 await patch("app/payroll-app.tsx", (source) => {
-  // Joy Payroll is bank-transfer only. Keep historical calculations readable,
-  // but never offer Cash as a selectable employee payment method.
   source = source.replaceAll(
     'defaultValue={employee?.paymentMode ?? "cash"}',
     'defaultValue="bank"',
@@ -21,9 +19,6 @@ await patch("app/payroll-app.tsx", (source) => {
   source = source.replaceAll('<option value="cash">Cash</option>', "");
   source = source.replaceAll("Bank vs cash", "Bank transfer readiness");
 
-  // Treat legacy payroll-item payment-mode values as bank records in the UI.
-  // This prevents old `cash` flags from keeping the required bank-download
-  // buttons disabled after the business moved to a bank-only policy.
   source = source.replace(
     '  const bankItems = items.filter((item) => item.paymentMode === "bank");\n  const cashItems = items.filter((item) => item.paymentMode === "cash");',
     '  const bankItems = items;\n  const cashItems = items.filter(() => false);',
@@ -63,12 +58,8 @@ await patch("app/payroll-app.tsx", (source) => {
 });
 
 await patch("app/api/app-data/route.ts", (source) => {
-  // Production policy: all employees are payable by bank transfer. Existing
-  // demo/fallback records must follow the same rule as saveEmployee().
   source = source.replaceAll('paymentMode: "cash"', 'paymentMode: "bank"');
 
-  // HR Manager and Field HR are both employer-unit-scoped. Payroll HR remains
-  // client-scoped, while Hostel In-charge has its separate hostel scope.
   source = source.replace(
     '    access.profile.role === "hr_team" &&\n    !access.profile.unitScope.includes(unitId)',
     '    (access.profile.role === "hr_team" || access.profile.role === "field_hr") &&\n    !access.profile.unitScope.includes(unitId)',
@@ -102,10 +93,17 @@ await patch("app/reports-recovery.tsx", (source) => {
     `              Download all finalized vouchers\n            </button>`,
     `              Download all finalized vouchers ({finalizedVoucherRows.length})\n            </button>`,
   );
-  source = source.replace(
-    `          rows={employeeRows.filter((row) =>\n            finalizations.some((entry) => entry.employeeId === row.employee.id),\n          )}`,
-    `          rows={finalizedVoucherRows}`,
-  );
+
+  const bulkStart = source.indexOf("<BulkRecoveryVouchers");
+  const rowsStart = bulkStart >= 0 ? source.indexOf("rows={", bulkStart) : -1;
+  const entriesStart = rowsStart >= 0 ? source.indexOf("entries={entries}", rowsStart) : -1;
+  if (bulkStart < 0 || rowsStart < 0 || entriesStart < 0) {
+    throw new Error("Unable to locate BulkRecoveryVouchers row and entries props");
+  }
+  source =
+    source.slice(0, rowsStart) +
+    "rows={finalizedVoucherRows}\n          " +
+    source.slice(entriesStart);
 
   if (!source.includes("rows={finalizedVoucherRows}")) {
     throw new Error("Bulk voucher rows were not redirected to the finalization register");
