@@ -26,7 +26,7 @@ await patch("app/payroll-app.tsx", (source) => {
   // buttons disabled after the business moved to a bank-only policy.
   source = source.replace(
     '  const bankItems = items.filter((item) => item.paymentMode === "bank");\n  const cashItems = items.filter((item) => item.paymentMode === "cash");',
-    '  const bankItems = items;\n  const cashItems: PayrollItem[] = [];',
+    '  const bankItems = items;\n  const cashItems = items.filter(() => false);',
   );
 
   if (
