@@ -15,23 +15,32 @@ if (source.includes(invocation) && !source.includes(`<PayslipModal\n          it
   );
 }
 
-// Force the sender to the dedicated salary-slip-mailer Edge Function.
-source = source.replace(
+// IMPORTANT: only rewrite fetches inside PayslipModal.
+// A previous global replacement changed performAction() itself, causing every
+// normal form submission (Hostel, Accommodation Type, etc.) to call the
+// salary-slip-mailer and return "Payroll item is required".
+const payslipModalStart = source.indexOf("function PayslipModal(");
+if (payslipModalStart < 0) throw new Error("PayslipModal was not found");
+let beforePayslipModal = source.slice(0, payslipModalStart);
+let payslipModalSource = source.slice(payslipModalStart);
+
+payslipModalSource = payslipModalSource.replace(
   /      const mailEndpoint = apiEndpoint\.includes\("\/functions\/v1\/"\)[\s\S]*?      const response = await fetch\(mailEndpoint, \{\n/,
   `      const mailEndpoint = "https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer";\n      const response = await fetch(mailEndpoint, {\n`,
 );
-source = source.replace(
+payslipModalSource = payslipModalSource.replace(
   `      const response = await fetch(apiEndpoint, {\n`,
   `      const mailEndpoint = "https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer";\n      const response = await fetch(mailEndpoint, {\n`,
 );
-source = source.replace(
+payslipModalSource = payslipModalSource.replace(
   `        body: JSON.stringify({ action: "send-payslip-email", runId: run.id, employeeId: employee.id }),\n`,
   `        body: JSON.stringify({ itemId: item.id }),\n`,
 );
-source = source.replace(
+payslipModalSource = payslipModalSource.replace(
   `      const payload = await response.json() as { ok?: boolean; error?: string; message?: string };\n      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "Unable to send salary slip email");\n      setEmailSent(true);\n      setEmailMessage(payload.message ?? \`Salary slip sent to \${employee.emailAddress}\`);\n`,
   `      const payload = await response.json() as { sent?: boolean; recipient?: string; error?: string };\n      if (!response.ok || !payload.sent) throw new Error(payload.error ?? "Unable to send salary slip email");\n      setEmailSent(true);\n      setEmailMessage(\`Salary slip sent to \${payload.recipient ?? employee.emailAddress}\`);\n`,
 );
+source = beforePayslipModal + payslipModalSource;
 
 // Always show the action in the payslip toolbar, even when disabled.
 if (!source.includes(`>\n              {emailSending ? "Sending…" : emailSent ? "Email sent" : "Send salary slip email"}\n            </button>`)) {
@@ -62,5 +71,12 @@ if (!source.includes("salary-slip-mailer")) throw new Error("Salary-slip mailer 
 if (!source.includes("itemId: item.id")) throw new Error("Salary-slip mailer payload is missing itemId");
 if (!source.includes('type="button"')) throw new Error("Salary-slip email button must not submit a parent form");
 
+const performActionStart = source.indexOf("  async function performAction(");
+const performActionEnd = source.indexOf("  async function updateRecordStatus(", performActionStart);
+if (performActionStart < 0 || performActionEnd < 0) throw new Error("performAction verification block not found");
+const performActionSource = source.slice(performActionStart, performActionEnd);
+if (!performActionSource.includes("fetch(apiEndpoint")) throw new Error("Normal application actions no longer point to payroll-api");
+if (performActionSource.includes("salary-slip-mailer")) throw new Error("Salary-slip mailer leaked into the normal application action handler");
+
 await writeFile(file, source, "utf8");
-console.log("Salary-slip email action now uses the dedicated SMTP mailer and cannot trigger the payroll form submit path.");
+console.log("Salary-slip email action is isolated to PayslipModal; normal form actions remain on payroll-api.");
