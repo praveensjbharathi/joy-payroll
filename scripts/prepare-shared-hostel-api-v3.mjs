@@ -87,5 +87,69 @@ if (saveHostelPattern.test(source)) {
   source = source.replace(saveRoomAnchor, `${canonicalSaveHostel}\n${saveRoomAnchor}`);
 }
 
+const canonicalSaveRoomValidation = `      const hostelId = textValue(payload.hostelId, "Hostel / local area");
+      {
+        const [hostel] = await db
+          .select()
+          .from(hostels)
+          .where(eq(hostels.id, hostelId))
+          .limit(1);
+        if (
+          !hostel ||
+          hostel.vendorId !== vendorId ||
+          hostel.accommodationTypeId !== accommodationTypeId ||
+          hostel.status !== "active"
+        )
+          throw new RequestError(
+            "Choose an active stored hostel or local area under this accommodation type",
+            409,
+          );
+      }
+      const values = {
+        vendorId,
+        accommodationTypeId,
+        hostelId,`;
+
+const saveRoomValidationPattern = /      const hostelId = textValue\(payload\.hostelId, "Hostel \/ local area"\);[\s\S]*?      const values = \{\n(?:        vendorId[^\n]*\n)?(?:        accommodationTypeId[^\n]*\n)?        hostelId,/;
+if (!saveRoomValidationPattern.test(source))
+  throw new Error("Unable to locate save-room hostel validation block");
+source = source.replace(saveRoomValidationPattern, canonicalSaveRoomValidation);
+
+const canonicalRoomEditValidation = `        if (!existing || existing.vendorId !== vendorId)
+          throw new RequestError(
+            "Accommodation room not found for this client",
+            404,
+          );`;
+const roomEditValidationPattern = /        if \(!existing[^\n]*\)[\s\S]*?          \);/;
+const saveRoomStart = source.indexOf('    } else if (action === "save-room") {');
+const allocateRoomStart = source.indexOf('    } else if (action === "allocate-room") {');
+if (saveRoomStart < 0 || allocateRoomStart < 0 || allocateRoomStart <= saveRoomStart)
+  throw new Error("Unable to isolate save-room backend for edit validation normalization");
+const beforeSaveRoom = source.slice(0, saveRoomStart);
+let saveRoomBlock = source.slice(saveRoomStart, allocateRoomStart);
+const afterSaveRoom = source.slice(allocateRoomStart);
+if (!roomEditValidationPattern.test(saveRoomBlock))
+  throw new Error("Unable to locate save-room edit validation block");
+saveRoomBlock = saveRoomBlock.replace(roomEditValidationPattern, canonicalRoomEditValidation);
+source = beforeSaveRoom + saveRoomBlock + afterSaveRoom;
+
+const canonicalHostelUserScope = `    const assignedHostels = await db
+      .select({ id: hostels.id, vendorId: hostels.vendorId })
+      .from(hostels)
+      .where(inArray(hostels.id, hostelScope));
+    if (assignedHostels.length !== hostelScope.length)
+      throw new RequestError(
+        "One or more assigned hostels no longer exist",
+        404,
+      );
+    clientScope = normalizedScope(
+      assignedHostels.map((hostel) => hostel.vendorId),
+    );
+    unitScope = [];`;
+const hostelUserScopePattern = /    const assignedHostels = await db[\s\S]*?    unitScope = \[[^\]]*\];/;
+if (!hostelUserScopePattern.test(source))
+  throw new Error("Unable to locate hostel in-charge scope block");
+source = source.replace(hostelUserScopePattern, canonicalHostelUserScope);
+
 await writeFile(path, source, "utf8");
-console.log("Normalized Hostel API visibility and save-hostel backend for multi-company shared-hostel release.");
+console.log("Normalized Hostel visibility, shared save-hostel/save-room backends, and hostel in-charge scope before multi-company release patch.");
