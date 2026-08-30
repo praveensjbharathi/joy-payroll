@@ -27,6 +27,8 @@ jobs:
         run: npm run fix:production
       - name: Verify requested production requirements
         run: node --test tests/production-excellence.test.mjs
+      - name: Build legacy-compatible test runtime
+        run: npm run build
       - name: Run application regression tests
         run: node --import tsx --test tests/payroll-workflows.test.mjs tests/excel-import.test.mjs tests/payroll-enhancements.test.mjs
       - name: Prepare Supabase production API
