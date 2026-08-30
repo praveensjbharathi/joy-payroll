@@ -22,8 +22,8 @@ await mkdir(generatedDirectory, { recursive: true });
 let schema = await readFile(join(projectRoot, "db/schema.ts"), "utf8");
 schema = replaceRequired(
   schema,
-  'import {\n  integer,\n  real,\n  sqliteTable,\n  text,\n  uniqueIndex,\n} from "drizzle-orm/sqlite-core";',
-  'import { doublePrecision, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";',
+  'import {\n  index,\n  integer,\n  real,\n  sqliteTable,\n  text,\n  uniqueIndex,\n} from "drizzle-orm/sqlite-core";',
+  'import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";',
   "the SQLite schema imports for PostgreSQL",
 );
 schema = replaceRequired(schema, "sqliteTable(", "pgTable(", "PostgreSQL tables");
