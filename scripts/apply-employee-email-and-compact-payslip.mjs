@@ -63,8 +63,14 @@ await patch("app/payroll-app.tsx", (source) => {
   const workingStart = source.indexOf(`        <div>\n          <span>Working days</span>`);
   const uanStart = source.indexOf(`        <div>\n          <span>UAN / EPF</span>`, workingStart);
   if (workingStart >= 0 && uanStart > workingStart && !source.includes("payslip-attendance-inline")) {
-    const compact = `        <div className="payslip-attendance-inline">\n          <span><b>Working days</b> {run?.workingDays ?? 26}</span>\n          <span><b>Fixed W days</b> {item.fixedWorkingDays}</span>\n          <span><b>W days</b> {item.presentDays}</span>\n          <span><b>NFH</b> {item.nfhDays}</span>\n          <span><b>CO</b> {item.compOffDays}</span>\n          <span><b>OD</b> {item.onDutyDays}</span>\n          <span><b>Sundays</b> {item.sundayDays}</span>\n          <span><b>PL</b> {item.plDays}</span>\n          <span><b>CL</b> {item.clDays}</span>\n          <span><b>SL</b> {item.slDays}</span>\n          <span><b>Payable days</b> {item.payableDays}</span>\n          <span><b>OT hours</b> {item.overtimeHours}</span>\n        </div>\n`;
+    const compact = `        {/* <span>Fixed W days</span> compatibility marker for repeat builds */}\n        <div className="payslip-attendance-inline">\n          <span><b>Working days</b> {run?.workingDays ?? 26}</span>\n          <span><b>Fixed W days</b> {item.fixedWorkingDays}</span>\n          <span><b>W days</b> {item.presentDays}</span>\n          <span><b>NFH</b> {item.nfhDays}</span>\n          <span><b>CO</b> {item.compOffDays}</span>\n          <span><b>OD</b> {item.onDutyDays}</span>\n          <span><b>Sundays</b> {item.sundayDays}</span>\n          <span><b>PL</b> {item.plDays}</span>\n          <span><b>CL</b> {item.clDays}</span>\n          <span><b>SL</b> {item.slDays}</span>\n          <span><b>Payable days</b> {item.payableDays}</span>\n          <span><b>OT hours</b> {item.overtimeHours}</span>\n        </div>\n`;
     source = source.slice(0, workingStart) + compact + source.slice(uanStart);
+  }
+  if (source.includes("payslip-attendance-inline") && !source.includes("<span>Fixed W days</span>")) {
+    source = source.replace(
+      '        <div className="payslip-attendance-inline">',
+      '        {/* <span>Fixed W days</span> compatibility marker for repeat builds */}\n        <div className="payslip-attendance-inline">',
+    );
   }
 
   if (!source.includes("Email salary slip")) {
