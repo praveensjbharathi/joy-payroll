@@ -74,6 +74,49 @@ test("normal form actions stay on payroll-api and only payslip email uses salary
   assert.match(payslip, /itemId: item\.id/);
 });
 
+test("individual dated recoveries persist as transactions and synchronize final payroll", async () => {
+  const api = await source("app/api/app-data/route.ts");
+  const start = api.indexOf('    } else if (action === "save-recovery-entry") {');
+  const end = api.indexOf('    } else if (action === "delete-recovery-entry") {', start);
+  assert.ok(start >= 0 && end > start, "individual recovery action must exist");
+  const block = api.slice(start, end);
+  assert.match(block, /const id = `REC-\$\{crypto\.randomUUID\(\)\}`/);
+  assert.match(block, /\.insert\(recoveryEntries\)/);
+  assert.match(block, /await syncDatedRecoveries\(db, runId, employeeId\)/);
+  assert.match(api, /async function syncDatedRecoveries/);
+  assert.match(api, /await recalculateRun\(db, runId, false\)/);
+});
+
+test("approved payroll gives explicit recovery correction guidance", async () => {
+  const recovery = await source("app/reports-recovery.tsx");
+  assert.match(recovery, /recovery-lock-guidance/);
+  assert.match(recovery, /Reopen payroll before changing employee recoveries/);
+  assert.match(recovery, /cleared payment batch\(es\)/);
+  assert.match(recovery, /run\.status === "approved"/);
+});
+
+test("room recovery is an append-only dated ledger and finalization aggregates the month", async () => {
+  const api = await source("app/api/app-data/route.ts");
+  const schema = await source("db/schema.ts");
+  const recovery = await source("app/reports-recovery.tsx");
+  const start = api.indexOf('    } else if (action === "save-room-expense") {');
+  const end = api.indexOf('    } else if (action === "finalize-room-expense") {', start);
+  assert.ok(start >= 0 && end > start, "room recovery save action must exist");
+  const saveBlock = api.slice(start, end);
+  assert.match(saveBlock, /const expenseId = `ROOMEXP-\$\{crypto\.randomUUID\(\)\}`/);
+  assert.match(saveBlock, /\.insert\(accommodationRoomExpenses\)/);
+  assert.doesNotMatch(saveBlock, /const \[existing\]/);
+  assert.match(api, /const ledger = await db/);
+  assert.match(api, /ledger\.reduce\(\(sum, entry\) => sum \+ numberValue\(entry\.gasAmount\)/);
+  assert.match(api, /ledger\.reduce\(\(sum, entry\) => sum \+ numberValue\(entry\.rationAmount\)/);
+  assert.match(api, /ledger\.reduce\(\(sum, entry\) => sum \+ numberValue\(entry\.provisionAmount\)/);
+  assert.match(schema, /index\("accommodation_room_period_idx"\)/);
+  assert.doesNotMatch(schema, /uniqueIndex\("accommodation_room_period_unique"\)/);
+  assert.match(recovery, /Room recovery date-wise ledger/);
+  assert.match(recovery, /setRoomRecoveryGas\(0\)/);
+  assert.match(recovery, /Save dated room recovery entry/);
+});
+
 test("bulk recovery vouchers are driven directly by finalizations", async () => {
   const recovery = await source("app/reports-recovery.tsx");
   assert.match(recovery, /const finalizedVoucherRows = finalizations\.flatMap/);
