@@ -75,8 +75,19 @@ await patch("app/payroll-app.tsx", (source) => {
 
   if (!source.includes("Email salary slip")) {
     const toolbarAnchor = `            {canExport ? (\n              <button\n                className="secondary-button"\n                onClick={() => window.print()}\n              >`;
-    const emailButton = `            {employee?.emailAddress ? (\n              <a\n                className="secondary-button"\n                href={\n                  "mailto:" +\n                  employee.emailAddress +\n                  "?subject=" +\n                  encodeURIComponent("Salary Slip - " + monthLabel(period) + " - " + employee.name) +\n                  "&body=" +\n                  encodeURIComponent(\n                    "Dear " + employee.name +\n                    "\\n\\nPlease find your salary slip for " + monthLabel(period) +\n                    ".\\nNet payable: INR " + item.netPayable.toFixed(2) +\n                    "\\nEmployer: " + unit.clientName + " - " + unit.unitName +\n                    "\\n\\nPlease attach the PDF saved using Print / Save PDF." +\n                    "\\n\\nRegards,\\n" + vendor.legalName,\n                  )\n                }\n              >\n                Email salary slip\n              </a>\n            ) : (\n              <button className="secondary-button" disabled title="Add employee email ID in Employee Master">Email salary slip</button>\n            )}\n`;
+    const emailButton = `            {employee?.emailAddress ? (\n              <a\n                className="secondary-button"\n                href={\n                  "https://mail.google.com/mail/?view=cm&fs=1&to=" +\n                  encodeURIComponent(employee.emailAddress) +\n                  "&su=" +\n                  encodeURIComponent("Salary Slip - " + monthLabel(period) + " - " + employee.name) +\n                  "&body=" +\n                  encodeURIComponent(\n                    "Dear " + employee.name +\n                    "\\n\\nPlease find your salary slip for " + monthLabel(period) +\n                    ".\\nNet payable: INR " + item.netPayable.toFixed(2) +\n                    "\\nEmployer: " + unit.clientName + " - " + unit.unitName +\n                    "\\n\\nPlease attach the PDF saved using Print / Save PDF." +\n                    "\\n\\nRegards,\\n" + vendor.legalName,\n                  )\n                }\n                target="_blank"\n                rel="noreferrer"\n              >\n                Email salary slip\n              </a>\n            ) : (\n              <button className="secondary-button" disabled title="Add employee email ID in Employee Master">Email salary slip</button>\n            )}\n`;
     source = once(source, toolbarAnchor, emailButton + toolbarAnchor, "payslip email action");
+  }
+
+  if (source.includes('"mailto:" +') && !source.includes('"https://mail.google.com/mail/?view=cm&fs=1&to=" +')) {
+    source = source.replace(
+      `                href={\n                  "mailto:" +\n                  employee.emailAddress +\n                  "?subject=" +\n                  encodeURIComponent("Salary Slip - " + monthLabel(period) + " - " + employee.name) +\n                  "&body=" +`,
+      `                href={\n                  "https://mail.google.com/mail/?view=cm&fs=1&to=" +\n                  encodeURIComponent(employee.emailAddress) +\n                  "&su=" +\n                  encodeURIComponent("Salary Slip - " + monthLabel(period) + " - " + employee.name) +\n                  "&body=" +`,
+    );
+    source = source.replace(
+      `              >\n                Email salary slip`,
+      `                target="_blank"\n                rel="noreferrer"\n              >\n                Email salary slip`,
+    );
   }
 
   return source;
@@ -101,4 +112,4 @@ await patch("app/globals.css", (source) => {
   return source + `\n/* JOY_COMPACT_PAYSLIP_ATTENDANCE_20260830 */\n.payslip-meta .payslip-attendance-inline{grid-column:1/-1!important;display:flex!important;flex-wrap:wrap!important;gap:3px 10px!important;padding:5px 7px!important;border:1px solid #dfe5ec!important;border-radius:5px!important;background:#fff!important;line-height:1.2!important;font-size:10px!important}.payslip-attendance-inline span{display:inline-flex!important;gap:3px!important;white-space:nowrap!important}.payslip-attendance-inline b{font-weight:700!important}.modal-toolbar a.secondary-button{text-decoration:none!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}@media print{.payslip-meta .payslip-attendance-inline{font-size:8.5pt!important;gap:2px 7px!important;padding:3px 5px!important;background:#fff!important}}\n`;
 });
 
-console.log("Added employee email to master/reports, individual payslip email compose action, and compact one-line attendance details on salary slips.");
+console.log("Added employee email to master/reports, Gmail web salary-slip compose action, and compact one-line attendance details on salary slips.");
