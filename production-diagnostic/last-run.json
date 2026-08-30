@@ -2,12 +2,12 @@
   "release": "production-excellence-v1",
   "validation": {
     "npm_install": "success",
-    "production_safeguards": "failure",
-    "acceptance_tests": "failure",
+    "production_safeguards": "success",
+    "acceptance_tests": "success",
     "regression_tests": "failure",
     "supabase_prepare": "failure",
     "typescript": "failure",
-    "supabase_contract": "failure",
+    "supabase_contract": "success",
     "cloudflare_build": "failure"
   },
   "all_code_checks_passed": false,
