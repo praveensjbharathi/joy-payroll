@@ -1,0 +1,55 @@
+name: Inspect Joy Payroll Live Config
+
+on:
+  push:
+    branches:
+      - release/production-excellence-v1
+    paths-ignore:
+      - production-diagnostic/live-config.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/production-excellence-v1
+      - name: Inspect public live configuration only
+        shell: bash
+        run: |
+          mkdir -p production-diagnostic
+          curl -fsSL --max-time 20 https://joy-payroll.praveen-red-07.workers.dev/config.js -o /tmp/live-config.js || true
+          curl -fsSL --max-time 20 https://joy-payroll.praveen-red-07.workers.dev/ -o /tmp/live-index.html || true
+          python - <<'PY'
+          import hashlib, json, pathlib, re
+          cfg = pathlib.Path('/tmp/live-config.js')
+          idx = pathlib.Path('/tmp/live-index.html')
+          text = cfg.read_text(errors='replace') if cfg.exists() else ''
+          def extract(name):
+              match = re.search(rf'{name}\s*:\s*["\']([^"\']*)["\']', text)
+              return match.group(1) if match else None
+          result = {
+              'live_url': 'https://joy-payroll.praveen-red-07.workers.dev/',
+              'config_reachable': bool(text),
+              'supabase_url': extract('supabaseUrl'),
+              'api_url': extract('apiUrl'),
+              'config_sha256': hashlib.sha256(cfg.read_bytes()).hexdigest() if cfg.exists() else None,
+              'index_sha256': hashlib.sha256(idx.read_bytes()).hexdigest() if idx.exists() else None,
+          }
+          pathlib.Path('production-diagnostic/live-config.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result, indent=2))
+          PY
+      - name: Commit safe live config result
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add production-diagnostic/live-config.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Record live Worker configuration fingerprint"
+          git push origin HEAD:release/production-excellence-v1
