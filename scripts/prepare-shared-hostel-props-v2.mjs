@@ -65,5 +65,13 @@ recovery = recovery.replace(
   "Add dated recovery",
 );
 
+const recoveryTotalsAnchor = /      <section className="panel table-panel">\n\s*<div className="panel-heading">\n\s*<div>\n\s*<span className="eyebrow">\s*Recovery totals by applicable employee\s*<\/span>/;
+if (recoveryTotalsAnchor.test(recovery)) {
+  recovery = recovery.replace(
+    recoveryTotalsAnchor,
+    `      <section className="panel table-panel">\n        <div className="panel-heading">\n          <div>\n            <span className="eyebrow">\n              Recovery totals by applicable employee`,
+  );
+}
+
 await writeFile(recoveryPath, recovery, "utf8");
 console.log("Normalized shared-hostel props and legacy recovery markers before deduction-lock release build.");
