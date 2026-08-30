@@ -1,0 +1,50 @@
+
+> joy-vendor-payroll@0.1.0 fix:production
+> node scripts/apply-production-fixes.mjs && node scripts/apply-payroll-register-completion.mjs && node scripts/apply-pending-workflow-completion-v2.mjs && node scripts/apply-room-recovery-summary.mjs && node scripts/apply-current-user-fixes.mjs && node scripts/fix-generated-payroll-export.mjs && node scripts/apply-id-toolbar-cleanup.mjs && node scripts/repair-room-recovery-toolbar.mjs && node scripts/fix-undefined-appusers.mjs && node scripts/restore-room-print-controls.mjs && node scripts/finalize-recovery-room-ui.mjs && node scripts/style-branded-id-cards.mjs && node scripts/fix-live-enhancement-helpers.mjs && node scripts/style-premium-app-ui.mjs && node scripts/sync-id-download-canvas.mjs && node scripts/lock-recovery-room-controls.mjs && node scripts/fix-accommodation-vouchers-payslip-print.mjs && node scripts/fix-bulk-payslip-performance.mjs && node scripts/fix-payslip-blank-print.mjs && node scripts/apply-shared-joy-hostels.mjs && node scripts/harden-payroll-quality-gates.mjs && node scripts/verify-payroll-safety.mjs && node scripts/expand-employee-master-report.mjs && node scripts/fix-bank-enhancement-script.mjs && node scripts/apply-bank-payment-batch-enhancements.mjs && node scripts/apply-employee-email-and-compact-payslip.mjs && node scripts/fix-salary-slip-email-button.mjs && node scripts/finalize-salary-slip-smtp-route.mjs && node scripts/unify-payslip-output-format.mjs && node scripts/apply-recovery-concept-v6.mjs && node scripts/fix-recovery-v6-collisions.mjs && node scripts/apply-dynamic-accommodation-subcategory.mjs && node scripts/fix-hostel-master-and-room-recovery-date.mjs && node scripts/finalize-requested-hostel-recovery-flow.mjs && node scripts/apply-production-excellence-v1.mjs
+
+Applied Joy Payroll production fixes: employer salary import, employee DOB, ID card, hostel editing, print isolation, room-recovery landscape printing, and Reports dropdown layout.
+Completed Joy Payroll 41-column register persistence, single-entry inputs, payslip audit fields, exports, bank readiness guidance, and two-sided print support.
+Completed remaining Joy Payroll workflow fixes (v2).
+Added Gas, Ration, Provision, Roommates and Shared total to each room recovery print sheet.
+Applied exact 41-column export, shared Joy-group hostel visibility, room-wise recovery entry, hierarchy dropdown, ID toolbar cleanup, and duplicate recovery control cleanup.
+Normalized generated 41-column payroll CSV syntax.
+ID-card view now keeps only Download Front HQ JPG, Download Back HQ JPG and close.
+Recovery UI keeps only the left room selector and its two A4 landscape buttons; right-side duplicates are removed.
+Neutralized undefined appUsers build reference so recovery toolbar build can complete.
+Restored room dropdown from finalized shared recoveries and enabled selected/all room A4 printing even when employee recovery rows are empty.
+Recovery completed: payroll employees restored, roomId resolver shared by view and print, duplicate toolbar safely removed.
+Applied separate premium ID-card themes for Joy Corporate Solutions and Joy Manpower Service, including HQ JPG styling.
+Restored missing live enhancement helper functions for a successful production build.
+Applied premium app UI; printable documents use plain white backgrounds except branded ID cards.
+ID-card HQ JPG canvas now mirrors the approved branded preview layout for both Joy companies.
+Recovery V4: exact selected-room filtering, employee-wise deduction voucher action, all-room printing, duplicate cleanup and blank-page control applied.
+Applied one employee salary slip per A4 portrait page, accommodation callback refresh, and deduction-only bulk vouchers.
+Optimized bulk payslip rendering by replacing repeated full-DOM observers with one debounced observer.
+Applied isolated A4 payslip print root to prevent blank Chrome print previews.
+Joy Hostel sharing enabled across Joy Manpower Service and Joy Corporate Solutions while keeping non-Joy accommodation company-specific.
+Payroll approval hardened: live recalculation, readiness, bank-only and payable reconciliation gates enabled.
+Joy Payroll production safety verification passed (10/10 controls).
+Employee master Excel, CSV and print reports now include all employee-master input fields.
+Bank enhancement script syntax normalized.
+Applied bank branch, payslip bank/compliance details, exact CUB descriptions and selectable payment processing batches.
+Added employee email to master/reports, direct SMTP salary-slip delivery through payroll API, and compact one-line attendance details on salary slips.
+Salary-slip email action now uses the dedicated SMTP mailer and cannot trigger the payroll form submit path.
+Finalized salary-slip SMTP sender deterministically; the email action cannot route to payroll-api.
+Unified payslip preview, single print/download and bulk print/download; removed run-level Working days.
+Recovery V6 applied: overall employee input, applicable-only vouchers, restored dated recovery entry, roommate confirmation and room-wise monthly Gas/Ration/Provision recovery.
+Recovery V6 collision cleanup applied: legacy hostel-only form removed and vouchers remain finalization-only.
+Dynamic accommodation category/sub-category applied: Operational Master type -> Hostel/Area Master sub-category -> Room.
+Hostel/Area Master creation fixed and Add Recovery for Rooms now includes date-wise entry flow.
+Exact requested Hostel/Area Master dropdown flow and date-first Room Recovery flow applied.
+file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:111
+    throw new Error("Bulk voucher rows were not redirected to the finalization register");
+          ^
+
+Error: Bulk voucher rows were not redirected to the finalization register
+    at file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:111:11
+    at patch (file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:10:16)
+    at async file:///home/runner/work/joy-payroll/joy-payroll/scripts/apply-production-excellence-v1.mjs:91:1
+
+Node.js v22.23.2
+
+RESULT=failure
