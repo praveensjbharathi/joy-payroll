@@ -55,12 +55,14 @@ recovery = recovery.replace(
   "",
 );
 
-// Older recovery patches allowed the approver into the input form. The final lock
-// workflow separates entry rights from approval rights, so restore the stable marker
-// consumed by the deduction-lock transformer.
 recovery = recovery.replace(
   "      {run && (canManage || canApprove) ? (",
   "      {canManage && run ? (",
+);
+
+recovery = recovery.replace(
+  '{run.status === "approved" ? "Reopen payroll to add recovery" : "Add dated recovery"}',
+  "Add dated recovery",
 );
 
 await writeFile(recoveryPath, recovery, "utf8");
