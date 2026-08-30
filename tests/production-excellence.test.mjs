@@ -25,6 +25,8 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   const payroll = await source("app/payroll-app.tsx");
   const api = await source("app/api/app-data/route.ts");
   assert.doesNotMatch(payroll, /<option value="cash">Cash<\/option>/);
+  assert.match(payroll, /const bankItems = items;/);
+  assert.match(payroll, /bankValidationIssues/);
   assert.match(api, /const paymentMode = "bank";/);
   assert.doesNotMatch(api, /paymentMode: "cash"/);
   assert.match(payroll, /Indian Bank Excel/);
@@ -72,8 +74,9 @@ test("voucher print typography is readable", async () => {
   assert.match(css, /Joy Payroll production readability baseline/);
 });
 
-test("role model matches production operating structure", async () => {
+test("role model matches production operating structure and unit scope", async () => {
   const access = await source("lib/access-control.ts");
+  const api = await source("app/api/app-data/route.ts");
   for (const role of ["Super Admin", "Payroll HR", "HR Manager", "Field HR", "Hostel In-charge"]) {
     assert.match(access, new RegExp(role));
   }
@@ -81,4 +84,6 @@ test("role model matches production operating structure", async () => {
   assert.match(access, /hr_team/);
   assert.match(access, /field_hr/);
   assert.match(access, /hostel_incharge/);
+  assert.match(api, /access\.profile\.role === "field_hr"/);
+  assert.match(api, /\["hr_team", "field_hr"\]\.includes\(access\.profile\.role\)/);
 });
