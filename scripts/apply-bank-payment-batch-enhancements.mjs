@@ -93,12 +93,14 @@ await patch("app/payroll-app.tsx", (source) => {
     "payslip employee prop",
   );
 
-  source = replaceOnce(
-    source,
-    `        <div>\n          <span>OT hours</span>\n          <strong>{item.overtimeHours}</strong>\n        </div>\n      </div>`,
-    `        <div>\n          <span>OT hours</span>\n          <strong>{item.overtimeHours}</strong>\n        </div>\n        <div>\n          <span>UAN / EPF</span>\n          <strong>{employee?.uanMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>ESI number</span>\n          <strong>{employee?.esiMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>Bank account</span>\n          <strong>{employee?.bankAccountMasked ?? item.bankAccountMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>IFSC</span>\n          <strong>{employee?.ifscMasked ?? item.ifscMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>Bank name</span>\n          <strong>{employee?.bankName ?? "—"}</strong>\n        </div>\n        <div>\n          <span>Bank branch</span>\n          <strong>{employee?.bankBranch ?? "—"}</strong>\n        </div>\n      </div>`,
-    "payslip compliance and bank meta",
-  );
+  if (!source.includes("<span>UAN / EPF</span>")) {
+    source = replaceOnce(
+      source,
+      `        <div>\n          <span>OT hours</span>\n          <strong>{item.overtimeHours}</strong>\n        </div>\n      </div>`,
+      `        <div>\n          <span>OT hours</span>\n          <strong>{item.overtimeHours}</strong>\n        </div>\n        <div>\n          <span>UAN / EPF</span>\n          <strong>{employee?.uanMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>ESI number</span>\n          <strong>{employee?.esiMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>Bank account</span>\n          <strong>{employee?.bankAccountMasked ?? item.bankAccountMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>IFSC</span>\n          <strong>{employee?.ifscMasked ?? item.ifscMasked ?? "—"}</strong>\n        </div>\n        <div>\n          <span>Bank name</span>\n          <strong>{employee?.bankName ?? "—"}</strong>\n        </div>\n        <div>\n          <span>Bank branch</span>\n          <strong>{employee?.bankBranch ?? "—"}</strong>\n        </div>\n      </div>`,
+      "payslip compliance and bank meta",
+    );
+  }
 
   source = replaceOnce(
     source,
