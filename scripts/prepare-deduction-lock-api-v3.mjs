@@ -20,9 +20,12 @@ function blockBetween(startMarker, endMarker) {
   );
   let next = text;
   if (!next.includes("otherAmount: positiveValue")) {
+    const marker = `        provisionPaymentReference: optionalValue(\n          payload.provisionPaymentReference,\n        ),`;
+    if (!next.includes(marker))
+      throw new Error("Unable to locate legacy provision payment reference");
     next = next.replace(
-      /        provisionPaymentReference: optionalValue\(\n          payload\.provisionPaymentReference,\n        \),\n/,
-      `        provisionPaymentReference: optionalValue(\n          payload.provisionPaymentReference,\n        ),\n        otherAmount: positiveValue(payload.otherAmount ?? 0, "Other room expense"),\n`,
+      marker,
+      `${marker}\n        otherAmount: positiveValue(payload.otherAmount ?? 0, "Other room expense"),`,
     );
   }
   source = source.slice(0, start) + next + source.slice(end);
@@ -37,10 +40,10 @@ function blockBetween(startMarker, endMarker) {
   );
   let next = text;
   if (!next.includes("otherShare: 0")) {
-    next = next.replace(
-      /          provisionShare: 0,\n        \}\)/,
-      `          provisionShare: 0,\n          otherShare: 0,\n        })`,
-    );
+    const marker = "          provisionShare: 0,";
+    if (!next.includes(marker))
+      throw new Error("Unable to locate legacy provision-share reset");
+    next = next.replace(marker, `${marker}\n          otherShare: 0,`);
   }
   source = source.slice(0, start) + next + source.slice(end);
 }
