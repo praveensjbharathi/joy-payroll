@@ -28,7 +28,7 @@ jobs:
       - name: Verify requested production requirements
         run: node --test tests/production-excellence.test.mjs
       - name: Build legacy-compatible test runtime
-        run: bash scripts/build-verified.sh
+        run: bash scripts/sites-env.sh -- bash scripts/build-verified.sh
       - name: Run application regression tests
         run: node --import tsx --test tests/payroll-workflows.test.mjs tests/excel-import.test.mjs tests/payroll-enhancements.test.mjs
       - name: Prepare Supabase production API from verified source
