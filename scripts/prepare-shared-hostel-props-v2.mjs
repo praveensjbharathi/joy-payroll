@@ -69,7 +69,7 @@ const recoveryTotalsAnchor = /      <section className="panel table-panel">\n\s*
 if (recoveryTotalsAnchor.test(recovery)) {
   recovery = recovery.replace(
     recoveryTotalsAnchor,
-    `      <section className="panel table-panel">\n        <div className="panel-heading">\n          <div>\n            <span className="eyebrow">\n              Recovery totals by applicable employee`,
+    `      <section className="panel table-panel">\n        <div className="panel-heading">\n          <div>\n            <span className="eyebrow">\n              Recovery totals by applicable employee\n            </span>`,
   );
 }
 
