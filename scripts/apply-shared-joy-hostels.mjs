@@ -8,9 +8,6 @@ const appPath = join(root, "app/payroll-app.tsx");
 
 let hostel = await readFile(hostelPath, "utf8");
 
-// Always rebuild the complete type-selection block. The production preparation
-// pipeline runs more than once, so this must be safely idempotent even when an
-// earlier patch script restores part of HostelMaster between passes.
 const typeBlockPattern = /  const \[typeId, setTypeId\] = useState\(activeTypes\[0\]\?\.id \?\? ""\);[\s\S]*?  const \[hostelId, setHostelId\] = useState\(""\);/;
 const sharedTypeBlock = `  const [typeId, setTypeId] = useState(activeTypes[0]?.id ?? "");
   const selectedType = activeTypes.find((t) => t.id === typeId);
@@ -43,9 +40,17 @@ if (!typeBlockPattern.test(hostel)) {
 }
 hostel = hostel.replace(typeBlockPattern, sharedTypeBlock);
 
+// Re-create this derived value on every pass because earlier production scripts
+// may remove or rewrite it during the second prepare/build cycle.
+hostel = hostel.replace(/\n  const selectedTypeName = .*?;\n/g, "\n");
+const selectedAnchor =
+  '  const selected = typeHostels.find((h) => h.id === hostelId) ?? typeHostels[0];\n';
+if (!hostel.includes(selectedAnchor)) {
+  throw new Error("Unable to locate selected hostel anchor");
+}
 hostel = hostel.replace(
-  /  const selectedTypeName = .*?;\n/,
-  '  const selectedTypeName = selectedType?.name ?? "";\n',
+  selectedAnchor,
+  `${selectedAnchor}  const selectedTypeName = selectedType?.name ?? "";\n`,
 );
 
 hostel = hostel.replace(
@@ -73,8 +78,6 @@ hostel = hostel.replace(
       mappedUnitIds.includes(employee.clientUnitId),`,
 );
 
-// Editing a shared hostel must preserve the company/type that originally owns
-// that stored hostel record instead of reassigning it to the currently selected company.
 hostel = hostel.replace(
   '      vendorId,\n      accommodationTypeId: typeId,\n      name: f.get("name"),',
   '      vendorId: selected.vendorId,\n      accommodationTypeId: selected.accommodationTypeId ?? typeId,\n      name: f.get("name"),',
@@ -97,8 +100,6 @@ if (!hostel.includes("Joy Group shared hostel")) {
 await writeFile(hostelPath, hostel, "utf8");
 
 let app = await readFile(appPath, "utf8");
-// Hostel Master gets the full group unit/type lists. HostelMaster itself keeps
-// non-Joy accommodation company-specific and shares only Joy Hostel / Joy Room.
 app = app.replace(
   /              units=\{data\.units\.filter\(\n                \(unit\) => unit\.vendorId === activeVendorId,\n              \)\}\n              types=\{currentTypes\}/g,
   `              units={data.units}
