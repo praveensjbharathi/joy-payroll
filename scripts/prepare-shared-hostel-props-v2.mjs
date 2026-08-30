@@ -31,11 +31,33 @@ normalizeBlock("AccommodationControlCenter", (block) => {
 });
 
 // The deduction-lock patch uses this as a source-stability marker only.
-// Normalize its indentation so the marker remains deterministic after earlier UI patches.
 source = source.replace(
   "\n  recoveryEntries: RecoveryEntry[];\n",
   "\n    recoveryEntries: RecoveryEntry[];\n",
 );
 
 await writeFile(path, source, "utf8");
-console.log("Normalized shared-hostel props and deduction-lock type marker for release build.");
+
+// Recovery V6 introduced an older room-month form. The final deduction-lock release
+// owns room-wise dated recovery entry/edit/delete, so remove only that duplicate
+// state/handlers/panel immediately before the new ledger transformer runs.
+const recoveryPath = "app/reports-recovery.tsx";
+let recovery = await readFile(recoveryPath, "utf8");
+
+recovery = recovery.replace(
+  /\n  const \[roomRecoveryScope, setRoomRecoveryScope\][\s\S]*?(?=\n  const runCharges = run)/,
+  "",
+);
+
+recovery = recovery.replace(
+  /\n  const (?:recoveryAccommodationTypes|joyRecoveryTypeIds) =[\s\S]*?(?=\n  async function addRecovery\()/,
+  "",
+);
+
+recovery = recovery.replace(
+  /\n      \{run && \(canManage \|\| canApprove\) \? \(\n        <section className="panel form-grid room-recovery-entry-panel">[\s\S]*?\n        <\/section>\n      \) : null\}/,
+  "",
+);
+
+await writeFile(recoveryPath, recovery, "utf8");
+console.log("Normalized shared-hostel props and removed legacy room-recovery collision before deduction-lock release build.");
