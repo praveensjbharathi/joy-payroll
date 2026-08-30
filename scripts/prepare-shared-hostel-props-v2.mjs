@@ -60,6 +60,10 @@ recovery = recovery.replace(
   '{run.status === "approved" ? "Reopen payroll to add recovery" : "Add dated recovery"}',
   "Add dated recovery",
 );
+recovery = recovery.replace(
+  /<th>Gas\s*\/\s*Ration\s*\/\s*Provision(?:[^<]*)<\/th>/,
+  "<th>Gas / Ration / Provision</th>",
+);
 
 if (!recovery.includes("Room-wise day ledger")) {
   const labelIndex = recovery.indexOf("Recovery totals by applicable employee");
@@ -75,4 +79,4 @@ if (!recovery.includes("Room-wise day ledger")) {
 }
 
 await writeFile(recoveryPath, recovery, "utf8");
-console.log("Normalized shared-hostel props and inserted final room day-ledger before deduction-lock release build.");
+console.log("Normalized shared-hostel props and recovery summary labels before deduction-lock release build.");
