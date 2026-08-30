@@ -89,15 +89,13 @@ await patch("app/api/app-data/route.ts", (source) => {
 });
 
 await patch("app/reports-recovery.tsx", (source) => {
-  const needle = `    })\n    .filter((row) => row.charge || row.dated.length || row.shared > 0);\n  const roomRows = data.roomExpenses`;
   if (!source.includes("const finalizedVoucherRows = finalizations.flatMap")) {
-    if (!source.includes(needle)) {
-      throw new Error("Unable to locate recovery employee rows for finalized voucher hardening");
+    const marker = "  async function addRecovery(event: FormEvent<HTMLFormElement>) {";
+    if (!source.includes(marker)) {
+      throw new Error("Unable to locate recovery action boundary for finalized voucher hardening");
     }
-    source = source.replace(
-      needle,
-      `    })\n    .filter((row) => row.charge || row.dated.length || row.shared > 0);\n\n  // Build bulk vouchers from the finalization register itself. This guarantees\n  // that every finalized employee is included even when the employee has no\n  // dated recovery line or a zero-value recovery in the current view filter.\n  const finalizedVoucherRows = finalizations.flatMap((finalized) => {\n    const employee = employees.find((row) => row.id === finalized.employeeId);\n    if (!employee) return [];\n    return [{\n      employee,\n      charge: runCharges.find((row) => row.employeeId === employee.id),\n      item: items.find((row) => row.employeeId === employee.id),\n    }];\n  });\n  const roomRows = data.roomExpenses`,
-    );
+    const finalizedRows = `  // Build bulk vouchers from the finalization register itself. This guarantees\n  // that every finalized employee is included even when normal recovery-table\n  // filters would otherwise hide that employee.\n  const finalizedVoucherRows = finalizations.flatMap((finalized) => {\n    const employee = employees.find((row) => row.id === finalized.employeeId);\n    if (!employee) return [];\n    return [{\n      employee,\n      charge: runCharges.find((row) => row.employeeId === employee.id),\n      item: items.find((row) => row.employeeId === employee.id),\n    }];\n  });\n`;
+    source = source.replace(marker, `${finalizedRows}${marker}`);
   }
 
   source = source.replace(
@@ -108,6 +106,10 @@ await patch("app/reports-recovery.tsx", (source) => {
     `          rows={employeeRows.filter((row) =>\n            finalizations.some((entry) => entry.employeeId === row.employee.id),\n          )}`,
     `          rows={finalizedVoucherRows}`,
   );
+
+  if (!source.includes("rows={finalizedVoucherRows}")) {
+    throw new Error("Bulk voucher rows were not redirected to the finalization register");
+  }
 
   if (!source.includes("JOY_FINALIZED_VOUCHER_COMPLETENESS_V1")) {
     source = source.replace(
