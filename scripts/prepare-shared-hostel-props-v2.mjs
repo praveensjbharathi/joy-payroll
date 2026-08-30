@@ -30,5 +30,12 @@ normalizeBlock("AccommodationControlCenter", (block) => {
   return block;
 });
 
+// The deduction-lock patch uses this as a source-stability marker only.
+// Normalize its indentation so the marker remains deterministic after earlier UI patches.
+source = source.replace(
+  "\n  recoveryEntries: RecoveryEntry[];\n",
+  "\n    recoveryEntries: RecoveryEntry[];\n",
+);
+
 await writeFile(path, source, "utf8");
-console.log("Normalized HostelMaster and AccommodationControlCenter props for shared Joy-group accommodation.");
+console.log("Normalized shared-hostel props and deduction-lock type marker for release build.");
