@@ -16,10 +16,42 @@ await patch("app/payroll-app.tsx", (source) => {
   // but never offer Cash as a selectable employee payment method.
   source = source.replaceAll(
     'defaultValue={employee?.paymentMode ?? "cash"}',
-    'defaultValue={employee?.paymentMode === "bank" ? "bank" : "bank"}',
+    'defaultValue="bank"',
   );
   source = source.replaceAll('<option value="cash">Cash</option>', "");
   source = source.replaceAll("Bank vs cash", "Bank transfer readiness");
+
+  // Treat legacy payroll-item payment-mode values as bank records in the UI.
+  // This prevents old `cash` flags from keeping the required bank-download
+  // buttons disabled after the business moved to a bank-only policy.
+  source = source.replace(
+    '  const bankItems = items.filter((item) => item.paymentMode === "bank");\n  const cashItems = items.filter((item) => item.paymentMode === "cash");',
+    '  const bankItems = items;\n  const cashItems: PayrollItem[] = [];',
+  );
+
+  if (
+    source.includes("const selectedBankItems = bankItems.filter") &&
+    !source.includes("const bankValidationIssues = selectedBankItems.filter")
+  ) {
+    source = source.replace(
+      '  const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));',
+      '  const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));\n  const bankValidationIssues = selectedBankItems.filter((item) => !item.bankAccountMasked || !item.ifscMasked);',
+    );
+  }
+
+  source = source.replaceAll(
+    'disabled={!selectedBankItems.length || !canExport}',
+    'disabled={!selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}',
+  );
+  source = source.replace(
+    '<div className="form-note"><strong>{selectedBankItems.length} employees selected</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span></div>',
+    '<div className="form-note"><strong>{selectedBankItems.length} employees selected</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? `${bankValidationIssues.length} employee(s) need bank account / IFSC before download.` : "Bank validation complete · upload formats ready."}</span></div>',
+  );
+  source = source.replaceAll("Cash payable", "Bank details pending");
+  source = source.replace(
+    '<p>{cashItems.length} employees · acknowledgement required</p>',
+    '<p>{bankValidationIssues.length} employees · complete account number / IFSC</p>',
+  );
 
   if (!source.includes("JOY_PRODUCTION_EXCELLENCE_V1")) {
     source = source.replace(
@@ -34,6 +66,22 @@ await patch("app/api/app-data/route.ts", (source) => {
   // Production policy: all employees are payable by bank transfer. Existing
   // demo/fallback records must follow the same rule as saveEmployee().
   source = source.replaceAll('paymentMode: "cash"', 'paymentMode: "bank"');
+
+  // HR Manager and Field HR are both employer-unit-scoped. Payroll HR remains
+  // client-scoped, while Hostel In-charge has its separate hostel scope.
+  source = source.replace(
+    '    access.profile.role === "hr_team" &&\n    !access.profile.unitScope.includes(unitId)',
+    '    (access.profile.role === "hr_team" || access.profile.role === "field_hr") &&\n    !access.profile.unitScope.includes(unitId)',
+  );
+  source = source.replace(
+    '        access.profile.role !== "hr_team" ||\n        unitScope.has(unit.id)',
+    '        (!["hr_team", "field_hr"].includes(access.profile.role)) ||\n        unitScope.has(unit.id)',
+  );
+  source = source.replaceAll(
+    '"Assign at least one employer unit to an HR Team user"',
+    '"Assign at least one employer unit to this HR user"',
+  );
+
   if (!source.includes("JOY_BANK_ONLY_POLICY_V1")) {
     source = `// JOY_BANK_ONLY_POLICY_V1\n${source}`;
   }
