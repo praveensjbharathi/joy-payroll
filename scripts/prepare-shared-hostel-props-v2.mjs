@@ -61,12 +61,21 @@ recovery = recovery.replace(
   "Add dated recovery",
 );
 
-// Pre-apply final summary outputs so historical labels/formatting cannot block
-// the new deduction-lock transformer.
-recovery = recovery.replace(
-  /(<th>Individual recovery<\/th>\s*)<th>[^<]*<\/th>(\s*<th>Return<\/th>)/,
-  "$1<th>Room shared recoveries</th>$2",
-);
+// Set the employee summary room-recovery column structurally: it is the header
+// immediately before Return inside the Recovery totals table.
+const totalsIndex = recovery.indexOf("Recovery totals by applicable employee");
+if (totalsIndex < 0) throw new Error("Recovery totals section was not found");
+const returnHeaderIndex = recovery.indexOf("<th>Return</th>", totalsIndex);
+if (returnHeaderIndex < 0) throw new Error("Recovery totals Return header was not found");
+const priorHeaderStart = recovery.lastIndexOf("<th>", returnHeaderIndex - 1);
+const priorHeaderEnd = recovery.indexOf("</th>", priorHeaderStart);
+if (priorHeaderStart < 0 || priorHeaderEnd < 0)
+  throw new Error("Recovery totals shared-room header was not found");
+recovery =
+  recovery.slice(0, priorHeaderStart) +
+  "<th>Room shared recoveries</th>" +
+  recovery.slice(priorHeaderEnd + "</th>".length);
+
 recovery = recovery.replace(
   /charge\.gasShare\s*\+\s*charge\.rationShare\s*\+\s*charge\.provisionShare(?!\s*\+\s*charge\.otherShare)/,
   "charge.gasShare + charge.rationShare + charge.provisionShare + charge.otherShare",
@@ -97,11 +106,9 @@ if (!recovery.includes('lines.push(["Other room share", charge.otherShare])')) {
 }
 
 if (!recovery.includes("Room-wise day ledger")) {
-  const labelIndex = recovery.indexOf("Recovery totals by applicable employee");
-  if (labelIndex < 0) throw new Error("Recovery totals section was not found");
   const sectionStart = recovery.lastIndexOf(
     '<section className="panel table-panel">',
-    labelIndex,
+    totalsIndex,
   );
   if (sectionStart < 0) throw new Error("Recovery totals panel start was not found");
   const lineStart = recovery.lastIndexOf("\n", sectionStart) + 1;
