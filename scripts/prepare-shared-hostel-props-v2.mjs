@@ -30,7 +30,6 @@ normalizeBlock("AccommodationControlCenter", (block) => {
   return block;
 });
 
-// The deduction-lock patch uses this as a source-stability marker only.
 source = source.replace(
   "\n  recoveryEntries: RecoveryEntry[];\n",
   "\n    recoveryEntries: RecoveryEntry[];\n",
@@ -38,9 +37,6 @@ source = source.replace(
 
 await writeFile(path, source, "utf8");
 
-// Recovery V6 introduced an older room-month form. The final deduction-lock release
-// owns room-wise dated recovery entry/edit/delete, so remove only that duplicate
-// state/handlers/panel immediately before the new ledger transformer runs.
 const recoveryPath = "app/reports-recovery.tsx";
 let recovery = await readFile(recoveryPath, "utf8");
 
@@ -59,5 +55,13 @@ recovery = recovery.replace(
   "",
 );
 
+// Older recovery patches allowed the approver into the input form. The final lock
+// workflow separates entry rights from approval rights, so restore the stable marker
+// consumed by the deduction-lock transformer.
+recovery = recovery.replace(
+  "      {run && (canManage || canApprove) ? (",
+  "      {canManage && run ? (",
+);
+
 await writeFile(recoveryPath, recovery, "utf8");
-console.log("Normalized shared-hostel props and removed legacy room-recovery collision before deduction-lock release build.");
+console.log("Normalized shared-hostel props and legacy recovery markers before deduction-lock release build.");
