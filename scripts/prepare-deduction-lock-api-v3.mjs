@@ -39,12 +39,19 @@ function blockBetween(startMarker, endMarker) {
     '    } else if (action === "save-shift") {',
   );
   let next = text;
-  if (!next.includes("otherShare: 0")) {
+  const finalReset = `          provisionShare: 0,\n          otherShare: 0,`;
+  if (!next.includes(finalReset)) {
     const marker = "          provisionShare: 0,";
-    if (!next.includes(marker))
+    const markerIndex = next.indexOf(marker);
+    if (markerIndex < 0)
       throw new Error("Unable to locate legacy provision-share reset");
-    next = next.replace(marker, `${marker}\n          otherShare: 0,`);
+    next =
+      next.slice(0, markerIndex) +
+      `${marker}\n          otherShare: 0,` +
+      next.slice(markerIndex + marker.length);
   }
+  if (!next.includes(finalReset))
+    throw new Error("Legacy room share reset did not normalize correctly");
   source = source.slice(0, start) + next + source.slice(end);
 }
 
