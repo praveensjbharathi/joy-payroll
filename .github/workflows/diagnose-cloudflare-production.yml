@@ -1,22 +1,75 @@
-name: Diagnose Joy Payroll Production
+name: Validate Joy Payroll Production Release
 
 on:
   push:
     branches:
       - release/production-excellence-v1
+    paths-ignore:
+      - production-diagnostic/last-run.json
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  cloudflare-readonly:
+  validate-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
+      - name: Checkout protected release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/production-excellence-v1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: npm ci
+
+      - name: Apply production safeguards
+        id: safeguards
+        continue-on-error: true
+        run: npm run fix:production
+
+      - name: Verify production acceptance requirements
+        id: acceptance
+        continue-on-error: true
+        run: node --test tests/production-excellence.test.mjs
+
+      - name: Run payroll regression tests
+        id: regression
+        continue-on-error: true
+        run: node --import tsx --test tests/payroll-workflows.test.mjs tests/excel-import.test.mjs tests/payroll-enhancements.test.mjs
+
+      - name: Prepare Supabase API
+        id: supabase_prepare
+        continue-on-error: true
+        run: npm run prepare:supabase
+
+      - name: Type-check Supabase application
+        id: typecheck
+        continue-on-error: true
+        run: npx tsc --project tsconfig.supabase.json --noEmit
+
+      - name: Verify Supabase deployment contract
+        id: supabase_contract
+        continue-on-error: true
+        run: node --test tests/supabase-deployment.test.mjs tests/production-excellence.test.mjs
+
+      - name: Build Cloudflare static application
+        id: cloudflare_build
+        continue-on-error: true
+        run: npm run build:supabase
+
       - name: Prepare diagnostic directory
         run: mkdir -p production-diagnostic
 
@@ -36,11 +89,10 @@ jobs:
         if: steps.credentials.outputs.available == 'true'
         shell: bash
         run: |
-          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
           base="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
-          curl -sS "${auth[@]}" "$base/workers/scripts/joy-payroll/settings" > production-diagnostic/worker-settings.json || true
-          curl -sS "${auth[@]}" "$base/workers/scripts/joy-payroll/deployments" > production-diagnostic/worker-deployments.json || true
-          curl -sS "${auth[@]}" "$base/d1/database?per_page=100" > production-diagnostic/d1-databases.json || true
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$base/workers/scripts/joy-payroll/settings" > production-diagnostic/worker-settings.json || true
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$base/workers/scripts/joy-payroll/deployments" > production-diagnostic/worker-deployments.json || true
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$base/d1/database?per_page=100" > production-diagnostic/d1-databases.json || true
 
       - name: Read-only D1 payroll table counts
         if: steps.credentials.outputs.available == 'true'
@@ -51,13 +103,12 @@ jobs:
           out = pathlib.Path('production-diagnostic')
           token = os.environ.get('CLOUDFLARE_API_TOKEN', '')
           account = os.environ.get('CLOUDFLARE_ACCOUNT_ID', '')
-          source = out / 'd1-databases.json'
           report = []
           try:
-              payload = json.loads(source.read_text())
+              payload = json.loads((out / 'd1-databases.json').read_text())
               databases = payload.get('result') or []
           except Exception as exc:
-              (out / 'd1-counts.json').write_text(json.dumps({'error': str(exc)}, indent=2))
+              (out / 'd1-counts.json').write_text(json.dumps({'error': type(exc).__name__}, indent=2))
               raise SystemExit(0)
           tables = ['employees', 'payroll_runs', 'payroll_items', 'recovery_finalizations', 'hostels', 'app_users']
           for database in databases:
@@ -65,7 +116,7 @@ jobs:
               name = database.get('name')
               if not dbid:
                   continue
-              row = {'database_id': dbid, 'database_name': name, 'counts': {}}
+              row = {'database_name': name, 'counts': {}}
               for table in tables:
                   url = f'https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{dbid}/query'
                   body = json.dumps({'sql': f'SELECT COUNT(*) AS count FROM {table}'}).encode()
@@ -76,8 +127,8 @@ jobs:
                   try:
                       with urllib.request.urlopen(req, timeout=15) as response:
                           result = json.loads(response.read())
-                      value = None
                       batches = result.get('result') or []
+                      value = None
                       if batches and (batches[0].get('results') or []):
                           value = batches[0]['results'][0].get('count')
                       row['counts'][table] = value
@@ -87,50 +138,108 @@ jobs:
           (out / 'd1-counts.json').write_text(json.dumps(report, indent=2))
           PY
 
-      - name: Create safe summary
+      - name: Write safe validation summary
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          SAFEGUARDS: ${{ steps.safeguards.outcome }}
+          ACCEPTANCE: ${{ steps.acceptance.outcome }}
+          REGRESSION: ${{ steps.regression.outcome }}
+          SUPABASE_PREPARE: ${{ steps.supabase_prepare.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          SUPABASE_CONTRACT: ${{ steps.supabase_contract.outcome }}
+          CLOUDFLARE_BUILD: ${{ steps.cloudflare_build.outcome }}
         shell: bash
         run: |
           python - <<'PY'
-          import json, pathlib
+          import json, os, pathlib
           root = pathlib.Path('production-diagnostic')
-          summary = {'diagnostic': 'read-only', 'worker': 'joy-payroll'}
-          for filename, key in [('credential-status.json','credentials'), ('worker-settings.json','worker_settings'), ('worker-deployments.json','worker_deployments'), ('d1-databases.json','d1_databases'), ('d1-counts.json','d1_counts')]:
-              path = root / filename
-              if not path.exists():
-                  continue
+          checks = {
+              'npm_install': os.environ.get('INSTALL'),
+              'production_safeguards': os.environ.get('SAFEGUARDS'),
+              'acceptance_tests': os.environ.get('ACCEPTANCE'),
+              'regression_tests': os.environ.get('REGRESSION'),
+              'supabase_prepare': os.environ.get('SUPABASE_PREPARE'),
+              'typescript': os.environ.get('TYPECHECK'),
+              'supabase_contract': os.environ.get('SUPABASE_CONTRACT'),
+              'cloudflare_build': os.environ.get('CLOUDFLARE_BUILD'),
+          }
+          summary = {
+              'release': 'production-excellence-v1',
+              'validation': checks,
+              'all_code_checks_passed': all(value == 'success' for value in checks.values()),
+              'cloudflare': {'diagnostic': 'read-only', 'worker': 'joy-payroll'},
+          }
+          credential = root / 'credential-status.json'
+          if credential.exists():
               try:
-                  data = json.loads(path.read_text())
+                  summary['cloudflare']['credentials'] = json.loads(credential.read_text()).get('credentials')
               except Exception:
-                  continue
-              if key == 'worker_settings':
+                  summary['cloudflare']['credentials'] = 'unknown'
+          settings = root / 'worker-settings.json'
+          if settings.exists():
+              try:
+                  data = json.loads(settings.read_text())
                   result = data.get('result') or {}
-                  summary[key] = {
-                      'success': data.get('success'),
-                      'bindings': [
-                          {'name': binding.get('name'), 'type': binding.get('type'), 'id': binding.get('id') or binding.get('database_id')}
-                          for binding in (result.get('bindings') or [])
-                      ],
-                      'compatibility_date': result.get('compatibility_date'),
-                  }
-              elif key == 'worker_deployments':
-                  deployments = data.get('result') or []
-                  summary[key] = {
-                      'success': data.get('success'),
-                      'count': len(deployments),
-                      'latest': deployments[0] if deployments else None,
-                  }
-              elif key == 'd1_databases':
-                  dbs = data.get('result') or []
-                  summary[key] = [{'name': db.get('name'), 'uuid': db.get('uuid') or db.get('id')} for db in dbs]
-              else:
-                  summary[key] = data
-          (root / 'summary.json').write_text(json.dumps(summary, indent=2))
+                  summary['cloudflare']['worker_settings_readable'] = data.get('success') is True
+                  summary['cloudflare']['bindings'] = [
+                      {'name': b.get('name'), 'type': b.get('type')}
+                      for b in (result.get('bindings') or [])
+                  ]
+                  summary['cloudflare']['compatibility_date'] = result.get('compatibility_date')
+              except Exception:
+                  summary['cloudflare']['worker_settings_readable'] = False
+          deployments = root / 'worker-deployments.json'
+          if deployments.exists():
+              try:
+                  data = json.loads(deployments.read_text())
+                  rows = data.get('result') or []
+                  summary['cloudflare']['deployment_metadata_readable'] = data.get('success') is True
+                  summary['cloudflare']['deployment_count_returned'] = len(rows)
+              except Exception:
+                  summary['cloudflare']['deployment_metadata_readable'] = False
+          dbs = root / 'd1-databases.json'
+          if dbs.exists():
+              try:
+                  data = json.loads(dbs.read_text())
+                  rows = data.get('result') or []
+                  summary['cloudflare']['d1_list_readable'] = data.get('success') is True
+                  summary['cloudflare']['d1_databases'] = [db.get('name') for db in rows]
+              except Exception:
+                  summary['cloudflare']['d1_list_readable'] = False
+          counts = root / 'd1-counts.json'
+          if counts.exists():
+              try:
+                  summary['cloudflare']['d1_counts'] = json.loads(counts.read_text())
+              except Exception:
+                  pass
+          (root / 'last-run.json').write_text(json.dumps(summary, indent=2) + '\n')
           print(json.dumps(summary, indent=2))
           PY
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: joy-payroll-production-diagnostic
-          path: production-diagnostic/summary.json
-          if-no-files-found: error
-          retention-days: 7
+      - name: Commit safe validation result to release branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add production-diagnostic/last-run.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Record production release validation result"
+          git push origin HEAD:release/production-excellence-v1
+
+      - name: Enforce validation result
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          SAFEGUARDS: ${{ steps.safeguards.outcome }}
+          ACCEPTANCE: ${{ steps.acceptance.outcome }}
+          REGRESSION: ${{ steps.regression.outcome }}
+          SUPABASE_PREPARE: ${{ steps.supabase_prepare.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          SUPABASE_CONTRACT: ${{ steps.supabase_contract.outcome }}
+          CLOUDFLARE_BUILD: ${{ steps.cloudflare_build.outcome }}
+        shell: bash
+        run: |
+          for value in "$INSTALL" "$SAFEGUARDS" "$ACCEPTANCE" "$REGRESSION" "$SUPABASE_PREPARE" "$TYPECHECK" "$SUPABASE_CONTRACT" "$CLOUDFLARE_BUILD"; do
+            test "$value" = "success" || exit 1
+          done
