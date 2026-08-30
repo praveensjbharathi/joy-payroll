@@ -10,30 +10,41 @@ const modalStart = source.indexOf("function PayslipModal(");
 if (modalStart < 0) throw new Error("PayslipModal not found");
 const sendStart = source.indexOf("  async function sendSalarySlipEmail() {", modalStart);
 if (sendStart < 0) throw new Error("sendSalarySlipEmail not found inside PayslipModal");
-const sendEndMarker = "\n  }";
-const sendEnd = source.indexOf(sendEndMarker, sendStart + 10);
+
+// Find the exact end of sendSalarySlipEmail with brace counting so nested try/catch blocks cannot confuse the patch.
+const firstBrace = source.indexOf("{", sendStart);
+let depth = 0;
+let sendEnd = -1;
+for (let i = firstBrace; i < source.length; i += 1) {
+  if (source[i] === "{") depth += 1;
+  if (source[i] === "}") {
+    depth -= 1;
+    if (depth === 0) {
+      sendEnd = i + 1;
+      break;
+    }
+  }
+}
 if (sendEnd < 0) throw new Error("sendSalarySlipEmail end not found");
 
 const replacement = `  async function sendSalarySlipEmail() {\n    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;\n    setEmailSending(true);\n    setEmailSent(false);\n    setEmailMessage("");\n    try {\n      const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {\n        method: "POST",\n        headers: {\n          "content-type": "application/json",\n          ...(accessToken ? { authorization: \`Bearer \${accessToken}\` } : {}),\n          ...(publishableKey ? { apikey: publishableKey } : {}),\n        },\n        body: JSON.stringify({ itemId: item.id }),\n      });\n      const payload = await response.json().catch(() => ({})) as { sent?: boolean; recipient?: string; error?: string; message?: string };\n      if (!response.ok || !payload.sent) throw new Error(payload.error ?? payload.message ?? \`SMTP mailer failed (HTTP \${response.status})\`);\n      setEmailSent(true);\n      setEmailMessage(\`Salary slip sent to \${payload.recipient ?? employee.emailAddress}\`);\n    } catch (error) {\n      setEmailMessage(error instanceof Error ? error.message : "Unable to send salary slip email");\n    } finally {\n      setEmailSending(false);\n    }\n  }`;
-source = source.slice(0, sendStart) + replacement + source.slice(sendEnd + sendEndMarker.length);
+source = source.slice(0, sendStart) + replacement + source.slice(sendEnd);
 
-// Make the visible salary-slip email control a non-submit button.
-const modalEnd = source.indexOf("function ", modalStart + 20);
-const scopeEnd = modalEnd > modalStart ? modalEnd : source.length;
-let modal = source.slice(modalStart, scopeEnd);
-modal = modal.replace(/<button\n\s+className="primary-button"\n\s+disabled=\{!employee\?\.emailAddress \|\| emailSending \|\| run\?\.status !== "approved"\}/,
-  `<button\n              type="button"\n              className="primary-button"\n              disabled={!employee?.emailAddress || emailSending || run?.status !== "approved"}`);
-modal = modal.replace(/onClick=\{\(\) => void sendSalarySlipEmail\(\)\}/g,
-  `onClick={(event) => { event.preventDefault(); event.stopPropagation(); void sendSalarySlipEmail(); }}`);
-modal = modal.replace(/onClick=\{\(event\) => \{ event\.preventDefault\(\); event\.stopPropagation\(\); void sendSalarySlipEmail\(\); \}\}/g,
-  `onClick={(event) => { event.preventDefault(); event.stopPropagation(); void sendSalarySlipEmail(); }}`);
-source = source.slice(0, modalStart) + modal + source.slice(scopeEnd);
+// Make every salary-slip email action explicitly non-submit.
+source = source.replace(
+  /<button\n(\s+)className="primary-button"\n(\s+)disabled=\{!employee\?\.emailAddress \|\| emailSending \|\| run\?\.status !== "approved"\}/g,
+  `<button\n$1type="button"\n$1className="primary-button"\n$2disabled={!employee?.emailAddress || emailSending || run?.status !== "approved"}`,
+);
+source = source.replace(
+  /onClick=\{\(\) => void sendSalarySlipEmail\(\)\}/g,
+  `onClick={(event) => { event.preventDefault(); event.stopPropagation(); void sendSalarySlipEmail(); }}`,
+);
 
-const finalModal = source.slice(modalStart, scopeEnd);
-if (!finalModal.includes('fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer"')) throw new Error("Payslip SMTP endpoint not finalized");
-if (!finalModal.includes('body: JSON.stringify({ itemId: item.id })')) throw new Error("Payslip SMTP payload not finalized");
-if (finalModal.includes('fetch(apiEndpoint')) throw new Error("Payslip modal still contains payroll-api fetch path");
-if (!finalModal.includes('type="button"')) throw new Error("Payslip email button is still submit-capable");
+const verifiedSend = source.slice(sendStart, sendStart + replacement.length + 80);
+if (!verifiedSend.includes('fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer"')) throw new Error("Payslip SMTP endpoint not finalized");
+if (!verifiedSend.includes('body: JSON.stringify({ itemId: item.id })')) throw new Error("Payslip SMTP payload not finalized");
+if (verifiedSend.includes("fetch(apiEndpoint")) throw new Error("Payslip email sender still points to payroll-api");
+if (!source.includes('type="button"')) throw new Error("Salary-slip email button is still submit-capable");
 
 await writeFile(file, source, "utf8");
-console.log("Finalized salary-slip SMTP routing inside PayslipModal only; payroll-api cannot receive the email action anymore.");
+console.log("Finalized salary-slip SMTP sender deterministically; the email action cannot route to payroll-api.");
