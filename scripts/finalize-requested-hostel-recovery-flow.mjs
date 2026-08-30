@@ -76,20 +76,26 @@ recovery = recovery.replaceAll("Room recovery date *", "Recovery date *");
 recovery = recovery.replaceAll("Applied only to confirmed roommates in this payroll month", "Select the recovery date first. Then complete the room recovery details below.");
 
 // Hide the rest of the room-recovery form until a date is selected.
+// IMPORTANT: apply the opening and closing JSX as one atomic transformation.
+// Older production patches can reformat the save button; never insert only the
+// opening half of this conditional because that would make the production JSX invalid.
 const categoryStart = `          <label>\n            <span>Accommodation category *</span>`;
-if (recovery.includes(categoryStart) && !recovery.includes("room-recovery-after-date")) {
+const saveButtonPattern = /          <button\s+className="primary-button form-span"[\s\S]*?>\s*Save room recovery for \{run\.payPeriod\}\s*<\/button>/;
+const saveButtonMatch = recovery.match(saveButtonPattern)?.[0];
+
+if (
+  recovery.includes(categoryStart) &&
+  saveButtonMatch &&
+  !recovery.includes("room-recovery-after-date")
+) {
   recovery = recovery.replace(
     categoryStart,
     `          {roomRecoveryDate ? (\n            <div className="form-span form-grid room-recovery-after-date">\n          <label>\n            <span>Accommodation Type / Room Category *</span>`,
   );
-
-  const saveButtonEnd = `          <button className="primary-button form-span" disabled={isActing || !roomRecoveryDate || !roomRecoveryId || !roomRecoveryConfirmed || roomRecoveryMembers.length === 0}>\n            Save room recovery for {run.payPeriod}\n          </button>`;
-  if (recovery.includes(saveButtonEnd)) {
-    recovery = recovery.replace(
-      saveButtonEnd,
-      `${saveButtonEnd}\n            </div>\n          ) : (\n            <div className="form-span empty-state">Select the recovery date to continue.</div>\n          )}`,
-    );
-  }
+  recovery = recovery.replace(
+    saveButtonMatch,
+    `${saveButtonMatch}\n            </div>\n          ) : (\n            <div className="form-span empty-state">Select the recovery date to continue.</div>\n          )}`,
+  );
 }
 
 // Keep terminology aligned with Hostel/Area Master.
