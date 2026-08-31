@@ -4803,6 +4803,39 @@ export async function POST(request: Request) {
         .limit(1);
       if (!employee || employee.clientUnitId !== run.clientUnitId)
         throw new RequestError("Employee not found in this payroll unit", 404);
+
+      // Room recovery drafts belong to the room/month ledger. Allocate them
+      // before employee finalization so the applicable occupant receives the
+      // gas, ration and provision shares in this deduction voucher.
+      if (employee.roomId) {
+        const [draftRoomExpense] = await db
+          .select({ id: accommodationRoomExpenses.id })
+          .from(accommodationRoomExpenses)
+          .where(
+            and(
+              eq(accommodationRoomExpenses.roomId, employee.roomId),
+              eq(accommodationRoomExpenses.payPeriod, run.payPeriod),
+              eq(accommodationRoomExpenses.status, "draft"),
+            ),
+          )
+          .limit(1);
+        if (draftRoomExpense) {
+          const roomResult = await finalizeRoomExpense(
+            db,
+            draftRoomExpense.id,
+            access,
+          );
+          await writeAudit(
+            db,
+            "room_expense_auto_finalized",
+            "room",
+            roomResult.room.id,
+            `Allocated room-wise recovery before finalizing ${employee.employeeCode}`,
+            actorEmail,
+          );
+        }
+      }
+
       const entries = await db
         .select()
         .from(recoveryEntries)
