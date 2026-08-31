@@ -532,6 +532,7 @@ function actionPermission(
       "resolve-issues",
       "recalculate",
       "reopen",
+      "reopen-payroll-for-recovery",
       "reset-demo",
       "delete-payroll-run",
     ].includes(action)
@@ -2908,6 +2909,14 @@ export async function POST(request: Request) {
       if (!access.profile.canApprovePayroll)
         throw new RequestError(
           "Your profile can process payroll but does not have final approval authority",
+          403,
+        );
+    } else if (action === "reopen-payroll-for-recovery") {
+      requireModule(access, "payroll", "manage");
+      requireModule(access, "payments", "manage");
+      if (!access.profile.canApprovePayroll)
+        throw new RequestError(
+          "Only a Super Admin or authorised payroll approver can reopen cleared payments for recovery correction",
           403,
         );
     } else {
@@ -5614,6 +5623,57 @@ export async function POST(request: Request) {
         "payroll_run",
         runId,
         "Approved payroll and unlocked payment exports",
+        actorEmail,
+      );
+    } else if (action === "reopen-payroll-for-recovery") {
+      const run = await requireRun(db, runId);
+      if (run.status !== "approved")
+        throw new RequestError(
+          "Only an approved payroll can be reopened for recovery correction",
+          409,
+        );
+      const clearedBatches = await db
+        .select({ id: payrollBatches.id })
+        .from(payrollBatches)
+        .where(
+          and(
+            eq(payrollBatches.runId, runId),
+            eq(payrollBatches.status, "cleared"),
+          ),
+        );
+      const now = new Date().toISOString();
+      if (clearedBatches.length)
+        await db
+          .update(payrollBatches)
+          .set({
+            status: "prepared",
+            paymentReference: null,
+            clearedBy: null,
+            clearedAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(payrollBatches.runId, runId),
+              eq(payrollBatches.status, "cleared"),
+            ),
+          );
+      await db
+        .update(payrollRuns)
+        .set({
+          status: "draft",
+          approvedBy: null,
+          approvedAt: null,
+          updatedAt: now,
+        })
+        .where(eq(payrollRuns.id, runId));
+      await recalculateRun(db, runId, false);
+      await writeAudit(
+        db,
+        "payroll_reopened_for_recovery",
+        "payroll_run",
+        runId,
+        `Reopened ${clearedBatches.length} cleared payment batch(es) and payroll for recovery correction`,
         actorEmail,
       );
     } else if (action === "reopen" || action === "reset-demo") {

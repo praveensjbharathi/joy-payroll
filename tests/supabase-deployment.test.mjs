@@ -82,6 +82,7 @@ test("the generated Supabase API preserves payroll logic without demo seeding", 
     "save-hostel-utility",
     "prepare-payroll-batches",
     "clear-payroll-batch",
+    "reopen-payroll-for-recovery",
     "import-workbook",
     "approve",
   ]) {
