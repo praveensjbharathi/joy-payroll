@@ -123,6 +123,23 @@ test("room recovery is an append-only dated ledger and finalization aggregates t
   assert.match(recovery, /Save dated room recovery entry/);
 });
 
+test("employee finalization allocates draft room recovery to applicable occupants", async () => {
+  const api = await source("app/api/app-data/route.ts");
+  const start = api.indexOf('    } else if (action === "finalize-employee-recovery") {');
+  const end = api.indexOf('    } else if (action === "reopen-employee-recovery") {', start);
+  assert.ok(start >= 0 && end > start, "employee recovery finalization must exist");
+  const block = api.slice(start, end);
+  assert.match(block, /eq\(accommodationRoomExpenses\.roomId, employee\.roomId\)/);
+  assert.match(block, /eq\(accommodationRoomExpenses\.payPeriod, run\.payPeriod\)/);
+  assert.match(block, /eq\(accommodationRoomExpenses\.status, "draft"\)/);
+  assert.match(block, /await finalizeRoomExpense/);
+  assert.match(block, /room_expense_auto_finalized/);
+  assert.ok(
+    block.indexOf("await finalizeRoomExpense") < block.indexOf("const entries = await db"),
+    "room shares must be allocated before the employee voucher is finalized",
+  );
+});
+
 test("bulk recovery vouchers are driven directly by finalizations", async () => {
   const recovery = await source("app/reports-recovery.tsx");
   assert.match(recovery, /const finalizedVoucherRows = finalizations\.flatMap/);
