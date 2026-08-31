@@ -87,12 +87,18 @@ test("individual dated recoveries persist as transactions and synchronize final 
   assert.match(api, /await recalculateRun\(db, runId, false\)/);
 });
 
-test("approved payroll gives explicit recovery correction guidance", async () => {
+test("approved payroll can safely reopen cleared batches for recovery correction", async () => {
+  const api = await source("app/api/app-data/route.ts");
   const recovery = await source("app/reports-recovery.tsx");
   assert.match(recovery, /recovery-lock-guidance/);
-  assert.match(recovery, /Reopen payroll before changing employee recoveries/);
-  assert.match(recovery, /cleared payment batch\(es\)/);
+  assert.match(recovery, /Reopen the cleared batch and payroll here/);
+  assert.match(recovery, /reopen-payroll-for-recovery/);
+  assert.match(recovery, /Reopen payment batch & payroll/);
   assert.match(recovery, /run\.status === "approved"/);
+  assert.match(api, /action === "reopen-payroll-for-recovery"/);
+  assert.match(api, /payroll_reopened_for_recovery/);
+  assert.match(api, /eq\(payrollBatches\.status, "cleared"\)/);
+  assert.match(api, /status: "prepared"/);
 });
 
 test("room recovery is an append-only dated ledger and finalization aggregates the month", async () => {
