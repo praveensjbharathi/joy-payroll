@@ -24,9 +24,48 @@ app = app.replace(
           charge.tshirt +
           charge.oldPending
         : 0;
-      const shared = charge
-        ? charge.gasShare + charge.rationShare + charge.provisionShare
-        : 0;
+      const finalizedGasShare = charge?.gasShare ?? 0;
+      const finalizedRationShare = charge?.rationShare ?? 0;
+      const finalizedProvisionShare = charge?.provisionShare ?? 0;
+      const draftRoomLedger =
+        employee.roomId && run && !charge?.roomExpenseId
+          ? data.roomExpenses.filter(
+              (expense) =>
+                expense.roomId === employee.roomId &&
+                expense.payPeriod === run.payPeriod &&
+                expense.status === "draft",
+            )
+          : [];
+      const activeRoommates = employee.roomId
+        ? data.employees.filter(
+            (candidate) =>
+              candidate.status === "active" &&
+              candidate.roomId === employee.roomId,
+          )
+        : [];
+      const roomDivisor = Math.max(1, activeRoommates.length);
+      const pendingGasShare =
+        draftRoomLedger.reduce(
+          (sum, expense) => sum + expense.gasAmount,
+          0,
+        ) / roomDivisor;
+      const pendingRationShare =
+        draftRoomLedger.reduce(
+          (sum, expense) => sum + expense.rationAmount,
+          0,
+        ) / roomDivisor;
+      const pendingProvisionShare =
+        draftRoomLedger.reduce(
+          (sum, expense) => sum + expense.provisionAmount,
+          0,
+        ) / roomDivisor;
+      const pendingShared =
+        pendingGasShare + pendingRationShare + pendingProvisionShare;
+      const gasShare = finalizedGasShare + pendingGasShare;
+      const rationShare = finalizedRationShare + pendingRationShare;
+      const provisionShare =
+        finalizedProvisionShare + pendingProvisionShare;
+      const shared = gasShare + rationShare + provisionShare;
       const dated = entries.filter((entry) => entry.employeeId === employee.id);
       const datedDeduction = dated
         .filter((entry) => entry.recoveryType !== "returnAmount")
@@ -37,6 +76,10 @@ app = app.replace(
         charge,
         individual,
         shared,
+        pendingShared,
+        gasShare,
+        rationShare,
+        provisionShare,
         total: individual + shared,
         item,
         dated,

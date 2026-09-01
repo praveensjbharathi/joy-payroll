@@ -140,6 +140,20 @@ test("employee finalization allocates draft room recovery to applicable occupant
   );
 });
 
+test("draft room recovery is previewed for every applicable employee", async () => {
+  const recovery = await source("app/reports-recovery.tsx");
+  assert.match(recovery, /const draftRoomLedger/);
+  assert.match(recovery, /const pendingGasShare/);
+  assert.match(recovery, /const pendingRationShare/);
+  assert.match(recovery, /const pendingProvisionShare/);
+  assert.match(recovery, /const pendingShared/);
+  assert.match(recovery, /Draft room share/);
+  assert.match(
+    recovery,
+    /Math\.max\(0, \(item\?\.netPayable \?\? 0\) - pendingShared\)/,
+  );
+});
+
 test("bulk recovery vouchers are driven directly by finalizations", async () => {
   const recovery = await source("app/reports-recovery.tsx");
   assert.match(recovery, /const finalizedVoucherRows = finalizations\.flatMap/);
