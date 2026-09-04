@@ -13,6 +13,7 @@ import {
   earningFields,
 } from "../lib/payroll-calculations";
 import { calendarPeriod, payrollPeriodRange } from "../lib/payroll-operations";
+import { printIsolatedElement } from "../lib/print-document";
 import {
   AccommodationControlCenter,
   PayrollBatchPanel,
@@ -5678,17 +5679,9 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (emailSending) return;
-    setEmailSent(false);
-    if (!employee?.emailAddress) {
-      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
-      return;
-    }
-    if (!run?.id || run.status !== "approved") {
-      setEmailMessage("Approve payroll before sending salary slips.");
-      return;
-    }
+    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
     setEmailSending(true);
+    setEmailSent(false);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
@@ -5788,22 +5781,7 @@ function BulkPayslipModal({
   function printBulkPayslips() {
     const source = document.querySelector<HTMLElement>(".bulk-payslip-modal .bulk-payslip-pages");
     if (!source) return;
-    document.getElementById("joy-print-root")?.remove();
-    const printRoot = document.createElement("div");
-    printRoot.id = "joy-print-root";
-    printRoot.className = "joy-print-root-payslips";
-    printRoot.appendChild(source.cloneNode(true));
-    document.body.appendChild(printRoot);
-    document.body.dataset.printTarget = "payslips";
-    document.body.classList.add("joy-print-active");
-    const cleanup = () => {
-      delete document.body.dataset.printTarget;
-      document.body.classList.remove("joy-print-active");
-      printRoot.remove();
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
-    window.print();
-    window.setTimeout(cleanup, 1800);
+    void printIsolatedElement(source, "payslips");
   }
 
   async function sendAllSalarySlips() {
