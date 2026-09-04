@@ -176,6 +176,22 @@ test("voucher print typography is readable", async () => {
   assert.match(css, /Joy Payroll production readability baseline/);
 });
 
+test("recovery printing isolates the requested pages and bulk salary slips can email all employees", async () => {
+  const recovery = await source("app/reports-recovery.tsx");
+  const enhancements = await source("app/payroll-enhancements.tsx");
+  const payroll = await source("app/payroll-app.tsx");
+  const layout = await source("app/layout.tsx");
+  assert.match(recovery, /printRoot\.id = "joy-print-root"/);
+  assert.match(recovery, /source\.cloneNode\(true\)/);
+  assert.match(enhancements, /joy-print-root-report/);
+  assert.match(layout, /body\.joy-print-active > \*:not\(#joy-print-root\)/);
+  assert.match(layout, /#joy-print-root \.room-report-page:last-child/);
+  assert.match(layout, /#joy-print-root \.advance-voucher:last-child/);
+  assert.match(payroll, /Send salary slips to all/);
+  assert.match(payroll, /sendAll: true/);
+  assert.match(payroll, /run\.status !== "approved"/);
+});
+
 test("role model matches production operating structure and unit scope", async () => {
   const access = await source("lib/access-control.ts");
   const api = await source("app/api/app-data/route.ts");

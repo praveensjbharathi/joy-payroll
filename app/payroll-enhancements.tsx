@@ -1506,20 +1506,10 @@ export function AccommodationControlCenter({
                 className="secondary-button"
                 type="button"
                 disabled={isActing}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Reopen room ${selectedRoom.roomNumber} and clear its finalized employee shares?`,
-                    )
-                  )
-                    void onAction(
-                      "reopen-room-expense",
-                      "Room expense reopened",
-                      {
-                        roomId: selectedRoom.id,
-                        expenseId: selectedExpense.id,
-                      },
-                    );
+                onClick={async () => {
+                  if (!window.confirm(`Reopen room ${selectedRoom.roomNumber} and clear its finalized employee shares?`)) return;
+                  const ok = await onAction("reopen-room-expense", "Room expense reopened", { roomId: selectedRoom.id, expenseId: selectedExpense.id });
+                  if (ok) window.location.reload();
                 }}
               >
                 Callback request: reopen & edit
@@ -1662,6 +1652,27 @@ function RoomBreakupReport({
   payPeriod: string;
   onClose: () => void;
 }) {
+  function printRoomBreakupReport() {
+    const source = document.querySelector<HTMLElement>(".room-report-layer .room-report-pages");
+    if (!source) return;
+    document.getElementById("joy-print-root")?.remove();
+    const printRoot = document.createElement("div");
+    printRoot.id = "joy-print-root";
+    printRoot.className = "joy-print-root-report";
+    printRoot.appendChild(source.cloneNode(true));
+    document.body.appendChild(printRoot);
+    document.body.dataset.printTarget = "report";
+    document.body.classList.add("joy-print-active");
+    const cleanup = () => {
+      delete document.body.dataset.printTarget;
+      document.body.classList.remove("joy-print-active");
+      printRoot.remove();
+    };
+    window.addEventListener("afterprint", cleanup, { once: true });
+    window.print();
+    window.setTimeout(cleanup, 1800);
+  }
+
   return (
     <div className="modal-layer room-report-layer">
       <button
@@ -1682,7 +1693,7 @@ function RoomBreakupReport({
             </span>
           </div>
           <div>
-            <button className="secondary-button" onClick={() => window.print()}>
+            <button className="secondary-button" onClick={printRoomBreakupReport}>
               Print / save PDF
             </button>
             <button

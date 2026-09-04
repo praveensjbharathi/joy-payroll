@@ -5,3 +5,8 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/payroll-api/deno.json"
 entrypoint = "./functions/payroll-api/index.ts"
+
+[functions.salary-slip-mailer]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/salary-slip-mailer/index.ts"

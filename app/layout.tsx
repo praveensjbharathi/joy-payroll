@@ -249,6 +249,77 @@ const payrollUiFixes = `
     .room-recovery-print-sheet td:nth-child(2) { text-align:left !important; }
     .room-recovery-print-sheet h1 { font-size:17pt !important; margin:0 0 4px !important; }
     .room-recovery-print-sheet h2 { font-size:13pt !important; margin:0 0 10px !important; }
+
+    /* Print a single cloned root so hidden modal/layout nodes cannot create blank sheets. */
+    body.joy-print-active > *:not(#joy-print-root) { display:none !important; }
+    body.joy-print-active #joy-print-root,
+    body.joy-print-active #joy-print-root * { visibility:visible !important; }
+    body.joy-print-active #joy-print-root {
+      display:block !important;
+      position:static !important;
+      width:100% !important;
+      height:auto !important;
+      min-height:0 !important;
+      max-height:none !important;
+      overflow:visible !important;
+      margin:0 !important;
+      padding:0 !important;
+      background:#fff !important;
+    }
+    #joy-print-root .room-report-pages,
+    #joy-print-root .report-print-area,
+    #joy-print-root .bulk-recovery-vouchers,
+    #joy-print-root .bulk-payslip-pages {
+      display:block !important;
+      position:static !important;
+      inset:auto !important;
+      width:100% !important;
+      height:auto !important;
+      min-height:0 !important;
+      max-height:none !important;
+      overflow:visible !important;
+      padding:0 !important;
+      margin:0 !important;
+      box-shadow:none !important;
+    }
+    #joy-print-root .room-report-page {
+      page:joy-room-recovery !important;
+      display:block !important;
+      position:relative !important;
+      width:100% !important;
+      min-height:0 !important;
+      height:auto !important;
+      max-height:none !important;
+      overflow:visible !important;
+      margin:0 !important;
+      padding:8mm !important;
+      box-sizing:border-box !important;
+      break-inside:avoid !important;
+      page-break-inside:avoid !important;
+      break-after:page !important;
+      page-break-after:always !important;
+    }
+    #joy-print-root .room-report-page:last-child { break-after:auto !important; page-break-after:auto !important; }
+    #joy-print-root .advance-voucher,
+    #joy-print-root .bulk-recovery-vouchers .advance-voucher {
+      page:joy-voucher !important;
+      display:block !important;
+      position:relative !important;
+      inset:auto !important;
+      width:190mm !important;
+      min-height:0 !important;
+      height:auto !important;
+      max-height:none !important;
+      overflow:visible !important;
+      margin:0 auto !important;
+      padding:12mm !important;
+      box-sizing:border-box !important;
+      break-inside:avoid !important;
+      page-break-inside:avoid !important;
+      break-after:page !important;
+      page-break-after:always !important;
+    }
+    #joy-print-root .advance-voucher:last-child { break-after:auto !important; page-break-after:auto !important; }
   }
 `;
 
@@ -452,36 +523,11 @@ const idCardEnhancer = `
     });
   }
 
-  function buildRoomPrint() {
-    const targetHeading = Array.from(document.querySelectorAll('h2')).find((node)=>/net salary.*recoveries.*final payable/i.test((node.textContent||'').replace(/→/g,' ')));
-    if (!targetHeading) return;
-    const panel=targetHeading.closest('.panel'); if (!panel || panel.dataset.roomPrintEnhanced==='true') return;
-    panel.dataset.roomPrintEnhanced='true';
-    const table=panel.querySelector('table'); if (!table) return;
-    const rows=Array.from(table.querySelectorAll('tbody tr'));
-    const rooms=[...new Set(rows.map((row)=>row.children[1]?.textContent?.trim()).filter((value)=>value && value!=='—'))].sort();
-    if (!rooms.length) return;
-    const toolbar=document.createElement('div'); toolbar.className='room-print-toolbar';
-    const select=document.createElement('select'); rooms.forEach((room)=>{const o=document.createElement('option');o.value=room;o.textContent=room;select.appendChild(o);});
-    const one=document.createElement('button'); one.type='button'; one.className='secondary-button'; one.textContent='Print selected room A4 landscape';
-    const all=document.createElement('button'); all.type='button'; all.className='primary-button'; all.textContent='Print all rooms A4 landscape';
-    const printRooms=(requested)=>{
-      document.querySelector('.room-recovery-print-layer')?.remove();
-      const layer=document.createElement('div'); layer.className='room-recovery-print-layer modal-layer';
-      requested.forEach((room)=>{
-        const sheet=document.createElement('section'); sheet.className='room-recovery-print-sheet';
-        const company=document.querySelector('.topbar-selectors label:first-child select option:checked')?.textContent?.trim()||'JOY GROUPS';
-        const client=document.querySelector('.topbar-selectors label:nth-of-type(2) select option:checked')?.textContent?.trim()||'Client employer';
-        sheet.innerHTML='<h1>'+company+'</h1><h2>FINALIZED ROOM-WISE SALARY RECOVERY STATEMENT · '+room+' · '+client+'</h2>';
-        const clone=table.cloneNode(true); clone.querySelectorAll('tbody tr').forEach((row)=>{ if ((row.children[1]?.textContent?.trim()||'')!==room) row.remove(); });
-        clone.querySelectorAll('th:last-child,td:last-child').forEach((cell)=>cell.remove());
-        sheet.appendChild(clone); layer.appendChild(sheet);
-      });
-      document.body.appendChild(layer); window.print(); setTimeout(()=>layer.remove(),500);
-    };
-    one.addEventListener('click',()=>printRooms([select.value])); all.addEventListener('click',()=>printRooms(rooms));
-    toolbar.append(select,one,all); panel.querySelector('.panel-heading')?.appendChild(toolbar);
-  }
+  // Room recovery printing is owned by the React RecoveryCenter.  The old
+  // DOM enhancer injected a second toolbar and a second print layer, which
+  // made Chrome paginate hidden content as blank sheets.  Keep this enhancer
+  // limited to the ID-card and hostel helpers so there is only one printer.
+  function buildRoomPrint() {}
 
   function enhance() {
     enhanceIdCards(); enhanceHostelMaster(); buildRoomPrint();

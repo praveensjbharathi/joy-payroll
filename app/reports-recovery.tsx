@@ -48,8 +48,25 @@ function printTarget() {
     : document.querySelector(".room-report-modal .advance-voucher")
       ? "voucher"
       : "report";
+  const source = target === "bulk-vouchers"
+    ? document.querySelector<HTMLElement>(".bulk-recovery-vouchers")
+    : target === "voucher"
+      ? document.querySelector<HTMLElement>(".advance-voucher-layer .advance-voucher")
+      : document.querySelector<HTMLElement>(".room-report-layer .room-report-pages, .report-print-area");
+  if (!source) return;
+  document.getElementById("joy-print-root")?.remove();
+  const printRoot = document.createElement("div");
+  printRoot.id = "joy-print-root";
+  printRoot.className = `joy-print-root-${target}`;
+  printRoot.appendChild(source.cloneNode(true));
+  document.body.appendChild(printRoot);
   document.body.dataset.printTarget = target;
-  const cleanup = () => delete document.body.dataset.printTarget;
+  document.body.classList.add("joy-print-active");
+  const cleanup = () => {
+    delete document.body.dataset.printTarget;
+    document.body.classList.remove("joy-print-active");
+    printRoot.remove();
+  };
   window.addEventListener("afterprint", cleanup, { once: true });
   window.print();
   window.setTimeout(cleanup, 1800);
@@ -780,7 +797,7 @@ export function RecoveryCenter({
           <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
         </form>
       ) : null}
-      {run && (canManage || canApprove) ? (
+      {(canManage || canApprove) ? (
         <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
           <div className="panel-heading form-span">
             <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
@@ -795,7 +812,7 @@ export function RecoveryCenter({
           <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
         </form>
       ) : null}
-      {run && (canManage || canApprove) ? (
+      {(canManage || canApprove) ? (
         <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
           <div className="panel-heading form-span">
             <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
@@ -810,7 +827,7 @@ export function RecoveryCenter({
           <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
         </form>
       ) : null}
-      {run && (canManage || canApprove) ? (
+      {(canManage || canApprove) ? (
         <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
           <div className="panel-heading form-span">
             <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>

@@ -1871,6 +1871,9 @@ export default function PayrollApp({
           vendor={currentVendor}
           unit={currentUnit}
           run={currentRun}
+          canEmail={mayManage("payments") || mayManage("payroll")}
+          accessToken={accessToken}
+          publishableKey={publishableKey}
           onClose={() => setBulkPayslipsOpen(false)}
         />
       ) : null}
@@ -5764,6 +5767,9 @@ function BulkPayslipModal({
   vendor,
   unit,
   run,
+  canEmail,
+  accessToken,
+  publishableKey,
   onClose,
 }: {
   items: PayrollItem[];
@@ -5771,8 +5777,70 @@ function BulkPayslipModal({
   vendor: Vendor;
   unit: ClientUnit;
   run: PayrollRun;
+  canEmail: boolean;
+  accessToken?: string;
+  publishableKey?: string;
   onClose: () => void;
 }) {
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailSummary, setEmailSummary] = useState("");
+
+  function printBulkPayslips() {
+    const source = document.querySelector<HTMLElement>(".bulk-payslip-modal .bulk-payslip-pages");
+    if (!source) return;
+    document.getElementById("joy-print-root")?.remove();
+    const printRoot = document.createElement("div");
+    printRoot.id = "joy-print-root";
+    printRoot.className = "joy-print-root-payslips";
+    printRoot.appendChild(source.cloneNode(true));
+    document.body.appendChild(printRoot);
+    document.body.dataset.printTarget = "payslips";
+    document.body.classList.add("joy-print-active");
+    const cleanup = () => {
+      delete document.body.dataset.printTarget;
+      document.body.classList.remove("joy-print-active");
+      printRoot.remove();
+    };
+    window.addEventListener("afterprint", cleanup, { once: true });
+    window.print();
+    window.setTimeout(cleanup, 1800);
+  }
+
+  async function sendAllSalarySlips() {
+    if (emailSending || !canEmail || run.status !== "approved" || !items.length) return;
+    setEmailSending(true);
+    setEmailSummary("");
+    try {
+      const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+          ...(publishableKey ? { apikey: publishableKey } : {}),
+        },
+        body: JSON.stringify({ runId: run.id, sendAll: true }),
+      });
+      const payload = await response.json().catch(() => ({})) as {
+        sentCount?: number;
+        skippedCount?: number;
+        failedCount?: number;
+        total?: number;
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok) throw new Error(payload.error ?? payload.message ?? `Unable to send salary slips (HTTP ${response.status})`);
+      const total = payload.total ?? items.length;
+      const sent = payload.sentCount ?? 0;
+      const skipped = payload.skippedCount ?? 0;
+      const failed = payload.failedCount ?? 0;
+      setEmailSummary(`Sent ${sent} of ${total} salary slips${skipped ? ` · ${skipped} missing email` : ""}${failed ? ` · ${failed} failed` : ""}.`);
+    } catch (error) {
+      setEmailSummary(error instanceof Error ? error.message : "Unable to send salary slips");
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   return (
     <div className="modal-layer">
       <button className="modal-scrim" onClick={onClose} />
@@ -5781,11 +5849,23 @@ function BulkPayslipModal({
           <div>
             <strong>Bulk employee salary slips</strong>
             <span>
-              {items.length} employees · two half-A4 slips per A4 page
+              {items.length} employees · one employee per A4 salary-slip page
             </span>
           </div>
           <div>
-            <button className="primary-button" onClick={() => window.print()}>
+            {emailSummary ? <span className={emailSummary.startsWith("Sent ") ? "field-ready" : "field-pending"}>{emailSummary}</span> : null}
+            {canEmail ? (
+              <button
+                className="primary-button"
+                type="button"
+                disabled={emailSending || run.status !== "approved" || !items.length}
+                title={run.status !== "approved" ? "Approve payroll before sending salary slips" : "Send one salary slip PDF to every employee with an email address"}
+                onClick={() => void sendAllSalarySlips()}
+              >
+                {emailSending ? "Sending to all…" : "Send salary slips to all"}
+              </button>
+            ) : null}
+            <button className="primary-button" type="button" onClick={printBulkPayslips}>
               Print / Save bulk PDF
             </button>
             <button className="icon-button" onClick={onClose}>
