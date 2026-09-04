@@ -520,6 +520,12 @@ export function RecoveryCenter({
       provisionPaymentReference: "Recovery",
       notes: "Saved from Recovery page after roommate confirmation",
     });
+    // Clear the entry form after the append-only ledger write so a second
+    // dated recovery cannot accidentally reuse the previous amounts.
+    setRoomRecoveryGas(0);
+    setRoomRecoveryRation(0);
+    setRoomRecoveryProvision(0);
+    setRoomRecoveryDate("");
   }
 
   // Build bulk vouchers from the finalization register itself. This guarantees
@@ -732,6 +738,21 @@ export function RecoveryCenter({
         </form>
       ) : null}
       {(canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
+        </form>
+      ) : null}
+      {run && (canManage || canApprove) ? (
         <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
           <div className="panel-heading form-span">
             <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
@@ -2089,4 +2110,3 @@ export function ReportsCenter({
     </div>
   );
 }
-

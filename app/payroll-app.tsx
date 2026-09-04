@@ -5549,17 +5549,9 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (emailSending) return;
-    setEmailSent(false);
-    if (!employee?.emailAddress) {
-      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
-      return;
-    }
-    if (!run?.id || run.status !== "approved") {
-      setEmailMessage("Approve payroll before sending salary slips.");
-      return;
-    }
+    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
     setEmailSending(true);
+    setEmailSent(false);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
