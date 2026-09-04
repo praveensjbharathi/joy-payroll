@@ -1045,7 +1045,13 @@ if (!payrollApp.includes("Approve payroll before sending salary slips."))
   throw new Error("Payslip email prerequisites are still silent");
 if (!payrollApp.includes("Lock selected batch"))
   throw new Error("Bank output selection lock was not added");
-if (!payrollApp.includes("!paymentSelectionLocked || run.status !== \"approved\""))
+const hasPersistentPaymentBatchGuard =
+  payrollApp.includes("paymentSelectionDownloaded") &&
+  payrollApp.includes("download-payment-batch");
+if (
+  !hasPersistentPaymentBatchGuard &&
+  !payrollApp.includes("!paymentSelectionLocked || run.status !== \"approved\"")
+)
   throw new Error("Bank format downloads do not enforce the selection lock");
 
 // JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1

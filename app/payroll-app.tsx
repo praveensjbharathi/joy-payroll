@@ -485,6 +485,31 @@ export type PayrollBatch = {
   clearedAt: string | null;
 };
 
+export type PaymentExportBatch = {
+  id: string;
+  runId: string;
+  status: "locked" | "downloaded" | string;
+  exportFormat: string | null;
+  employeeCount: number;
+  totalPayable: number;
+  lockedBy: string;
+  lockedAt: string;
+  downloadedBy: string | null;
+  downloadedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentExportBatchItem = {
+  id: string;
+  batchId: string;
+  runId: string;
+  payrollItemId: string;
+  employeeId: string;
+  amount: number;
+  createdAt: string;
+};
+
 type AuditEvent = {
   id: number;
   action: string;
@@ -526,6 +551,8 @@ export type AppData = {
   hostels: Hostel[];
   hostelUtilityReadings: HostelUtilityReading[];
   payrollBatches: PayrollBatch[];
+  paymentExportBatches: PaymentExportBatch[];
+  paymentExportBatchItems: PaymentExportBatchItem[];
   auditEvents: AuditEvent[];
   rules: PayrollRule[];
   shifts: ShiftDefinition[];
@@ -1616,7 +1643,14 @@ export default function PayrollApp({
                 employees={currentEmployees}
                 vendor={currentVendor!}
                 unit={currentUnit!}
+                paymentExportBatches={data.paymentExportBatches.filter(
+                  (batch) => batch.runId === currentRun.id,
+                )}
+                paymentExportBatchItems={data.paymentExportBatchItems.filter(
+                  (item) => item.runId === currentRun.id,
+                )}
                 canExport={mayManage("payments")}
+                onAction={performAction}
                 onPayslip={setPayslipItem}
                 onBulkPayslips={() => setBulkPayslipsOpen(true)}
               />
@@ -3567,7 +3601,10 @@ function PaymentsView({
   employees,
   vendor,
   unit,
+  paymentExportBatches,
+  paymentExportBatchItems,
   canExport,
+  onAction,
   onPayslip,
   onBulkPayslips,
 }: {
@@ -3576,66 +3613,150 @@ function PaymentsView({
   employees: Employee[];
   vendor: Vendor;
   unit: ClientUnit;
+  paymentExportBatches: PaymentExportBatch[];
+  paymentExportBatchItems: PaymentExportBatchItem[];
   canExport: boolean;
+  onAction: (
+    action: string,
+    successMessage: string,
+    details?: Record<string, unknown>,
+  ) => Promise<boolean>;
   onPayslip: (item: PayrollItem) => void;
   onBulkPayslips: () => void;
 }) {
-  const bankItems = items;
+  const bankItems = items.filter((item) => item.paymentMode !== "cash");
   const cashItems = items.filter(() => false);
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
   const [paymentSelectionLocked, setPaymentSelectionLocked] = useState(false);
+  const [paymentSelectionDownloaded, setPaymentSelectionDownloaded] =
+    useState(false);
+  const [paymentBatchId, setPaymentBatchId] = useState<string | null>(null);
+  const [paymentSelectionBusy, setPaymentSelectionBusy] = useState(false);
   const [paymentAccommodationFilter, setPaymentAccommodationFilter] = useState("");
-  const paymentSelectionStorageKey = `joy-payment-selection:${run.id}`;
   const bankItemKey = bankItems.map((item) => item.id).join("|");
+  const paymentBatchStateKey = paymentExportBatches
+    .map((batch) => `${batch.id}:${batch.status}:${batch.updatedAt}`)
+    .join("|");
+  const activePaymentBatch =
+    paymentExportBatches.find((batch) => batch.status === "locked") ??
+    paymentExportBatches.find((batch) => batch.status === "downloaded") ??
+    null;
+  const downloadedPaymentItemIds = new Set(
+    paymentExportBatches
+      .filter((batch) => batch.status === "downloaded")
+      .flatMap((batch) =>
+        paymentExportBatchItems
+          .filter((item) => item.batchId === batch.id)
+          .map((item) => item.payrollItemId),
+      ),
+  );
+  const lockedByAnotherBatchIds = new Set(
+    paymentExportBatches
+      .filter(
+        (batch) =>
+          batch.status === "locked" && batch.id !== activePaymentBatch?.id,
+      )
+      .flatMap((batch) =>
+        paymentExportBatchItems
+          .filter((item) => item.batchId === batch.id)
+          .map((item) => item.payrollItemId),
+      ),
+  );
   const paymentAccommodationTypes = [...new Set(
     bankItems.map((item) => item.accommodationType).filter(Boolean),
   )].sort();
   useEffect(() => {
-    try {
-      const saved = JSON.parse(
-        window.localStorage.getItem(paymentSelectionStorageKey) ?? "null",
-      ) as { ids?: string[]; locked?: boolean } | null;
-      const valid = (saved?.ids ?? []).filter((id) =>
-        bankItems.some((item) => item.id === id),
-      );
-      if (saved?.locked && valid.length) {
-        setSelectedPaymentIds(valid);
-        setPaymentSelectionLocked(true);
-        return;
-      }
-    } catch {
-      window.localStorage.removeItem(paymentSelectionStorageKey);
-    }
-    setSelectedPaymentIds([]);
-    setPaymentSelectionLocked(false);
-  }, [run.id, bankItemKey]);
+    const ids = activePaymentBatch
+      ? paymentExportBatchItems
+          .filter(
+            (item) =>
+              item.batchId === activePaymentBatch.id &&
+              bankItems.some((bankItem) => bankItem.id === item.payrollItemId),
+          )
+          .map((item) => item.payrollItemId)
+      : [];
+    setSelectedPaymentIds(ids);
+    setPaymentSelectionLocked(Boolean(activePaymentBatch));
+    setPaymentSelectionDownloaded(activePaymentBatch?.status === "downloaded");
+    setPaymentBatchId(activePaymentBatch?.id ?? null);
+    setPaymentSelectionBusy(false);
+  }, [run.id, bankItemKey, paymentBatchStateKey]);
   function selectPaymentIds(ids: string[]) {
-    if (paymentSelectionLocked) return;
-    setSelectedPaymentIds([...new Set(ids)]);
-    window.localStorage.removeItem(paymentSelectionStorageKey);
+    if (paymentSelectionLocked || paymentSelectionDownloaded) return;
+    setSelectedPaymentIds(
+      [...new Set(ids)].filter(
+        (id) => !downloadedPaymentItemIds.has(id) && !lockedByAnotherBatchIds.has(id),
+      ),
+    );
   }
-  function lockPaymentSelection() {
+  async function lockPaymentSelection() {
     if (
+      paymentSelectionBusy ||
       run.status !== "approved" ||
       !canExport ||
       !selectedPaymentIds.length ||
-      bankValidationIssues.length
+      bankValidationIssues.length ||
+      paymentSelectionLocked ||
+      paymentSelectionDownloaded
     ) return;
-    window.localStorage.setItem(
-      paymentSelectionStorageKey,
-      JSON.stringify({ ids: selectedPaymentIds, locked: true }),
+    setPaymentSelectionBusy(true);
+    const saved = await onAction(
+      "lock-payment-batch",
+      "Selected employees locked for one bank upload batch",
+      { itemIds: selectedPaymentIds },
     );
-    setPaymentSelectionLocked(true);
+    if (saved) setPaymentSelectionLocked(true);
+    setPaymentSelectionBusy(false);
   }
-  function unlockPaymentSelection() {
-    window.localStorage.removeItem(paymentSelectionStorageKey);
-    setPaymentSelectionLocked(false);
+  async function unlockPaymentSelection() {
+    if (!paymentBatchId || paymentSelectionDownloaded || paymentSelectionBusy)
+      return;
+    setPaymentSelectionBusy(true);
+    const reopened = await onAction(
+      "unlock-payment-batch",
+      "Payment batch unlocked; select employees again",
+      { batchId: paymentBatchId },
+    );
+    if (reopened) {
+      setSelectedPaymentIds([]);
+      setPaymentSelectionLocked(false);
+      setPaymentBatchId(null);
+    }
+    setPaymentSelectionBusy(false);
   }
   const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));
   const bankValidationIssues = selectedBankItems.filter((item) => !item.bankAccountMasked || !item.ifscMasked);
+  const paymentSelectionStatus = paymentSelectionDownloaded
+    ? "Already downloaded"
+    : paymentSelectionLocked
+      ? "Selection locked"
+      : "Lock required";
   const salaryDescription = vendor.legalName.toUpperCase() + " SALARY " + monthLabel(run.payPeriod).toUpperCase();
-  function exportRows(mode: "bank" | "cash") {
-    if (mode === "bank" && (!paymentSelectionLocked || run.status !== "approved")) return;
+  async function markPaymentBatchDownloaded(format: string) {
+    if (
+      !paymentBatchId ||
+      paymentSelectionDownloaded ||
+      !paymentSelectionLocked ||
+      run.status !== "approved" ||
+      paymentSelectionBusy
+    )
+      return false;
+    setPaymentSelectionBusy(true);
+    const saved = await onAction(
+      "download-payment-batch",
+      "Bank upload batch marked as downloaded",
+      { batchId: paymentBatchId, exportFormat: format },
+    );
+    if (saved) setPaymentSelectionDownloaded(true);
+    setPaymentSelectionBusy(false);
+    return saved;
+  }
+  async function exportRows(mode: "bank" | "cash") {
+    if (
+      mode === "bank" &&
+      (!paymentSelectionLocked || paymentSelectionDownloaded || run.status !== "approved")
+    ) return;
+    if (mode === "bank" && !(await markPaymentBatchDownloaded("bank_csv"))) return;
     const rows = mode === "bank" ? selectedBankItems : cashItems;
     const header =
       mode === "bank"
@@ -3671,7 +3792,8 @@ function PaymentsView({
     );
     downloadCsv(`${mode}-payment-${run.payPeriod}.csv`, [header, ...values]);
   }
-  function exportIndianBank() {
+  async function exportIndianBank() {
+    if (!(await markPaymentBatchDownloaded("indian_bank_xlsx"))) return;
     const rows = selectedBankItems.map((item, index) => {
       const employee = employees.find((row) => row.id === item.employeeId);
       return [
@@ -3701,7 +3823,8 @@ function PaymentsView({
       ...rows,
     ]);
   }
-  function exportCubAnyBank() {
+  async function exportCubAnyBank() {
+    if (!(await markPaymentBatchDownloaded("cub_any_bank_txt"))) return;
     const rows = selectedBankItems
       .filter(
         (item) =>
@@ -3715,7 +3838,8 @@ function PaymentsView({
       );
     downloadText(`cub-any-bank-${run.payPeriod}.txt`, rows.join("\r\n"));
   }
-  function exportCubToCub() {
+  async function exportCubToCub() {
+    if (!(await markPaymentBatchDownloaded("cub_to_cub_txt"))) return;
     const rows = selectedBankItems
       .filter((item) =>
         String(item.ifscMasked ?? "")
@@ -3814,7 +3938,7 @@ function PaymentsView({
             <select
               aria-label="Select employees by accommodation type"
               value={paymentAccommodationFilter}
-              disabled={paymentSelectionLocked}
+              disabled={paymentSelectionLocked || paymentSelectionDownloaded || paymentSelectionBusy}
               onChange={(event) => {
                 const value = event.target.value;
                 setPaymentAccommodationFilter(value);
@@ -3828,12 +3952,14 @@ function PaymentsView({
               <option value="">Accommodation-wise selection</option>
               {paymentAccommodationTypes.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
-            <button className="secondary-button" type="button" disabled={paymentSelectionLocked} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds(bankItems.map((item) => item.id)); }}>Select all</button>
-            <button className="secondary-button" type="button" disabled={paymentSelectionLocked} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds([]); }}>Clear selection</button>
-            {paymentSelectionLocked ? (
-              <button className="secondary-button" type="button" onClick={unlockPaymentSelection}>Unlock / change selection</button>
+            <button className="secondary-button" type="button" disabled={paymentSelectionLocked || paymentSelectionDownloaded || paymentSelectionBusy} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds(bankItems.map((item) => item.id)); }}>Select all available</button>
+            <button className="secondary-button" type="button" disabled={paymentSelectionLocked || paymentSelectionDownloaded || paymentSelectionBusy} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds([]); }}>Clear selection</button>
+            {paymentSelectionDownloaded ? (
+              <span className="locked-banner-inline">Bank file already downloaded</span>
+            ) : paymentSelectionLocked ? (
+              <button className="secondary-button" type="button" disabled={paymentSelectionBusy} onClick={() => void unlockPaymentSelection()}>Unlock / change selection</button>
             ) : (
-              <button className="primary-button" type="button" disabled={run.status !== "approved" || !canExport || !selectedBankItems.length || bankValidationIssues.length > 0} onClick={lockPaymentSelection}>Lock selected batch</button>
+              <button className="primary-button" type="button" disabled={run.status !== "approved" || !canExport || !selectedBankItems.length || bankValidationIssues.length > 0 || paymentSelectionBusy} onClick={() => void lockPaymentSelection()}>{paymentSelectionBusy ? "Locking…" : "Lock selected batch"}</button>
             )}
           </div>
         </div>
@@ -3845,7 +3971,7 @@ function PaymentsView({
                 const employee = employees.find((row) => row.id === item.employeeId);
                 return (
                   <tr key={item.id}>
-                    <td><input type="checkbox" disabled={paymentSelectionLocked} checked={selectedPaymentIds.includes(item.id)} onChange={(event) => selectPaymentIds(event.target.checked ? [...selectedPaymentIds, item.id] : selectedPaymentIds.filter((id) => id !== item.id))} /></td>
+                    <td><input type="checkbox" disabled={paymentSelectionLocked || paymentSelectionDownloaded || paymentSelectionBusy || downloadedPaymentItemIds.has(item.id) || lockedByAnotherBatchIds.has(item.id)} checked={selectedPaymentIds.includes(item.id)} onChange={(event) => selectPaymentIds(event.target.checked ? [...selectedPaymentIds, item.id] : selectedPaymentIds.filter((id) => id !== item.id))} /></td>
                     <td><strong>{item.employeeCode}</strong><small>{item.employeeName}</small></td>
                     <td>{item.employeeName}</td>
                     <td>{item.bankAccountMasked ?? "Pending"}</td>
@@ -3858,7 +3984,7 @@ function PaymentsView({
             </tbody>
           </table>
         </div>
-        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionLocked ? "Selection locked" : "Lock required"}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? `${bankValidationIssues.length} employee(s) need bank account / IFSC before download.` : paymentSelectionLocked ? "Bank validation complete · locked upload formats ready." : "Review the employee batch, then lock it before downloading."}</span></div>
+        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionStatus}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? `${bankValidationIssues.length} employee(s) need bank account / IFSC before download.` : paymentSelectionDownloaded ? "This employee batch is recorded as downloaded and cannot be downloaded again." : paymentSelectionLocked ? "Bank validation complete · locked upload format ready." : "Select employees one by one, review the total, then lock the batch."}</span></div>
       </section>
       <section className="panel">
         <div className="panel-heading">
@@ -3872,22 +3998,22 @@ function PaymentsView({
         <div className="record-actions">
           <button
             className="secondary-button"
-            onClick={exportIndianBank}
-            disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}
+            onClick={() => void exportIndianBank()}
+            disabled={run.status !== "approved" || !paymentSelectionLocked || paymentSelectionDownloaded || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
           >
             Indian Bank Excel
           </button>
           <button
             className="secondary-button"
-            onClick={exportCubAnyBank}
-            disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}
+            onClick={() => void exportCubAnyBank()}
+            disabled={run.status !== "approved" || !paymentSelectionLocked || paymentSelectionDownloaded || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
           >
             CUB Any Bank TXT
           </button>
           <button
             className="secondary-button"
-            onClick={exportCubToCub}
-            disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}
+            onClick={() => void exportCubToCub()}
+            disabled={run.status !== "approved" || !paymentSelectionLocked || paymentSelectionDownloaded || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
           >
             CUB-to-CUB TXT
           </button>
@@ -5549,9 +5675,17 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
-    setEmailSending(true);
+    if (emailSending) return;
     setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
@@ -8390,4 +8524,3 @@ function numberToWordsIndian(value: number): string {
   if (remaining) words.push(underThousand(remaining));
   return words.join(" ");
 }
-

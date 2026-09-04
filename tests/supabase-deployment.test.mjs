@@ -19,6 +19,7 @@ const migrationPaths = [
   join(root, "supabase/migrations/20260827170000_employee_statutory_controls.sql"),
   join(root, "supabase/migrations/20260827190000_employee_identity_details.sql"),
   join(root, "supabase/migrations/20260827133444_employee_highest_qualification.sql"),
+  join(root, "supabase/migrations/20260905010000_individual_payment_export_locks.sql"),
 ];
 const payrollTables = [
   "app_users",
@@ -38,6 +39,8 @@ const payrollTables = [
   "hostels",
   "hostel_utility_readings",
   "payroll_batches",
+  "payment_export_batches",
+  "payment_export_batch_items",
   "audit_events",
 ];
 
@@ -84,6 +87,9 @@ test("the generated Supabase API preserves payroll logic without demo seeding", 
     "clear-payroll-batch",
     "reopen-payroll-for-recovery",
     "import-workbook",
+    "lock-payment-batch",
+    "unlock-payment-batch",
+    "download-payment-batch",
     "approve",
   ]) {
     assert.match(route, new RegExp(`"${action}"`));

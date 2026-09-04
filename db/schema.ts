@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   real,
   sqliteTable,
@@ -22,6 +23,8 @@ export const appUsers = sqliteTable("app_users", {
   unitScopeJson: text("unit_scope_json").notNull().default("[]"),
   hostelScopeJson: text("hostel_scope_json").notNull().default("[]"),
   canApprovePayroll: integer("can_approve_payroll").notNull().default(0),
+  approvalManagerEmail: text("approval_manager_email"),
+  approvalSequence: integer("approval_sequence").notNull().default(0),
   createdBy: text("created_by"),
   createdAt: text("created_at")
     .notNull()
@@ -208,18 +211,21 @@ export const employees = sqliteTable("employees", {
   name: text("name").notNull(),
   department: text("department").notNull(),
   dateOfJoining: text("date_of_joining").notNull(),
+  dateOfBirth: text("date_of_birth"),
   dateOfLeaving: text("date_of_leaving"),
   uanMasked: text("uan_masked"),
   esiMasked: text("esi_masked"),
   bankAccountMasked: text("bank_account_masked"),
   ifscMasked: text("ifsc_masked"),
   bankName: text("bank_name"),
+  bankBranch: text("bank_branch"),
   accommodationType: text("accommodation_type").notNull().default("Tamil"),
   roomId: text("room_id").references(() => accommodationRooms.id),
   roomNumber: text("room_number"),
   roomRentAmount: real("room_rent_amount").notNull().default(0),
   photoDataUrl: text("photo_data_url"),
   mobileNumber: text("mobile_number"),
+  emailAddress: text("email_address"),
   emergencyContactNumber: text("emergency_contact_number"),
   addressLine: text("address_line"),
   district: text("district"),
@@ -498,7 +504,7 @@ export const accommodationRoomExpenses = sqliteTable(
       .default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
-    uniqueIndex("accommodation_room_period_unique").on(
+    index("accommodation_room_period_idx").on(
       table.roomId,
       table.payPeriod,
     ),
@@ -520,6 +526,17 @@ export const payrollItems = sqliteTable("payroll_items", {
   holidayPresentDays: real("holiday_present_days").notNull().default(0),
   payableDays: real("payable_days").notNull().default(0),
   overtimeHours: real("overtime_hours").notNull().default(0),
+  fixedWorkingDays: real("fixed_working_days").notNull().default(0),
+  nfhDays: real("nfh_days").notNull().default(0),
+  compOffDays: real("comp_off_days").notNull().default(0),
+  onDutyDays: real("on_duty_days").notNull().default(0),
+  sundayDays: real("sunday_days").notNull().default(0),
+  plDays: real("pl_days").notNull().default(0),
+  clDays: real("cl_days").notNull().default(0),
+  slDays: real("sl_days").notNull().default(0),
+  importedGrossEarnings: real("imported_gross_earnings"),
+  importedTotalDeductions: real("imported_total_deductions"),
+  importedNetPayable: real("imported_net_payable"),
   basic: real("basic").notNull().default(0),
   da: real("da").notNull().default(0),
   hra: real("hra").notNull().default(0),
@@ -577,6 +594,78 @@ export const payrollBatches = sqliteTable(
     uniqueIndex("payroll_batch_run_accommodation_unique").on(
       table.runId,
       table.accommodationType,
+    ),
+  ],
+);
+
+// A payment export batch is separate from the accommodation-wise payroll
+// preparation batch.  It records the exact individual payroll items selected
+// for one bank upload so a refresh, second login, or second download cannot
+// silently process the same employee twice.
+export const paymentExportBatches = sqliteTable(
+  "payment_export_batches",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => payrollRuns.id),
+    status: text("status").notNull().default("locked"),
+    exportFormat: text("export_format"),
+    employeeCount: integer("employee_count").notNull().default(0),
+    totalPayable: real("total_payable").notNull().default(0),
+    lockedBy: text("locked_by").notNull(),
+    lockedAt: text("locked_at").notNull(),
+    downloadedBy: text("downloaded_by"),
+    downloadedAt: text("downloaded_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("payment_export_batches_run_status_idx").on(
+      table.runId,
+      table.status,
+    ),
+  ],
+);
+
+export const paymentExportBatchItems = sqliteTable(
+  "payment_export_batch_items",
+  {
+    id: text("id").primaryKey(),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => paymentExportBatches.id, { onDelete: "cascade" }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => payrollRuns.id),
+    payrollItemId: text("payroll_item_id")
+      .notNull()
+      .references(() => payrollItems.id),
+    employeeId: text("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    amount: real("amount").notNull().default(0),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("payment_export_batch_run_item_unique").on(
+      table.runId,
+      table.payrollItemId,
+    ),
+    index("payment_export_batch_items_batch_idx").on(table.batchId),
+    index("payment_export_batch_items_payroll_item_idx").on(
+      table.payrollItemId,
+    ),
+    index("payment_export_batch_items_employee_fk_idx").on(table.employeeId),
+    index("payment_export_batch_items_employee_idx").on(
+      table.runId,
+      table.employeeId,
     ),
   ],
 );

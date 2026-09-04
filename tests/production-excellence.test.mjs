@@ -26,7 +26,7 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   const payroll = await source("app/payroll-app.tsx");
   const api = await source("app/api/app-data/route.ts");
   assert.doesNotMatch(payroll, /<option value="cash">Cash<\/option>/);
-  assert.match(payroll, /const bankItems = items;/);
+  assert.match(payroll, /const bankItems = items\.filter\(\(item\) => item\.paymentMode !== "cash"\)/);
   assert.match(payroll, /bankValidationIssues/);
   assert.match(api, /const paymentMode = "bank";/);
   assert.doesNotMatch(api, /paymentMode: "cash"/);
@@ -34,6 +34,11 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(payroll, /CUB Any Bank TXT/);
   assert.match(payroll, /CUB-to-CUB TXT/);
   assert.match(payroll, /selectedBankItems/);
+  assert.match(payroll, /Lock selected batch/);
+  assert.match(payroll, /paymentSelectionDownloaded/);
+  assert.match(payroll, /download-payment-batch/);
+  assert.match(api, /payment_export_batch_run_item_unique/);
+  assert.match(api, /duplicate processing was blocked/);
 });
 
 test("payroll page explains wage-to-bank flow", async () => {

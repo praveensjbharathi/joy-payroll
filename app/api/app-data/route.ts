@@ -1,3 +1,4 @@
+// JOY_BANK_ONLY_POLICY_V1
 import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { getAuthenticatedUser, type AuthenticatedUser } from "../../auth";
 import { getDb, getRawDb } from "../../../db";
@@ -19,6 +20,8 @@ import {
   hostelUtilityReadings,
   payrollItems,
   payrollBatches,
+  paymentExportBatches,
+  paymentExportBatchItems,
   payrollRemarks,
   payrollRules,
   payrollRuns,
@@ -123,6 +126,8 @@ function appUserProfile(row: AppUserRow) {
     unitScope: normalizedScope(row.unitScopeJson),
     hostelScope: normalizedScope(row.hostelScopeJson),
     canApprovePayroll: role === "super_admin" || Boolean(row.canApprovePayroll),
+    approvalManagerEmail: row.approvalManagerEmail,
+    approvalSequence: row.approvalSequence,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lastLoginAt: row.lastLoginAt,
@@ -249,7 +254,7 @@ function requireClientScope(access: AppAccess, vendorId: string) {
 function requireUnitScope(access: AppAccess, unitId: string, vendorId: string) {
   requireClientScope(access, vendorId);
   if (
-    access.profile.role === "hr_team" &&
+    (access.profile.role === "hr_team" || access.profile.role === "field_hr") &&
     !access.profile.unitScope.includes(unitId)
   ) {
     throw new RequestError(
@@ -489,7 +494,15 @@ function actionPermission(
       payload.entityType === "room")
   )
     return { module: "accommodation", level: "manage" };
-  if (["clear-payroll-batch", "reopen-payroll-batch"].includes(action))
+  if (
+    [
+      "clear-payroll-batch",
+      "reopen-payroll-batch",
+      "lock-payment-batch",
+      "unlock-payment-batch",
+      "download-payment-batch",
+    ].includes(action)
+  )
     return { module: "payments", level: "manage" };
   if (
     [
@@ -758,7 +771,7 @@ async function ensureDemoData() {
       accommodationType: "Tamil",
       roomId: "room-jms-tamil",
       roomNumber: "Tamil",
-      paymentMode: "cash",
+      paymentMode: "bank",
       salaryAmount: 12992,
       complianceStatus: "review",
     },
@@ -818,7 +831,7 @@ async function ensureDemoData() {
       accommodationType: "Outside Room",
       roomId: "room-jms-or2",
       roomNumber: "OR2",
-      paymentMode: "cash",
+      paymentMode: "bank",
       salaryAmount: 12208,
       complianceStatus: "review",
     },
@@ -1160,6 +1173,8 @@ async function loadAppData(access: AppAccess) {
     allRoomRows,
     allRoomExpenseRows,
     allBatchRows,
+    allPaymentExportBatchRows,
+    allPaymentExportBatchItemRows,
     allVehicles,
     allVehicleRecords,
     allMeters,
@@ -1192,6 +1207,18 @@ async function loadAppData(access: AppAccess) {
         holidayPresentDays: payrollItems.holidayPresentDays,
         payableDays: payrollItems.payableDays,
         overtimeHours: payrollItems.overtimeHours,
+        salaryBasis: employees.salaryBasis,
+        fixedWorkingDays: payrollItems.fixedWorkingDays,
+        nfhDays: payrollItems.nfhDays,
+        compOffDays: payrollItems.compOffDays,
+        onDutyDays: payrollItems.onDutyDays,
+        sundayDays: payrollItems.sundayDays,
+        plDays: payrollItems.plDays,
+        clDays: payrollItems.clDays,
+        slDays: payrollItems.slDays,
+        importedGrossEarnings: payrollItems.importedGrossEarnings,
+        importedTotalDeductions: payrollItems.importedTotalDeductions,
+        importedNetPayable: payrollItems.importedNetPayable,
         basic: payrollItems.basic,
         da: payrollItems.da,
         hra: payrollItems.hra,
@@ -1278,6 +1305,14 @@ async function loadAppData(access: AppAccess) {
       .select()
       .from(payrollBatches)
       .orderBy(asc(payrollBatches.accommodationType)),
+    db
+      .select()
+      .from(paymentExportBatches)
+      .orderBy(desc(paymentExportBatches.lockedAt)),
+    db
+      .select()
+      .from(paymentExportBatchItems)
+      .orderBy(asc(paymentExportBatchItems.createdAt)),
     db.select().from(vehicles).orderBy(asc(vehicles.registrationNumber)),
     db.select().from(vehicleRecords).orderBy(desc(vehicleRecords.recordDate)),
     db.select().from(utilityMeters).orderBy(asc(utilityMeters.locationName)),
@@ -1301,7 +1336,7 @@ async function loadAppData(access: AppAccess) {
     (unit) =>
       visibleVendorIds.has(unit.vendorId) &&
       (unrestricted ||
-        access.profile.role !== "hr_team" ||
+        (!["hr_team", "field_hr"].includes(access.profile.role)) ||
         unitScope.has(unit.id)),
   );
   const visibleUnitIds = new Set(unitRows.map((unit) => unit.id));
@@ -1387,6 +1422,18 @@ async function loadAppData(access: AppAccess) {
   const batchRows = allBatchRows.filter((batch) =>
     visibleRunIds.has(batch.runId),
   );
+  const paymentExportBatchRows = allPaymentExportBatchRows.filter((batch) =>
+    visibleRunIds.has(batch.runId),
+  );
+  const visiblePaymentExportBatchIds = new Set(
+    paymentExportBatchRows.map((batch) => batch.id),
+  );
+  const paymentExportBatchItemRows = allPaymentExportBatchItemRows.filter(
+    (item) =>
+      visibleRunIds.has(item.runId) &&
+      visibleEmployeeIds.has(item.employeeId) &&
+      visiblePaymentExportBatchIds.has(item.batchId),
+  );
 
   const permissions = access.profile.permissions;
   const seesAny = (modules: AccessModule[]) =>
@@ -1443,7 +1490,7 @@ async function loadAppData(access: AppAccess) {
           bankName: null,
           salaryAmount: 0,
           salaryBasis: "monthly",
-          paymentMode: "cash",
+          paymentMode: "bank",
           complianceStatus: "ready",
         }));
 
@@ -1521,6 +1568,12 @@ async function loadAppData(access: AppAccess) {
     payrollBatches: seesAny(["payroll", "payments", "accommodation"])
       ? batchRows
       : [],
+    paymentExportBatches: seesAny(["payroll", "payments"])
+      ? paymentExportBatchRows
+      : [],
+    paymentExportBatchItems: seesAny(["payroll", "payments"])
+      ? paymentExportBatchItemRows
+      : [],
     auditEvents: seesAny(["dashboard", "users"]) ? auditRows.reverse() : [],
     rules: canView(permissions, "settings") ? ruleRows : [],
     shifts: seesAny(["masters", "attendance", "employees"]) ? shiftRows : [],
@@ -1554,12 +1607,13 @@ async function loadAppData(access: AppAccess) {
         )
       : [],
     hostels: canView(permissions, "accommodation")
-      ? allHostels.filter(
-          (hostel) =>
-            visibleVendorIds.has(hostel.vendorId) &&
-            (access.profile.role !== "hostel_incharge" ||
-              hostelScope.has(hostel.id)),
-        )
+      ? allHostels.filter((hostel) => {
+          if (access.profile.role === "hostel_incharge") return hostelScope.has(hostel.id);
+          if (unrestricted) return true;
+          let mappedUnits: string[] = [];
+          try { const parsed = JSON.parse(hostel.clientScopeJson || "[]"); if (Array.isArray(parsed)) mappedUnits = parsed; } catch {}
+          return visibleVendorIds.has(hostel.vendorId) || mappedUnits.some((unitId) => visibleUnitIds.has(unitId));
+        })
       : [],
     hostelUtilityReadings: canView(permissions, "accommodation")
       ? allHostelReadings.filter((reading) =>
@@ -1604,6 +1658,45 @@ function optionalValue(value: unknown) {
   if (value === null || value === undefined) return null;
   const result = String(value).trim();
   return result || null;
+}
+
+function requiredStringArray(value: unknown, label: string, maximum = 500) {
+  if (!Array.isArray(value))
+    throw new RequestError(`${label} must be a list of employee selections`);
+  const values = [
+    ...new Set(
+      value
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!values.length) throw new RequestError(`Select at least one ${label}`);
+  if (values.length > maximum)
+    throw new RequestError(
+      `${label} cannot contain more than ${maximum} employees`,
+    );
+  return values;
+}
+
+// Drizzle returns D1Response.meta.changes on Cloudflare and RowList.count for
+// postgres-js in the generated Supabase function. Keep the atomic download
+// guard portable across both adapters.
+function mutationChangedRows(result: unknown): number | null {
+  if (!result || typeof result !== "object") return null;
+  const candidate = result as {
+    meta?: { changes?: unknown };
+    count?: unknown;
+  };
+  const d1Changes = candidate.meta?.changes;
+  if (typeof d1Changes === "number" && Number.isFinite(d1Changes))
+    return d1Changes;
+  if (
+    typeof candidate.count === "number" &&
+    Number.isFinite(candidate.count)
+  )
+    return candidate.count;
+  return null;
 }
 
 function positiveValue(value: unknown, label: string, maximum = 100000000) {
@@ -2101,6 +2194,7 @@ function employeeValues(
     bankAccountMasked: optionalValue(payload.bankAccountMasked),
     ifscMasked: optionalValue(payload.ifscMasked)?.toUpperCase() ?? null,
     bankName: optionalValue(payload.bankName),
+    bankBranch: optionalValue(payload.bankBranch),
     accommodationType,
     roomId: optionalValue(payload.roomId),
     roomNumber: optionalValue(payload.roomNumber),
@@ -2110,6 +2204,7 @@ function employeeValues(
     ),
     photoDataUrl: optionalValue(payload.photoDataUrl),
     mobileNumber: optionalValue(payload.mobileNumber),
+    emailAddress: optionalValue(payload.emailAddress)?.toLowerCase() ?? null,
     emergencyContactNumber: optionalValue(payload.emergencyContactNumber),
     addressLine: optionalValue(payload.addressLine),
     district: optionalValue(payload.district),
@@ -2119,6 +2214,7 @@ function employeeValues(
     fatherName: optionalValue(payload.fatherName),
     spouseName: optionalValue(payload.spouseName),
     maritalStatus: optionalValue(payload.maritalStatus),
+    dateOfBirth: optionalValue(payload.dateOfBirth),
     highestQualification: optionalValue(payload.highestQualification),
     pfApplicable: payload.pfApplicable === "no" ? 0 : 1,
     pfWageAmount: positiveValue(payload.pfWageAmount ?? 0, "PF wage"),
@@ -2246,9 +2342,7 @@ async function finalizeRoomExpense(
     .from(accommodationRoomExpenses)
     .where(eq(accommodationRoomExpenses.id, expenseId))
     .limit(1);
-  if (!expense) throw new RequestError("Room expense record not found", 404);
-  if (expense.status === "finalized")
-    throw new RequestError("This room expense has already been finalized", 409);
+  if (!expense) throw new RequestError("Room recovery entry not found", 404);
   const [room] = await db
     .select()
     .from(accommodationRooms)
@@ -2256,13 +2350,31 @@ async function finalizeRoomExpense(
     .limit(1);
   if (!room) throw new RequestError("Accommodation room not found", 404);
   requireClientScope(access, room.vendorId);
+
+  const ledger = await db
+    .select()
+    .from(accommodationRoomExpenses)
+    .where(
+      and(
+        eq(accommodationRoomExpenses.roomId, expense.roomId),
+        eq(accommodationRoomExpenses.payPeriod, expense.payPeriod),
+      ),
+    );
+  if (!ledger.length)
+    throw new RequestError("No room recovery entries were found", 404);
+  if (ledger.every((entry) => entry.status === "finalized"))
+    throw new RequestError(
+      "This room recovery month has already been finalized",
+      409,
+    );
+
   const occupants = await db
     .select()
     .from(employees)
     .where(and(eq(employees.roomId, room.id), eq(employees.status, "active")));
   if (!occupants.length)
     throw new RequestError(
-      "Allocate at least one active employee before finalizing room expenses",
+      "Allocate at least one active employee before finalizing room recoveries",
       409,
     );
 
@@ -2287,7 +2399,7 @@ async function finalizeRoomExpense(
       );
     if (run.status === "approved")
       throw new RequestError(
-        `Reopen ${employee.employeeCode}'s approved payroll before changing room deductions`,
+        `Reopen ${employee.employeeCode}'s approved payroll before applying room recoveries`,
         409,
       );
     const [item] = await db
@@ -2309,10 +2421,23 @@ async function finalizeRoomExpense(
     runByEmployee.set(employee.id, run);
   }
 
+  const aggregateExpense = {
+    ...expense,
+    gasAmount: roundMoney(
+      ledger.reduce((sum, entry) => sum + numberValue(entry.gasAmount), 0),
+    ),
+    rationAmount: roundMoney(
+      ledger.reduce((sum, entry) => sum + numberValue(entry.rationAmount), 0),
+    ),
+    provisionAmount: roundMoney(
+      ledger.reduce((sum, entry) => sum + numberValue(entry.provisionAmount), 0),
+    ),
+  };
   const shares = splitRoomExpenses(
-    expense,
+    aggregateExpense,
     occupants.map((employee) => employee.id),
   );
+  const anchorExpenseId = expense.id;
   for (const share of shares) {
     const run = runByEmployee.get(share.employeeId);
     if (!run) continue;
@@ -2323,14 +2448,14 @@ async function finalizeRoomExpense(
       ? positiveValue(employee.roomRentAmount ?? 0, "Room rent")
       : 0;
     const joinedLate = Boolean(
-      employee?.dateOfJoining?.startsWith(`${expense.payPeriod}-`) &&
+      employee?.dateOfJoining?.startsWith(expense.payPeriod + "-") &&
       Number(employee.dateOfJoining.slice(8, 10)) > room.rentCutoffDay,
     );
     const rent = roundMoney(
       fullRent * (joinedLate ? room.lateJoinRentPercent / 100 : 1),
     );
     const values = {
-      roomExpenseId: expense.id,
+      roomExpenseId: anchorExpenseId,
       roomNumber: room.roomNumber,
       gasShare: share.gasShare,
       rationShare: share.rationShare,
@@ -2358,19 +2483,25 @@ async function finalizeRoomExpense(
         .values({ runId: run.id, employeeId: share.employeeId, ...values });
   }
 
+  const finalizedAt = new Date().toISOString();
   await db
     .update(accommodationRoomExpenses)
     .set({
       occupantCount: occupants.length,
       status: "finalized",
       finalizedBy: access.identity.email,
-      finalizedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      finalizedAt,
+      updatedAt: finalizedAt,
     })
-    .where(eq(accommodationRoomExpenses.id, expense.id));
+    .where(
+      and(
+        eq(accommodationRoomExpenses.roomId, expense.roomId),
+        eq(accommodationRoomExpenses.payPeriod, expense.payPeriod),
+      ),
+    );
   for (const run of affectedRuns.values())
     await recalculateRun(db, run.id, false);
-  return { expense, room, occupants };
+  return { expense, room, occupants, ledger };
 }
 
 async function updateUnitCount(db: Db, unitId: string) {
@@ -2443,15 +2574,15 @@ async function importWorkbook(
       );
     if (existing) {
       if (sourceType === "salary") {
-        const update = await assignEmployeeAccommodation(
-          db,
-          employeeValues({ ...existing, ...imported }, vendorId, unitId),
-          existing.id,
-        );
-        await db
-          .update(employees)
-          .set(update)
-          .where(eq(employees.id, existing.id));
+        // Salary-register imports intentionally preserve employee master data.
+        // The employer file is authoritative for this payroll run, not for bank,
+        // statutory, accommodation, joining-date, or other permanent fields.
+        const importedName = optionalValue(imported.name);
+        if (importedName && importedName !== existing.name)
+          await db
+            .update(employees)
+            .set({ name: importedName })
+            .where(eq(employees.id, existing.id));
       }
       continue;
     }
@@ -2591,14 +2722,34 @@ async function importWorkbook(
         "presentDays",
         "payableDays",
         "overtimeHours",
+        "fixedWorkingDays",
+        "nfhDays",
+        "compOffDays",
+        "onDutyDays",
+        "sundayDays",
+        "plDays",
+        "clDays",
+        "slDays",
       ] as const)
         if (Object.hasOwn(imported, field))
           update[field] = positiveValue(imported[field], field);
+      const importedTotals = {
+        importedGrossEarnings: Object.hasOwn(imported, "sourceGrossEarnings")
+          ? positiveValue(imported.sourceGrossEarnings, "Gross Earnings")
+          : item.importedGrossEarnings,
+        importedTotalDeductions: Object.hasOwn(imported, "sourceTotalDeductions")
+          ? positiveValue(imported.sourceTotalDeductions, "Total Deductions")
+          : item.importedTotalDeductions,
+        importedNetPayable: Object.hasOwn(imported, "sourceNetPayable")
+          ? positiveValue(imported.sourceNetPayable, "Net Payable")
+          : item.importedNetPayable,
+      };
       const totals = payrollTotals({ ...item, ...update });
       await db
         .update(payrollItems)
         .set({
           ...update,
+          ...importedTotals,
           grossEarnings: totals.grossEarnings,
           totalDeductions: totals.totalDeductions,
           netPayable: totals.netPayable,
@@ -2790,7 +2941,7 @@ async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
   } else {
     if (!unitScope.length)
       throw new RequestError(
-        "Assign at least one employer unit to an HR Team user",
+        "Assign at least one employer unit to this HR user",
       );
     const assignedUnits = await db
       .select({ id: clientUnits.id, vendorId: clientUnits.vendorId })
@@ -2820,6 +2971,8 @@ async function saveAppUser(db: Db, payload: Payload, access: AppAccess) {
     unitScopeJson: JSON.stringify(unitScope),
     hostelScopeJson: JSON.stringify(hostelScope),
     canApprovePayroll: canApprovePayroll ? 1 : 0,
+    approvalManagerEmail: role === "super_admin" ? null : optionalValue(payload.approvalManagerEmail)?.toLowerCase() ?? null,
+    approvalSequence: role === "super_admin" ? 999 : positiveValue(payload.approvalSequence ?? 0, "Approval sequence", 999),
     updatedAt: now,
   };
   const [emailOwner] = await db
@@ -3290,14 +3443,17 @@ export async function POST(request: Request) {
           .from(hostels)
           .where(eq(hostels.id, hostelId))
           .limit(1);
+        const [hostelAccommodationType] = hostel?.accommodationTypeId
+          ? await db.select().from(accommodationTypes).where(eq(accommodationTypes.id, hostel.accommodationTypeId)).limit(1)
+          : [];
         if (
           !hostel ||
-          hostel.vendorId !== vendorId ||
-          hostel.accommodationTypeId !== accommodationTypeId ||
+          !hostelAccommodationType ||
+          hostelAccommodationType.name !== type.name ||
           hostel.status !== "active"
         )
           throw new RequestError(
-            "Choose an active stored hostel or local area under this accommodation type",
+            "Choose an active shared hostel or local area under the same accommodation type",
             409,
           );
       }
@@ -3473,8 +3629,18 @@ export async function POST(request: Request) {
           409,
         );
       const payPeriod = periodValue(payload.payPeriod);
+      const gasAmount = positiveValue(payload.gasAmount, "Gas expense");
+      const rationAmount = positiveValue(payload.rationAmount, "Ration expense");
+      const provisionAmount = positiveValue(
+        payload.provisionAmount,
+        "Provision expense",
+      );
+      if (gasAmount + rationAmount + provisionAmount <= 0)
+        throw new RequestError(
+          "Enter at least one Gas, Ration, or Provision recovery amount",
+        );
       const values = {
-        gasAmount: positiveValue(payload.gasAmount, "Gas expense"),
+        gasAmount,
         gasDate: payload.gasDate
           ? dateValue(payload.gasDate, "Gas cylinder date")
           : null,
@@ -3482,15 +3648,12 @@ export async function POST(request: Request) {
           positiveValue(payload.gasCylinderCount ?? 0, "Gas cylinder count"),
         ),
         gasPaymentReference: optionalValue(payload.gasPaymentReference),
-        rationAmount: positiveValue(payload.rationAmount, "Ration expense"),
+        rationAmount,
         rationDate: payload.rationDate
           ? dateValue(payload.rationDate, "Ration date")
           : null,
         rationPaymentReference: optionalValue(payload.rationPaymentReference),
-        provisionAmount: positiveValue(
-          payload.provisionAmount,
-          "Provision expense",
-        ),
+        provisionAmount,
         provisionDate: payload.provisionDate
           ? dateValue(payload.provisionDate, "Provision date")
           : null,
@@ -3500,37 +3663,18 @@ export async function POST(request: Request) {
         notes: optionalValue(payload.notes),
         updatedAt: new Date().toISOString(),
       };
-      const [existing] = await db
-        .select()
-        .from(accommodationRoomExpenses)
-        .where(
-          and(
-            eq(accommodationRoomExpenses.roomId, roomId),
-            eq(accommodationRoomExpenses.payPeriod, payPeriod),
-          ),
-        )
-        .limit(1);
-      if (existing?.status === "finalized")
-        throw new RequestError(
-          "Reopen the finalized room expense before changing it",
-          409,
-        );
-      const expenseId = existing?.id ?? `ROOMEXP-${crypto.randomUUID()}`;
-      if (existing)
-        await db
-          .update(accommodationRoomExpenses)
-          .set(values)
-          .where(eq(accommodationRoomExpenses.id, existing.id));
-      else
-        await db
-          .insert(accommodationRoomExpenses)
-          .values({ id: expenseId, roomId, payPeriod, ...values });
+      const expenseId = `ROOMEXP-${crypto.randomUUID()}`;
+      await db
+        .insert(accommodationRoomExpenses)
+        .values({ id: expenseId, roomId, payPeriod, ...values });
+      const entryDate =
+        values.gasDate ?? values.rationDate ?? values.provisionDate ?? payPeriod;
       await writeAudit(
         db,
         "room_expense_saved",
         "room",
         room.id,
-        `Updated gas, ration, and provision expenses for room ${room.roomNumber}`,
+        `Added dated room recovery for ${room.roomNumber} on ${entryDate}: Gas ₹${gasAmount.toFixed(2)}, Ration ₹${rationAmount.toFixed(2)}, Provision ₹${provisionAmount.toFixed(2)}`,
         actorEmail,
       );
     } else if (action === "finalize-room-expense") {
@@ -3545,14 +3689,14 @@ export async function POST(request: Request) {
         actorEmail,
       );
     } else if (action === "reopen-room-expense") {
-      const expenseId = textValue(payload.expenseId, "Room expense");
+      const expenseId = textValue(payload.expenseId, "Room recovery entry");
       const [expense] = await db
         .select()
         .from(accommodationRoomExpenses)
         .where(eq(accommodationRoomExpenses.id, expenseId))
         .limit(1);
       if (!expense)
-        throw new RequestError("Room expense record not found", 404);
+        throw new RequestError("Room recovery entry not found", 404);
       const [room] = await db
         .select()
         .from(accommodationRooms)
@@ -3560,24 +3704,37 @@ export async function POST(request: Request) {
         .limit(1);
       if (!room) throw new RequestError("Accommodation room not found", 404);
       requireClientScope(access, room.vendorId);
-      const affected = await db
+      const ledger = await db
         .select()
-        .from(accommodationCharges)
-        .where(eq(accommodationCharges.roomExpenseId, expense.id));
+        .from(accommodationRoomExpenses)
+        .where(
+          and(
+            eq(accommodationRoomExpenses.roomId, expense.roomId),
+            eq(accommodationRoomExpenses.payPeriod, expense.payPeriod),
+          ),
+        );
+      const ledgerIds = ledger.map((entry) => entry.id);
+      const affected = ledgerIds.length
+        ? await db
+            .select()
+            .from(accommodationCharges)
+            .where(inArray(accommodationCharges.roomExpenseId, ledgerIds))
+        : [];
       const affectedRuns = new Set(affected.map((charge) => charge.runId));
       for (const affectedRunId of affectedRuns) {
         const run = await requireRun(db, affectedRunId, true);
         requireUnitScope(access, run.clientUnitId, run.vendorId);
       }
-      await db
-        .update(accommodationCharges)
-        .set({
-          roomExpenseId: null,
-          gasShare: 0,
-          rationShare: 0,
-          provisionShare: 0,
-        })
-        .where(eq(accommodationCharges.roomExpenseId, expense.id));
+      if (ledgerIds.length)
+        await db
+          .update(accommodationCharges)
+          .set({
+            roomExpenseId: null,
+            gasShare: 0,
+            rationShare: 0,
+            provisionShare: 0,
+          })
+          .where(inArray(accommodationCharges.roomExpenseId, ledgerIds));
       await db
         .update(accommodationRoomExpenses)
         .set({
@@ -3587,7 +3744,12 @@ export async function POST(request: Request) {
           finalizedAt: null,
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(accommodationRoomExpenses.id, expense.id));
+        .where(
+          and(
+            eq(accommodationRoomExpenses.roomId, expense.roomId),
+            eq(accommodationRoomExpenses.payPeriod, expense.payPeriod),
+          ),
+        );
       for (const affectedRunId of affectedRuns)
         await recalculateRun(db, affectedRunId, false);
       await writeAudit(
@@ -3595,7 +3757,7 @@ export async function POST(request: Request) {
         "room_expense_reopened",
         "room",
         room.id,
-        `Reopened room ${room.roomNumber} expenses and cleared the previous shared deductions`,
+        `Reopened all ${expense.payPeriod} room recovery ledger entries for room ${room.roomNumber}`,
         actorEmail,
       );
     } else if (action === "save-shift") {
@@ -4657,6 +4819,21 @@ export async function POST(request: Request) {
       for (const field of [...earningFields, ...deductionFields])
         if (Object.hasOwn(fields, field))
           update[field] = positiveValue(fields[field], field);
+      for (const field of [
+        "presentDays",
+        "payableDays",
+        "overtimeHours",
+        "fixedWorkingDays",
+        "nfhDays",
+        "compOffDays",
+        "onDutyDays",
+        "sundayDays",
+        "plDays",
+        "clDays",
+        "slDays",
+      ] as const)
+        if (Object.hasOwn(fields, field))
+          update[field] = positiveValue(fields[field], field);
       const totals = payrollTotals({ ...item, ...update });
       await db
         .update(payrollItems)
@@ -5219,8 +5396,7 @@ export async function POST(request: Request) {
         : [];
       const validUnits = await db
         .select({ id: clientUnits.id })
-        .from(clientUnits)
-        .where(eq(clientUnits.vendorId, vendorId));
+        .from(clientUnits);
       const validIds = new Set(validUnits.map((unit) => unit.id));
       if (clientScope.some((unitId) => !validIds.has(unitId)))
         throw new RequestError(
@@ -5612,6 +5788,232 @@ export async function POST(request: Request) {
       );
     } else if (action === "import-workbook") {
       runId = await importWorkbook(db, payload, actorEmail);
+    } else if (action === "lock-payment-batch") {
+      const run = await requireRun(db, runId);
+      if (run.status !== "approved")
+        throw new RequestError(
+          "Approve the payroll run before locking a bank upload batch",
+          409,
+        );
+      const itemIds = requiredStringArray(payload.itemIds, "employee batch");
+      const selectedRows = await db
+        .select({
+          id: payrollItems.id,
+          employeeId: payrollItems.employeeId,
+          employeeCode: employees.employeeCode,
+          employeeName: employees.name,
+          paymentMode: employees.paymentMode,
+          bankAccountMasked: employees.bankAccountMasked,
+          ifscMasked: employees.ifscMasked,
+          netPayable: payrollItems.netPayable,
+        })
+        .from(payrollItems)
+        .innerJoin(employees, eq(payrollItems.employeeId, employees.id))
+        .where(
+          and(
+            eq(payrollItems.runId, run.id),
+            inArray(payrollItems.id, itemIds),
+          ),
+        );
+      if (selectedRows.length !== itemIds.length)
+        throw new RequestError(
+          "One or more selected employees do not belong to this payroll run",
+          409,
+        );
+      const invalidRows = selectedRows.filter(
+        (row) =>
+          row.paymentMode !== "bank" ||
+          !row.bankAccountMasked ||
+          !row.ifscMasked ||
+          !Number.isFinite(row.netPayable) ||
+          row.netPayable < 0,
+      );
+      if (invalidRows.length)
+        throw new RequestError(
+          `Complete bank account number and IFSC before locking: ${invalidRows
+            .map((row) => row.employeeCode)
+            .join(", ")}`,
+          409,
+        );
+      const existingRows = await db
+        .select({
+          payrollItemId: paymentExportBatchItems.payrollItemId,
+          batchId: paymentExportBatchItems.batchId,
+          status: paymentExportBatches.status,
+        })
+        .from(paymentExportBatchItems)
+        .innerJoin(
+          paymentExportBatches,
+          eq(paymentExportBatchItems.batchId, paymentExportBatches.id),
+        )
+        .where(
+          and(
+            eq(paymentExportBatchItems.runId, run.id),
+            inArray(paymentExportBatchItems.payrollItemId, itemIds),
+          ),
+        );
+      if (existingRows.length) {
+        const existingCodes = selectedRows
+          .filter((row) =>
+            existingRows.some((entry) => entry.payrollItemId === row.id),
+          )
+          .map((row) => row.employeeCode)
+          .join(", ");
+        const downloaded = existingRows.some(
+          (entry) => entry.status === "downloaded",
+        );
+        throw new RequestError(
+          downloaded
+            ? `A bank file was already downloaded for: ${existingCodes}`
+            : `These employees are already locked in another bank batch: ${existingCodes}`,
+          409,
+        );
+      }
+      const now = new Date().toISOString();
+      const batchId = `PAYMENT-${crypto.randomUUID()}`;
+      await db.insert(paymentExportBatches).values({
+        id: batchId,
+        runId: run.id,
+        status: "locked",
+        exportFormat: null,
+        employeeCount: selectedRows.length,
+        totalPayable: roundMoney(
+          selectedRows.reduce((sum, row) => sum + row.netPayable, 0),
+        ),
+        lockedBy: actorEmail,
+        lockedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(paymentExportBatchItems).values(
+        selectedRows.map((row) => ({
+          id: `PAYMENT-ITEM-${crypto.randomUUID()}`,
+          batchId,
+          runId: run.id,
+          payrollItemId: row.id,
+          employeeId: row.employeeId,
+          amount: row.netPayable,
+          createdAt: now,
+        })),
+      );
+      await writeAudit(
+        db,
+        "payment_batch_locked",
+        "payment_export_batch",
+        batchId,
+        `Locked ${selectedRows.length} individual employee payment${selectedRows.length === 1 ? "" : "s"} for one bank upload batch (${roundMoney(selectedRows.reduce((sum, row) => sum + row.netPayable, 0))})`,
+        actorEmail,
+      );
+    } else if (action === "unlock-payment-batch") {
+      const run = await requireRun(db, runId);
+      if (run.status !== "approved")
+        throw new RequestError(
+          "Approve the payroll run before changing a bank upload batch",
+          409,
+        );
+      const batchId = textValue(payload.batchId, "Payment batch");
+      const [batch] = await db
+        .select()
+        .from(paymentExportBatches)
+        .where(
+          and(
+            eq(paymentExportBatches.id, batchId),
+            eq(paymentExportBatches.runId, run.id),
+          ),
+        )
+        .limit(1);
+      if (!batch) throw new RequestError("Payment batch not found", 404);
+      if (batch.status === "downloaded")
+        throw new RequestError(
+          "This bank file was already downloaded and cannot be unlocked; create a new payroll run for a corrected payment",
+          409,
+        );
+      await db
+        .delete(paymentExportBatchItems)
+        .where(eq(paymentExportBatchItems.batchId, batch.id));
+      await db
+        .delete(paymentExportBatches)
+        .where(eq(paymentExportBatches.id, batch.id));
+      await writeAudit(
+        db,
+        "payment_batch_unlocked",
+        "payment_export_batch",
+        batch.id,
+        "Unlocked the individual employee bank batch before download",
+        actorEmail,
+      );
+    } else if (action === "download-payment-batch") {
+      const run = await requireRun(db, runId);
+      if (run.status !== "approved")
+        throw new RequestError(
+          "Approve the payroll run before downloading a bank upload batch",
+          409,
+        );
+      const batchId = textValue(payload.batchId, "Payment batch");
+      const exportFormat = textValue(payload.exportFormat, "Bank export format");
+      const allowedFormats = new Set([
+        "bank_csv",
+        "indian_bank_xlsx",
+        "cub_any_bank_txt",
+        "cub_to_cub_txt",
+      ]);
+      if (!allowedFormats.has(exportFormat))
+        throw new RequestError("Unsupported bank export format");
+      const [batch] = await db
+        .select()
+        .from(paymentExportBatches)
+        .where(
+          and(
+            eq(paymentExportBatches.id, batchId),
+            eq(paymentExportBatches.runId, run.id),
+          ),
+        )
+        .limit(1);
+      if (!batch) throw new RequestError("Payment batch not found", 404);
+      if (batch.status === "downloaded")
+        throw new RequestError(
+          "This bank upload batch was already downloaded and is protected from duplicate processing",
+          409,
+        );
+      const batchItems = await db
+        .select({ id: paymentExportBatchItems.id })
+        .from(paymentExportBatchItems)
+        .where(eq(paymentExportBatchItems.batchId, batch.id));
+      if (batchItems.length !== batch.employeeCount)
+        throw new RequestError(
+          "The locked employee selection changed; unlock and create the batch again",
+          409,
+        );
+      const now = new Date().toISOString();
+      const downloadResult = await db
+        .update(paymentExportBatches)
+        .set({
+          status: "downloaded",
+          exportFormat,
+          downloadedBy: actorEmail,
+          downloadedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(paymentExportBatches.id, batch.id),
+            eq(paymentExportBatches.status, "locked"),
+          ),
+        );
+      const changedRows = mutationChangedRows(downloadResult);
+      if (changedRows !== null && changedRows < 1)
+        throw new RequestError(
+          "This bank upload batch was already downloaded by another session; duplicate processing was blocked",
+          409,
+        );
+      await writeAudit(
+        db,
+        "payment_batch_downloaded",
+        "payment_export_batch",
+        batch.id,
+        `Downloaded ${exportFormat} for ${batch.employeeCount} individually locked employee${batch.employeeCount === 1 ? "" : "s"}; duplicate export blocked`,
+        actorEmail,
+      );
     } else if (action === "resolve-issues" || action === "recalculate") {
       await requireRun(db, runId, true);
       await recalculateRun(db, runId, action === "recalculate");
@@ -5626,12 +6028,36 @@ export async function POST(request: Request) {
         actorEmail,
       );
     } else if (action === "approve") {
+      // JOY_PAYROLL_APPROVAL_QUALITY_GATE_V1: always recalculate and re-read payroll immediately before approval.
+      // This prevents stale totals from being approved after attendance, salary,
+      // employee bank/statutory data, accommodation or recovery changes.
+      await requireRun(db, runId, true);
+      await recalculateRun(db, runId, false);
       const run = await requireRun(db, runId, true);
-      if (!run.employeeCount)
+      const approvalItems = await db
+        .select({
+          id: payrollItems.id,
+          employeeId: payrollItems.employeeId,
+          validationStatus: payrollItems.validationStatus,
+          netPayable: payrollItems.netPayable,
+        })
+        .from(payrollItems)
+        .where(eq(payrollItems.runId, runId));
+      if (!run.employeeCount || !approvalItems.length)
         throw new RequestError("Add employees before approving payroll", 409);
-      if (run.issueCount > 0)
+      const reviewItems = approvalItems.filter(
+        (item) => item.validationStatus !== "ready",
+      );
+      if (run.issueCount > 0 || reviewItems.length)
         throw new RequestError(
-          "Update the employee records that are still marked Review before approval",
+          "Payroll approval blocked: " +
+            Math.max(run.issueCount, reviewItems.length) +
+            " employee record(s) still require review. Recheck employee, bank, PF/ESI and salary readiness first.",
+          409,
+        );
+      if (run.cashPayable > 0)
+        throw new RequestError(
+          "Payroll approval blocked: Joy Payroll is bank-payment only. Correct any non-bank payment mode before approval.",
           409,
         );
       if (run.grossEarnings <= 0)
@@ -5641,6 +6067,25 @@ export async function POST(request: Request) {
         );
       if (run.netPayable < 0)
         throw new RequestError("Payroll net payable cannot be negative", 409);
+      if (Math.abs(run.netPayable - run.bankPayable) > 0.01)
+        throw new RequestError(
+          "Payroll approval blocked: bank payable (₹" +
+            run.bankPayable.toFixed(2) +
+            ") does not match final net payable (₹" +
+            run.netPayable.toFixed(2) +
+            "). Recalculate before approval.",
+          409,
+        );
+      const invalidPayables = approvalItems.filter(
+        (item) => !Number.isFinite(item.netPayable) || item.netPayable < 0,
+      );
+      if (invalidPayables.length)
+        throw new RequestError(
+          "Payroll approval blocked: " +
+            invalidPayables.length +
+            " employee(s) have invalid final payable values.",
+          409,
+        );
       await db
         .update(payrollRuns)
         .set({
@@ -5675,6 +6120,29 @@ export async function POST(request: Request) {
           ),
         );
       const now = new Date().toISOString();
+      const paymentBatches = await db
+        .select()
+        .from(paymentExportBatches)
+        .where(eq(paymentExportBatches.runId, runId));
+      const downloadedPaymentBatches = paymentBatches.filter(
+        (batch) => batch.status === "downloaded",
+      );
+      if (downloadedPaymentBatches.length)
+        throw new RequestError(
+          "This payroll already has a downloaded bank file. Duplicate-safe recovery changes require a new payroll run or an authorised payment reversal first",
+          409,
+        );
+      const lockedPaymentBatches = paymentBatches.filter(
+        (batch) => batch.status === "locked",
+      );
+      if (lockedPaymentBatches.length) {
+        await db
+          .delete(paymentExportBatchItems)
+          .where(eq(paymentExportBatchItems.runId, runId));
+        await db
+          .delete(paymentExportBatches)
+          .where(eq(paymentExportBatches.runId, runId));
+      }
       if (clearedBatches.length)
         await db
           .update(payrollBatches)
@@ -5706,7 +6174,7 @@ export async function POST(request: Request) {
         "payroll_reopened_for_recovery",
         "payroll_run",
         runId,
-        `Reopened ${clearedBatches.length} cleared payment batch(es) and payroll for recovery correction`,
+        `Reopened ${clearedBatches.length} cleared accommodation payment batch(es), removed ${lockedPaymentBatches.length ? "the locked bank batch" : "no locked bank batch"}, and reopened payroll for recovery correction`,
         actorEmail,
       );
     } else if (action === "reopen" || action === "reset-demo") {
@@ -5726,6 +6194,23 @@ export async function POST(request: Request) {
           "Reopen all cleared accommodation payment batches before reopening payroll",
           409,
         );
+      const paymentBatches = await db
+        .select()
+        .from(paymentExportBatches)
+        .where(eq(paymentExportBatches.runId, runId));
+      if (paymentBatches.some((batch) => batch.status === "downloaded"))
+        throw new RequestError(
+          "This payroll already has a downloaded bank file. Duplicate-safe corrections require a new payroll run or an authorised payment reversal first",
+          409,
+        );
+      if (paymentBatches.length) {
+        await db
+          .delete(paymentExportBatchItems)
+          .where(eq(paymentExportBatchItems.runId, runId));
+        await db
+          .delete(paymentExportBatches)
+          .where(eq(paymentExportBatches.runId, runId));
+      }
       await db
         .update(payrollRuns)
         .set({
@@ -5746,6 +6231,12 @@ export async function POST(request: Request) {
       );
     } else if (action === "delete-payroll-run") {
       const run = await requireRun(db, runId, true);
+      await db
+        .delete(paymentExportBatchItems)
+        .where(eq(paymentExportBatchItems.runId, runId));
+      await db
+        .delete(paymentExportBatches)
+        .where(eq(paymentExportBatches.runId, runId));
       await db.delete(payrollBatches).where(eq(payrollBatches.runId, runId));
       await db.delete(recoveryEntries).where(eq(recoveryEntries.runId, runId));
       await db
@@ -5789,6 +6280,18 @@ export async function POST(request: Request) {
     if (/UNIQUE constraint failed: employees\.employee_code/i.test(combined))
       return Response.json(
         { error: "This employee code already exists" },
+        { status: 409 },
+      );
+    if (
+      /payment_export_batch_run_item_unique|payment_export_batch_items_run_id_payroll_item_id/i.test(
+        combined,
+      )
+    )
+      return Response.json(
+        {
+          error:
+            "One or more selected employees are already locked or downloaded in another bank batch",
+        },
         { status: 409 },
       );
     const status = error instanceof RequestError ? error.status : 500;
