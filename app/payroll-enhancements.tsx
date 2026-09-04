@@ -5,6 +5,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { calendarPeriod } from "../lib/payroll-operations";
+import { printIsolatedElement } from "../lib/print-document";
 import type {
   AccommodationCharge,
   AccommodationRoom,
@@ -1655,22 +1656,7 @@ function RoomBreakupReport({
   function printRoomBreakupReport() {
     const source = document.querySelector<HTMLElement>(".room-report-layer .room-report-pages");
     if (!source) return;
-    document.getElementById("joy-print-root")?.remove();
-    const printRoot = document.createElement("div");
-    printRoot.id = "joy-print-root";
-    printRoot.className = "joy-print-root-report";
-    printRoot.appendChild(source.cloneNode(true));
-    document.body.appendChild(printRoot);
-    document.body.dataset.printTarget = "report";
-    document.body.classList.add("joy-print-active");
-    const cleanup = () => {
-      delete document.body.dataset.printTarget;
-      document.body.classList.remove("joy-print-active");
-      printRoot.remove();
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
-    window.print();
-    window.setTimeout(cleanup, 1800);
+    void printIsolatedElement(source, "room");
   }
 
   return (
