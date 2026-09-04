@@ -486,6 +486,74 @@ if (
   throw new Error("Employee room-share component detail was not added");
 
 await writeFile(payrollAppPath, payrollApp, "utf8");
+
+// JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
+// Keep the established A4 layouts, but replace the inherited 5-7pt document
+// text with readable print sizes. This late-loaded stylesheet also overrides
+// the older emergency 7pt room-statement rule in live-enhancements.ts.
+const liveEnhancementsPath = join(root, "supabase-frontend/live-enhancements.ts");
+let liveEnhancements = await readFile(liveEnhancementsPath, "utf8");
+if (!liveEnhancements.includes("JOY_READABLE_PAYSLIP_ROOM_PRINT_V1")) {
+  liveEnhancements += `
+
+// JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
+const joyReadablePayrollPrintStyle = document.createElement("style");
+joyReadablePayrollPrintStyle.dataset.joyReadablePayrollPrint = "true";
+joyReadablePayrollPrintStyle.textContent = [
+  ".payslip-sheet h2{font-size:24px!important;line-height:1.2!important}",
+  ".payslip-sheet header strong{font-size:12px!important}",
+  ".payslip-company h3{font-size:17px!important;line-height:1.25!important}",
+  ".payslip-company p{font-size:11px!important;line-height:1.45!important}",
+  ".payslip-company span{font-size:10px!important}",
+  ".payslip-meta span{font-size:10px!important;line-height:1.25!important}",
+  ".payslip-meta strong{font-size:12px!important;line-height:1.3!important}",
+  ".payslip-columns h4{font-size:11px!important}",
+  ".payslip-columns section>div{font-size:11px!important;line-height:1.3!important}",
+  ".payslip-columns section>footer{font-size:12px!important}",
+  ".payslip-net>div span{font-size:12px!important}",
+  ".payslip-net>div strong{font-size:22px!important}",
+  ".payslip-net p{font-size:11px!important;line-height:1.4!important}",
+  ".payslip-net p span{font-size:10px!important}",
+  ".payslip-footnote{font-size:10px!important;line-height:1.4!important}",
+  ".payslip-meta .payslip-attendance-inline{font-size:11px!important}",
+  "@media print{",
+  ".payslip-sheet h2{font-size:18pt!important}",
+  ".payslip-sheet header strong{font-size:9.5pt!important}",
+  ".payslip-company h3{font-size:13pt!important}",
+  ".payslip-company p{font-size:9pt!important;line-height:1.35!important}",
+  ".payslip-company span{font-size:8.5pt!important}",
+  ".payslip-meta span{font-size:8.5pt!important}",
+  ".payslip-meta strong{font-size:10pt!important}",
+  ".payslip-columns h4{font-size:9.5pt!important}",
+  ".payslip-columns section>div{font-size:9.5pt!important;line-height:1.25!important}",
+  ".payslip-columns section>footer{font-size:10pt!important}",
+  ".payslip-net>div span{font-size:10.5pt!important}",
+  ".payslip-net>div strong{font-size:17pt!important}",
+  ".payslip-net p{font-size:9.5pt!important}",
+  ".payslip-net p span{font-size:8.5pt!important}",
+  ".payslip-footnote{font-size:9pt!important}",
+  ".payslip-meta .payslip-attendance-inline{font-size:9pt!important}",
+  ".room-recovery-print-sheet h1{font-size:20pt!important;line-height:1.15!important}",
+  ".room-recovery-print-sheet h2{font-size:15pt!important;line-height:1.2!important}",
+  ".room-recovery-print-sheet .room-recovery-summary span{font-size:9pt!important}",
+  ".room-recovery-print-sheet .room-recovery-summary strong{font-size:11pt!important}",
+  ".room-recovery-print-sheet table{font-size:8pt!important;line-height:1.15!important}",
+  ".room-recovery-print-sheet th,.room-recovery-print-sheet td{font-size:8pt!important;line-height:1.15!important;padding:2.5px 2px!important}",
+  ".room-recovery-print-sheet footer{font-size:11pt!important}",
+  "}",
+].join("\\n");
+document.head.appendChild(joyReadablePayrollPrintStyle);
+// END_JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
+`;
+}
+if (!liveEnhancements.includes("joyReadablePayrollPrintStyle"))
+  throw new Error("Readable payslip and room-statement print sizes were not added");
+if (!liveEnhancements.includes(".room-recovery-print-sheet table{font-size:8pt!important"))
+  throw new Error("Room-wise salary recovery statement font was not increased");
+if (!liveEnhancements.includes(".payslip-columns section>div{font-size:9.5pt!important"))
+  throw new Error("Payslip body font was not increased");
+await writeFile(liveEnhancementsPath, liveEnhancements, "utf8");
+
 console.log("Recovery visibility fixed: dated draft room entries now preview per employee before payroll creation.");
 
 console.log("Enforced requested flow: Operational Master Room Category -> Hostel/Area creation, and date-first Add Recovery for Rooms.");
