@@ -199,6 +199,233 @@ if (!recovery.includes("const recoveryPreviewPeriod")) {
   );
 }
 
+// JOY_RECOVERY_CORE_CONTROLS_V4
+// Keep the three requested Recovery functions visible. Employee recovery and its
+// voucher keep their payroll/finalization safeguards; dated room recovery works
+// independently of payroll-run creation.
+recovery = recovery.replace(
+  `    <div className="section-stack">
+      {run && (canManage || canApprove) ? (
+        <form`,
+  `    <div className="section-stack">
+      {(canManage || canApprove) ? (
+        <form`,
+);
+recovery = recovery.replace(
+  `      {run && (canManage || canApprove) ? (
+        <form`,
+  `      {(canManage || canApprove) ? (
+        <form`,
+);
+recovery = recovery.replace(
+  "<h2>Add recovery by date</h2>",
+  "<h2>Employee-wise recovery by date</h2>",
+);
+recovery = recovery.replace(
+  `            </span>
+          </div>
+          <label>
+            <span>Employee *</span>`,
+  `            </span>
+          </div>
+          {!run ? (
+            <p className="form-note form-span">
+              <strong>Create the payroll run to save employee-wise recovery.</strong>{" "}
+              The employee selector remains visible so the missing payroll prerequisite is clear.
+            </p>
+          ) : null}
+          <label>
+            <span>Employee *</span>`,
+);
+recovery = recovery.replace(
+  "disabled={isActing || !employeeId || amount <= 0}",
+  "disabled={isActing || !run || !employeeId || amount <= 0}",
+);
+recovery = recovery.replaceAll(
+  'run.status === "approved"',
+  'run?.status === "approved"',
+);
+recovery = recovery.replace(
+  ": isActing || !employeeId || amount <= 0",
+  ": isActing || !run || !employeeId || amount <= 0",
+);
+
+if (!recovery.includes('const [roomRecoveryDate, setRoomRecoveryDate]')) {
+  recovery = recovery.replace(
+    `  const [bulkVouchers, setBulkVouchers] = useState(false);`,
+    `  const [bulkVouchers, setBulkVouchers] = useState(false);
+  const [roomRecoveryDate, setRoomRecoveryDate] = useState("");`,
+  );
+}
+if (!recovery.includes("const roomRecoveryPeriod")) {
+  recovery = recovery.replace(
+    `  function getRecoveryRoomNumber(employee: Employee) {`,
+    `  const roomRecoveryPeriod = roomRecoveryDate
+    ? roomRecoveryDate.slice(0, 7)
+    : recoveryPreviewPeriod;
+  function getRecoveryRoomNumber(employee: Employee) {`,
+  );
+}
+recovery = recovery.replace(
+  "expense.roomId === roomId && expense.payPeriod === run?.payPeriod",
+  "expense.roomId === roomId && expense.payPeriod === roomRecoveryPeriod",
+);
+recovery = recovery.replace(
+  "    if (!run || !selectedRecoveryRoom || !roomRecoveryConfirmed) return;",
+  "    if (!roomRecoveryDate || !selectedRecoveryRoom || !roomRecoveryConfirmed) return;",
+);
+recovery = recovery.replace(
+  '    const recoveryDate = roomRecoveryDate || run.periodEnd || `${run.payPeriod}-01`;\n',
+  "",
+);
+recovery = recovery.replace(
+  '    await onAction("save-room-expense", "Room-wise recovery saved for payroll month", {',
+  '    await onAction("save-room-expense", "Dated room-wise recovery saved", {',
+);
+recovery = recovery.replace(
+  `      payPeriod: run.payPeriod,
+      gasAmount: roomRecoveryGas,`,
+  `      payPeriod: roomRecoveryPeriod,
+      gasAmount: roomRecoveryGas,`,
+);
+recovery = recovery.replaceAll("Date: recoveryDate", "Date: roomRecoveryDate");
+recovery = recovery.replace(
+  `      {run && (canManage || canApprove) ? (
+        <section className="panel form-grid room-recovery-entry-panel">`,
+  `      {(canManage || canApprove) ? (
+        <section className="panel form-grid room-recovery-entry-panel">`,
+);
+recovery = recovery.replace(
+  "<h2>Confirm roommates → enter Gas / Ration / Provision → save</h2>",
+  "<h2>Room-wise recovery</h2>",
+);
+recovery = recovery.replace(
+  `<span className="eyebrow">Add Recovery for Rooms</span>
+              <h2>Select date → Accommodation Type / Room Category → Hostel or Area → Room → confirm employees → enter recovery</h2>`,
+  `<span className="eyebrow">Dated room recovery entry</span>
+              <h2>Room-wise recovery</h2>`,
+);
+recovery = recovery.replace(
+  `          </div>
+          <label>
+            <span>Accommodation category *</span>`,
+  `          </div>
+          <label className="form-span">
+            <span>Recovery date *</span>
+            <input
+              type="date"
+              value={roomRecoveryDate}
+              onChange={(event) => {
+                setRoomRecoveryDate(event.target.value);
+                chooseRecoveryRoom("");
+              }}
+              required
+            />
+          </label>
+          <label>
+            <span>Accommodation category *</span>`,
+);
+recovery = recovery.replace(
+  `<select value={roomRecoveryScope} onChange={(event) => {`,
+  `<select disabled={!roomRecoveryDate} value={roomRecoveryScope} onChange={(event) => {`,
+);
+recovery = recovery.replace(
+  `onChange={(event) => setRoomRecoveryDate(event.target.value)}
+              required`,
+  `onChange={(event) => {
+                setRoomRecoveryDate(event.target.value);
+                chooseRecoveryRoom("");
+              }}
+              required`,
+);
+recovery = recovery.replaceAll(
+  "disabled={!roomRecoveryScope}",
+  "disabled={!roomRecoveryDate || !roomRecoveryScope}",
+);
+recovery = recovery.replaceAll(
+  "disabled={!roomRecoveryScope || !roomRecoveryHostelId}",
+  "disabled={!roomRecoveryDate || !roomRecoveryScope || !roomRecoveryHostelId}",
+);
+for (const field of ["Gas", "Ration", "Provision"]) {
+  recovery = recovery.replace(
+    `<input type="number" min="0" step="0.01" value={roomRecovery${field}}`,
+    `<input disabled={!roomRecoveryDate || !selectedRecoveryRoom} type="number" min="0" step="0.01" value={roomRecovery${field}}`,
+  );
+}
+recovery = recovery.replace(
+  "disabled={isActing || !roomRecoveryId || !roomRecoveryConfirmed || roomRecoveryMembers.length === 0}",
+  "disabled={isActing || !roomRecoveryDate || !roomRecoveryId || !roomRecoveryConfirmed || roomRecoveryMembers.length === 0}",
+);
+recovery = recovery.replace(
+  "Save room-wise recovery for {run.payPeriod}",
+  "Save dated room recovery entry for {roomRecoveryPeriod}",
+);
+recovery = recovery.replace(
+  "Save dated room recovery entry for {run.payPeriod}",
+  "Save dated room recovery entry for {roomRecoveryPeriod}",
+);
+recovery = recovery.replaceAll("Generate voucher", "Individual deduction voucher");
+recovery = recovery.replace(
+  `                        ) : canApprove ? (`,
+  `                        ) : run && canApprove ? (`,
+);
+recovery = recovery.replace(
+  `<small>Awaiting Super Admin approval</small>`,
+  `<small>{run ? "Awaiting Super Admin approval" : "Payroll run required before finalization and voucher"}</small>`,
+);
+recovery = recovery.replace(
+  /\) : run && canApprove \? \(\n\s*<button\n\s*className="primary-button"\n\s*disabled=\{isActing\}[\s\S]*?<small>\{run \? "Awaiting Super Admin approval" : "Payroll run required before finalization and voucher"\}<\/small>\n\s*\)\}/,
+  `) : (
+                          <div className="record-actions">
+                            <button
+                              type="button"
+                              className="record-action"
+                              disabled
+                              title="Available after recovery finalization"
+                            >
+                              Individual deduction voucher
+                            </button>
+                            {run && canApprove ? (
+                              <button
+                                className="primary-button"
+                                disabled={isActing}
+                                onClick={() =>
+                                  void onAction(
+                                    "finalize-employee-recovery",
+                                    "Recovery finalized and voucher generated",
+                                    { employeeId: employee.id },
+                                  )
+                                }
+                              >
+                                Finalize recovery
+                              </button>
+                            ) : (
+                              <small>{run ? "Awaiting Super Admin approval" : "Payroll run required before finalization and voucher"}</small>
+                            )}
+                          </div>
+                        )}`,
+);
+
+for (const [marker, message] of [
+  ["Employee-wise recovery by date", "Employee-wise Recovery control is missing"],
+  ["Room-wise recovery", "Room-wise Recovery control is missing"],
+  ["Individual deduction voucher", "Individual deduction voucher control is missing"],
+  ["roomRecoveryDate", "Room recovery date control is missing"],
+]) {
+  if (!recovery.includes(marker)) throw new Error(message);
+}
+if (
+  !recovery.includes(`{(canManage || canApprove) ? (
+        <form`)
+)
+  throw new Error("Employee-wise Recovery is still hidden without a payroll run");
+if (!recovery.includes("Save dated room recovery entry for {roomRecoveryPeriod}"))
+  throw new Error("Room-wise Recovery cannot save the selected date");
+if (!recovery.includes('type={run?.status === "approved" ? "button" : "submit"}'))
+  throw new Error("Employee-wise Recovery still crashes without a payroll run");
+if (!recovery.includes(": isActing || !run || !employeeId || amount <= 0"))
+  throw new Error("Employee-wise Recovery is not disabled before payroll creation");
+
 await writeFile(recoveryPath, recovery, "utf8");
 
 const payrollAppPath = join(root, "app/payroll-app.tsx");
