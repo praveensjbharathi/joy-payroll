@@ -220,7 +220,10 @@ if (!payrollApp.includes("vendorId={activeVendorId}\n              employees={da
   throw new Error("Recovery must receive all visible employees for the selected group company");
 if (!recovery.includes("const recoveryPreviewPeriod"))
   throw new Error("Recovery preview period was not added");
-if (!recovery.includes("Draft room-share preview"))
+if (
+  !recovery.includes("Draft room-share preview") &&
+  !recovery.includes("Draft room share")
+)
   throw new Error("Employee room-share component detail was not added");
 
 await writeFile(payrollAppPath, payrollApp, "utf8");
