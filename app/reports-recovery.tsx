@@ -2,6 +2,10 @@
 // JOY_FINALIZED_VOUCHER_COMPLETENESS_V1
 
 import { useMemo, useState, type FormEvent } from "react";
+import {
+  printIsolatedElement,
+  type PayrollPrintTarget,
+} from "../lib/print-document";
 import type {
   AccommodationCharge,
   AppData,
@@ -43,7 +47,7 @@ function exportExcel(name: string, rows: ReportRow[]) {
 }
 
 function printTarget() {
-  const target = document.querySelector(".bulk-recovery-vouchers")
+  const target: PayrollPrintTarget = document.querySelector(".bulk-recovery-vouchers")
     ? "bulk-vouchers"
     : document.querySelector(".room-report-modal .advance-voucher")
       ? "voucher"
@@ -54,22 +58,7 @@ function printTarget() {
       ? document.querySelector<HTMLElement>(".advance-voucher-layer .advance-voucher")
       : document.querySelector<HTMLElement>(".room-report-layer .room-report-pages, .report-print-area");
   if (!source) return;
-  document.getElementById("joy-print-root")?.remove();
-  const printRoot = document.createElement("div");
-  printRoot.id = "joy-print-root";
-  printRoot.className = `joy-print-root-${target}`;
-  printRoot.appendChild(source.cloneNode(true));
-  document.body.appendChild(printRoot);
-  document.body.dataset.printTarget = target;
-  document.body.classList.add("joy-print-active");
-  const cleanup = () => {
-    delete document.body.dataset.printTarget;
-    document.body.classList.remove("joy-print-active");
-    printRoot.remove();
-  };
-  window.addEventListener("afterprint", cleanup, { once: true });
-  window.print();
-  window.setTimeout(cleanup, 1800);
+  void printIsolatedElement(source, target);
 }
 
 const recoveryLabels: Record<string, string> = {
