@@ -423,13 +423,41 @@ if (!recovery.includes("Save dated room recovery entry for {roomRecoveryPeriod}"
   throw new Error("Room-wise Recovery cannot save the selected date");
 if (recovery.includes('type={run.status === "approved" ? "button" : "submit"}'))
   throw new Error("Employee-wise Recovery still crashes without a payroll run");
-if (!recovery.includes(": isActing || !run || !employeeId || amount <= 0"))
+if (
+  !recovery.includes(": isActing || !run || !employeeId || amount <= 0") &&
+  !recovery.includes("disabled={isActing || !run || !employeeId || amount <= 0}")
+)
   throw new Error("Employee-wise Recovery is not disabled before payroll creation");
 
 await writeFile(recoveryPath, recovery, "utf8");
 
 const payrollAppPath = join(root, "app/payroll-app.tsx");
 let payrollApp = await readFile(payrollAppPath, "utf8");
+
+// JOY_PAYSLIP_HIDE_ROOM_RECOVERY_V1
+// Room/accommodation recovery remains part of Final Payable and bank payment,
+// but its label and breakup belong only to Recovery statements and vouchers.
+// Preserve the configured company/employer payslip header unchanged.
+if (!payrollApp.includes("const payslipHiddenRecoveryFields")) {
+  payrollApp = payrollApp.replace(
+    `  const deductions = configuredFields(
+    unit.payslipDeductionsJson,
+    deductionFields,
+  ).map(`,
+    `  const payslipHiddenRecoveryFields = new Set([
+    "accommodationDeduction",
+    "gasShare",
+    "rationShare",
+    "provisionShare",
+  ]);
+  const deductions = configuredFields(
+    unit.payslipDeductionsJson,
+    deductionFields,
+  )
+    .filter((field) => !payslipHiddenRecoveryFields.has(field))
+    .map(`,
+  );
+}
 if (!payrollApp.includes("vendorId={activeVendorId}\n              employees={data.employees.filter")) {
   payrollApp = payrollApp.replace(
     `              run={currentRun}
@@ -445,6 +473,10 @@ if (!payrollApp.includes("vendorId={activeVendorId}\n              employees={da
 }
 if (!payrollApp.includes("vendorId={activeVendorId}\n              employees={data.employees.filter"))
   throw new Error("Recovery must receive all visible employees for the selected group company");
+if (!payrollApp.includes("const payslipHiddenRecoveryFields"))
+  throw new Error("Room-wise recovery is still exposed in the payslip");
+if (!payrollApp.includes("const employerTitle = unit.payslipTitle ?? unit.clientName"))
+  throw new Error("The configured payslip header was not preserved");
 if (!recovery.includes("const recoveryPreviewPeriod"))
   throw new Error("Recovery preview period was not added");
 if (
