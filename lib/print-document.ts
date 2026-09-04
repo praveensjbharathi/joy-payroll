@@ -6,6 +6,15 @@ export type PayrollPrintTarget =
   | "bulk-vouchers";
 
 function waitForFrameAssets(printDocument: Document) {
+  const stylesheets = Array.from(
+    printDocument.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+  ).map((stylesheet) => {
+    if (stylesheet.sheet) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      stylesheet.addEventListener("load", () => resolve(), { once: true });
+      stylesheet.addEventListener("error", () => resolve(), { once: true });
+    });
+  });
   const images = Array.from(printDocument.images).map((image) => {
     if (image.complete) return Promise.resolve();
     return new Promise<void>((resolve) => {
@@ -16,7 +25,7 @@ function waitForFrameAssets(printDocument: Document) {
   const fonts = "fonts" in printDocument
     ? (printDocument as Document & { fonts: FontFaceSet }).fonts.ready.then(() => undefined)
     : Promise.resolve();
-  return Promise.all([fonts, ...images]);
+  return Promise.all([fonts, ...stylesheets, ...images]);
 }
 
 function runtimePrintCss(target: PayrollPrintTarget) {
