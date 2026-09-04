@@ -241,9 +241,9 @@ recovery = recovery.replace(
   "disabled={isActing || !employeeId || amount <= 0}",
   "disabled={isActing || !run || !employeeId || amount <= 0}",
 );
-recovery = recovery.replaceAll(
-  'run.status === "approved"',
-  'run?.status === "approved"',
+recovery = recovery.replace(
+  /(?<!run && )run\??\.status === "approved"/g,
+  'run && run.status === "approved"',
 );
 recovery = recovery.replace(
   ": isActing || !employeeId || amount <= 0",
@@ -421,7 +421,7 @@ if (
   throw new Error("Employee-wise Recovery is still hidden without a payroll run");
 if (!recovery.includes("Save dated room recovery entry for {roomRecoveryPeriod}"))
   throw new Error("Room-wise Recovery cannot save the selected date");
-if (!recovery.includes('type={run?.status === "approved" ? "button" : "submit"}'))
+if (recovery.includes('type={run.status === "approved" ? "button" : "submit"}'))
   throw new Error("Employee-wise Recovery still crashes without a payroll run");
 if (!recovery.includes(": isActing || !run || !employeeId || amount <= 0"))
   throw new Error("Employee-wise Recovery is not disabled before payroll creation");
