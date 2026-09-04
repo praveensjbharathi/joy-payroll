@@ -36,6 +36,15 @@ await patch("app/api/app-data/route.ts", (source) =>
 );
 
 await patch("app/payroll-app.tsx", (source) => {
+  // The final enforcement pass may already have installed the newer locked
+  // payment-batch controls. Keep this production fixer idempotent so a clean
+  // CI checkout does not try to replace its older selection-state anchor.
+  if (
+    source.includes("paymentSelectionLocked") ||
+    source.includes("JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1")
+  )
+    return source;
+
   source = replaceOnce(
     source,
     '  bankName: string | null;\n  accommodationType: string;',
@@ -53,7 +62,7 @@ await patch("app/payroll-app.tsx", (source) => {
   source = replaceOnce(
     source,
     `  const bankItems = items.filter((item) => item.paymentMode === "bank");\n  const cashItems = items.filter((item) => item.paymentMode === "cash");`,
-    `  const bankItems = items.filter((item) => item.paymentMode === "bank");\n  const cashItems = items.filter((item) => item.paymentMode === "cash");\n  const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);\n  useEffect(() => {\n    setSelectedPaymentIds((current) => {\n      const valid = current.filter((id) => bankItems.some((item) => item.id === id));\n      return valid.length ? valid : bankItems.map((item) => item.id);\n    });\n  }, [run.id, items]);\n  const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));\n  const salaryDescription = `${vendor.legalName.toUpperCase()} SALARY ${monthLabel(run.payPeriod).toUpperCase()}`;`,
+    `  const bankItems = items.filter((item) => item.paymentMode === "bank");\n  const cashItems = items.filter((item) => item.paymentMode === "cash");\n  const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);\n  useEffect(() => {\n    setSelectedPaymentIds((current) => {\n      const valid = current.filter((id) => bankItems.some((item) => item.id === id));\n      return valid.length ? valid : bankItems.map((item) => item.id);\n    });\n  }, [run.id, items]);\n  const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));\n  const salaryDescription = vendor.legalName.toUpperCase() + " SALARY " + monthLabel(run.payPeriod).toUpperCase();`,
     "payment batch selection state",
   );
 

@@ -106,22 +106,105 @@ removeDuplicateRoomPrintToolbars();
 
 
 
-// JOY_UNIFIED_PAYSLIP_OUTPUT_V1
-// Preview, individual print/download and bulk print/download all clone the same
-// .payslip-sheet DOM. This runtime guard also removes any stale run-level
-// "Working days" entry produced by an older cached/generated build.
-function joyNormalizePayslipSheetV1(root: ParentNode = document) {
-  root.querySelectorAll<HTMLElement>(".payslip-sheet .payslip-attendance-inline span").forEach((node) => {
-    const label = (node.querySelector("b")?.textContent ?? "").trim().toLowerCase();
-    if (label === "working days") node.remove();
-  });
-}
-const joyPayslipFormatObserverV1 = new MutationObserver(() => joyNormalizePayslipSheetV1());
-joyPayslipFormatObserverV1.observe(document.documentElement, { childList: true, subtree: true });
-document.addEventListener("click", () => window.setTimeout(() => joyNormalizePayslipSheetV1(), 0), true);
-window.addEventListener("beforeprint", () => joyNormalizePayslipSheetV1());
-joyNormalizePayslipSheetV1();
-// END_JOY_UNIFIED_PAYSLIP_OUTPUT_V1
+
+
+
+
+
+
+
+// JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
+const joyReadablePayrollPrintStyle = document.createElement("style");
+joyReadablePayrollPrintStyle.dataset.joyReadablePayrollPrint = "true";
+joyReadablePayrollPrintStyle.textContent = [
+  ".payslip-sheet h2{font-size:24px!important;line-height:1.2!important}",
+  ".payslip-sheet header strong{font-size:12px!important}",
+  ".payslip-company h3{font-size:17px!important;line-height:1.25!important}",
+  ".payslip-company p{font-size:11px!important;line-height:1.45!important}",
+  ".payslip-company span{font-size:10px!important}",
+  ".payslip-meta span{font-size:10px!important;line-height:1.25!important}",
+  ".payslip-meta strong{font-size:12px!important;line-height:1.3!important}",
+  ".payslip-columns h4{font-size:11px!important}",
+  ".payslip-columns section>div{font-size:11px!important;line-height:1.3!important}",
+  ".payslip-columns section>footer{font-size:12px!important}",
+  ".payslip-net>div span{font-size:12px!important}",
+  ".payslip-net>div strong{font-size:22px!important}",
+  ".payslip-net p{font-size:11px!important;line-height:1.4!important}",
+  ".payslip-net p span{font-size:10px!important}",
+  ".payslip-footnote{font-size:10px!important;line-height:1.4!important}",
+  ".payslip-meta .payslip-attendance-inline{font-size:11px!important}",
+  "@media print{",
+  ".payslip-sheet h2{font-size:18pt!important}",
+  ".payslip-sheet header strong{font-size:9.5pt!important}",
+  ".payslip-company h3{font-size:13pt!important}",
+  ".payslip-company p{font-size:9pt!important;line-height:1.35!important}",
+  ".payslip-company span{font-size:8.5pt!important}",
+  ".payslip-meta span{font-size:8.5pt!important}",
+  ".payslip-meta strong{font-size:10pt!important}",
+  ".payslip-columns h4{font-size:9.5pt!important}",
+  ".payslip-columns section>div{font-size:9.5pt!important;line-height:1.25!important}",
+  ".payslip-columns section>footer{font-size:10pt!important}",
+  ".payslip-net>div span{font-size:10.5pt!important}",
+  ".payslip-net>div strong{font-size:17pt!important}",
+  ".payslip-net p{font-size:9.5pt!important}",
+  ".payslip-net p span{font-size:8.5pt!important}",
+  ".payslip-footnote{font-size:9pt!important}",
+  ".payslip-meta .payslip-attendance-inline{font-size:9pt!important}",
+  ".room-recovery-print-sheet h1{font-size:20pt!important;line-height:1.15!important}",
+  ".room-recovery-print-sheet h2{font-size:15pt!important;line-height:1.2!important}",
+  ".room-recovery-print-sheet .room-recovery-summary span{font-size:9pt!important}",
+  ".room-recovery-print-sheet .room-recovery-summary strong{font-size:11pt!important}",
+  ".room-recovery-print-sheet table{font-size:8pt!important;line-height:1.15!important}",
+  ".room-recovery-print-sheet th,.room-recovery-print-sheet td{font-size:8pt!important;line-height:1.15!important;padding:2.5px 2px!important}",
+  ".room-recovery-print-sheet footer{font-size:11pt!important}",
+  "}",
+].join("\n");
+document.head.appendChild(joyReadablePayrollPrintStyle);
+// END_JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
+
+
+// JOY_HANDWRITTEN_RECOVERY_PRINT_V1
+const joyRecoveryReconciliationStyle = document.createElement("style");
+joyRecoveryReconciliationStyle.dataset.joyRecoveryReconciliation = "true";
+joyRecoveryReconciliationStyle.textContent = [
+  ".room-recovery-period-summary{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}",
+  ".room-recovery-date-summary th,.room-recovery-date-summary td{text-align:right}",
+  ".room-recovery-date-summary th:first-child,.room-recovery-date-summary td:first-child,.room-recovery-date-summary th:nth-child(2),.room-recovery-date-summary td:nth-child(2){text-align:left}",
+  ".payment-selection-controls select{min-width:220px}",
+  ".payment-batch-selector input[type=checkbox]:disabled{cursor:not-allowed;opacity:.65}",
+  "@media print{",
+  ".room-recovery-print-sheet .room-recovery-summary{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))!important}",
+  ".room-recovery-print-sheet thead th:nth-child(2){min-width:130px!important}",
+  ".room-recovery-print-sheet tbody td:nth-child(2) small{display:block!important;font-size:11pt!important;line-height:1.25!important;font-weight:900!important;letter-spacing:.35px!important;color:#0f172a!important;margin-top:2px!important}",
+  ".room-recovery-print-sheet tfoot td{font-size:9pt!important;font-weight:900!important;background:#eef3f8!important;border-top:2px solid #334155!important}",
+  "}",
+].join("\n");
+document.head.appendChild(joyRecoveryReconciliationStyle);
+// END_JOY_HANDWRITTEN_RECOVERY_PRINT_V1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // JOY_RECOVERY_FINALIZER_V4
@@ -262,72 +345,19 @@ window.addEventListener("beforeprint", joyPrepareIsolatedPayslipPrintV2);
 window.addEventListener("afterprint", joyCleanupIsolatedPayslipPrintV2);
 // END_JOY_PAYSLIP_ISOLATED_PRINT_V2
 
-
-// JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
-const joyReadablePayrollPrintStyle = document.createElement("style");
-joyReadablePayrollPrintStyle.dataset.joyReadablePayrollPrint = "true";
-joyReadablePayrollPrintStyle.textContent = [
-  ".payslip-sheet h2{font-size:24px!important;line-height:1.2!important}",
-  ".payslip-sheet header strong{font-size:12px!important}",
-  ".payslip-company h3{font-size:17px!important;line-height:1.25!important}",
-  ".payslip-company p{font-size:11px!important;line-height:1.45!important}",
-  ".payslip-company span{font-size:10px!important}",
-  ".payslip-meta span{font-size:10px!important;line-height:1.25!important}",
-  ".payslip-meta strong{font-size:12px!important;line-height:1.3!important}",
-  ".payslip-columns h4{font-size:11px!important}",
-  ".payslip-columns section>div{font-size:11px!important;line-height:1.3!important}",
-  ".payslip-columns section>footer{font-size:12px!important}",
-  ".payslip-net>div span{font-size:12px!important}",
-  ".payslip-net>div strong{font-size:22px!important}",
-  ".payslip-net p{font-size:11px!important;line-height:1.4!important}",
-  ".payslip-net p span{font-size:10px!important}",
-  ".payslip-footnote{font-size:10px!important;line-height:1.4!important}",
-  ".payslip-meta .payslip-attendance-inline{font-size:11px!important}",
-  "@media print{",
-  ".payslip-sheet h2{font-size:18pt!important}",
-  ".payslip-sheet header strong{font-size:9.5pt!important}",
-  ".payslip-company h3{font-size:13pt!important}",
-  ".payslip-company p{font-size:9pt!important;line-height:1.35!important}",
-  ".payslip-company span{font-size:8.5pt!important}",
-  ".payslip-meta span{font-size:8.5pt!important}",
-  ".payslip-meta strong{font-size:10pt!important}",
-  ".payslip-columns h4{font-size:9.5pt!important}",
-  ".payslip-columns section>div{font-size:9.5pt!important;line-height:1.25!important}",
-  ".payslip-columns section>footer{font-size:10pt!important}",
-  ".payslip-net>div span{font-size:10.5pt!important}",
-  ".payslip-net>div strong{font-size:17pt!important}",
-  ".payslip-net p{font-size:9.5pt!important}",
-  ".payslip-net p span{font-size:8.5pt!important}",
-  ".payslip-footnote{font-size:9pt!important}",
-  ".payslip-meta .payslip-attendance-inline{font-size:9pt!important}",
-  ".room-recovery-print-sheet h1{font-size:20pt!important;line-height:1.15!important}",
-  ".room-recovery-print-sheet h2{font-size:15pt!important;line-height:1.2!important}",
-  ".room-recovery-print-sheet .room-recovery-summary span{font-size:9pt!important}",
-  ".room-recovery-print-sheet .room-recovery-summary strong{font-size:11pt!important}",
-  ".room-recovery-print-sheet table{font-size:8pt!important;line-height:1.15!important}",
-  ".room-recovery-print-sheet th,.room-recovery-print-sheet td{font-size:8pt!important;line-height:1.15!important;padding:2.5px 2px!important}",
-  ".room-recovery-print-sheet footer{font-size:11pt!important}",
-  "}",
-].join("\n");
-document.head.appendChild(joyReadablePayrollPrintStyle);
-// END_JOY_READABLE_PAYSLIP_ROOM_PRINT_V1
-
-
-// JOY_HANDWRITTEN_RECOVERY_PRINT_V1
-const joyRecoveryReconciliationStyle = document.createElement("style");
-joyRecoveryReconciliationStyle.dataset.joyRecoveryReconciliation = "true";
-joyRecoveryReconciliationStyle.textContent = [
-  ".room-recovery-period-summary{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}",
-  ".room-recovery-date-summary th,.room-recovery-date-summary td{text-align:right}",
-  ".room-recovery-date-summary th:first-child,.room-recovery-date-summary td:first-child,.room-recovery-date-summary th:nth-child(2),.room-recovery-date-summary td:nth-child(2){text-align:left}",
-  ".payment-selection-controls select{min-width:220px}",
-  ".payment-batch-selector input[type=checkbox]:disabled{cursor:not-allowed;opacity:.65}",
-  "@media print{",
-  ".room-recovery-print-sheet .room-recovery-summary{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))!important}",
-  ".room-recovery-print-sheet thead th:nth-child(2){min-width:130px!important}",
-  ".room-recovery-print-sheet tbody td:nth-child(2) small{display:block!important;font-size:11pt!important;line-height:1.25!important;font-weight:900!important;letter-spacing:.35px!important;color:#0f172a!important;margin-top:2px!important}",
-  ".room-recovery-print-sheet tfoot td{font-size:9pt!important;font-weight:900!important;background:#eef3f8!important;border-top:2px solid #334155!important}",
-  "}",
-].join("\n");
-document.head.appendChild(joyRecoveryReconciliationStyle);
-// END_JOY_HANDWRITTEN_RECOVERY_PRINT_V1
+// JOY_UNIFIED_PAYSLIP_OUTPUT_V1
+// Preview, individual print/download and bulk print/download all clone the same
+// .payslip-sheet DOM. This runtime guard also removes any stale run-level
+// "Working days" entry produced by an older cached/generated build.
+function joyNormalizePayslipSheetV1(root: ParentNode = document) {
+  root.querySelectorAll<HTMLElement>(".payslip-sheet .payslip-attendance-inline span").forEach((node) => {
+    const label = (node.querySelector("b")?.textContent ?? "").trim().toLowerCase();
+    if (label === "working days") node.remove();
+  });
+}
+const joyPayslipFormatObserverV1 = new MutationObserver(() => joyNormalizePayslipSheetV1());
+joyPayslipFormatObserverV1.observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener("click", () => window.setTimeout(() => joyNormalizePayslipSheetV1(), 0), true);
+window.addEventListener("beforeprint", () => joyNormalizePayslipSheetV1());
+joyNormalizePayslipSheetV1();
+// END_JOY_UNIFIED_PAYSLIP_OUTPUT_V1

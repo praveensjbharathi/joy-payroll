@@ -989,6 +989,39 @@ if (!payrollApp.includes("JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED")) {
     payrollApp.slice(paymentsEnd);
 }
 
+// The SMTP/email fixer can run before this script and leave a silent early
+// return. Keep the prerequisite feedback present even when the payslip
+// payment marker was already generated in an earlier build.
+if (!payrollApp.includes("Approve payroll before sending salary slips.")) {
+  const modalStart = payrollApp.indexOf("function PayslipModal(");
+  const modalEnd = payrollApp.indexOf("function BulkPayslipModal(", modalStart);
+  if (modalStart >= 0 && modalEnd > modalStart) {
+    let payslipModal = payrollApp.slice(modalStart, modalEnd);
+    payslipModal = payslipModal.replace(
+      `    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
+    setEmailSending(true);
+    setEmailSent(false);
+    setEmailMessage("");`,
+      `    if (emailSending) return;
+    setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
+    setEmailMessage("");`,
+    );
+    payrollApp =
+      payrollApp.slice(0, modalStart) +
+      payslipModal +
+      payrollApp.slice(modalEnd);
+  }
+}
+
 if (!payrollApp.includes("const payslipNetPayable"))
   throw new Error("Room recovery is still included in the displayed payslip net");
 if (!payrollApp.includes("Approve payroll before sending salary slips."))

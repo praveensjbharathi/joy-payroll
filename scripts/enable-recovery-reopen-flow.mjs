@@ -51,9 +51,16 @@ const newButton = `          <button
           </button>`;
 
 if (!source.includes('"reopen-payroll-for-recovery"')) {
-  if (!source.includes(oldButton))
-    throw new Error("Approved recovery button marker was not found");
-  source = source.replace(oldButton, newButton);
+  if (source.includes(oldButton)) {
+    source = source.replace(oldButton, newButton);
+  } else {
+    // The later recovery enforcement pass adds a `!run` guard and changes
+    // whitespace, so support that already-generated form as well.
+    const modernButton = /          <button\n            className="primary-button form-span"\n            disabled=\{isActing \|\| !run \|\| !employeeId \|\| amount <= 0\}\n          >\n            \{run\.status === "approved" \? "Reopen payroll to add recovery" : "Add dated recovery"\}\n          <\/button>/;
+    if (!modernButton.test(source))
+      throw new Error("Approved recovery button marker was not found");
+    source = source.replace(modernButton, newButton);
+  }
 }
 if (!source.includes('"reopen-payroll-for-recovery"'))
   throw new Error("Recovery reopen workflow was not applied");

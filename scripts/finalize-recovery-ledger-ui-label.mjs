@@ -9,7 +9,10 @@ source = source.replaceAll(
   "Save room-wise recovery for {run.payPeriod}",
   "Save dated room recovery entry for {run.payPeriod}",
 );
-if (!source.includes("Save dated room recovery entry for {run.payPeriod}")) {
+if (
+  !source.includes("Save dated room recovery entry for {run.payPeriod}") &&
+  !source.includes("Save dated room recovery entry for {roomRecoveryPeriod}")
+) {
   throw new Error("Dated room recovery button label was not finalized");
 }
 await writeFile(file, source, "utf8");

@@ -1,4 +1,5 @@
 "use client";
+// JOY_FINALIZED_VOUCHER_COMPLETENESS_V1
 
 import { useMemo, useState, type FormEvent } from "react";
 import type {
@@ -127,6 +128,7 @@ export function RecoveryCenter({
     null,
   );
   const [bulkVouchers, setBulkVouchers] = useState(false);
+  const [roomPrintRoom, setRoomPrintRoom] = useState("");
   // JOY_HANDWRITTEN_RECOVERY_FIXES_V1_APPLIED
   const runCharges = run
     ? charges.filter((charge) => charge.runId === run.id)
@@ -449,35 +451,18 @@ export function RecoveryCenter({
     window.setTimeout(cleanup, 3000);
   }
 
-  const joyRecoveryTypeIds = data.accommodationTypes
-    .filter((type) => {
-      const name = type.name.toLowerCase();
-      return name.includes("joy") && (name.includes("room") || name.includes("hostel"));
-    })
-    .map((type) => type.id);
-  const outsideRecoveryTypeIds = data.accommodationTypes
-    .filter((type) => type.name.toLowerCase().includes("outside"))
-    .map((type) => type.id);
-  const recoveryScopeTypeIds = roomRecoveryScope === "joy"
-    ? joyRecoveryTypeIds
-    : roomRecoveryScope === "outside"
-      ? outsideRecoveryTypeIds
-      : [];
+  const recoveryAccommodationTypes = data.accommodationTypes.filter((type) => type.status === "active");
+  const selectedRecoveryType = recoveryAccommodationTypes.find((type) => type.id === roomRecoveryScope);
+  const isOutsideRecoveryType = selectedRecoveryType?.name.toLowerCase().includes("outside") ?? false;
   const recoveryHostels = data.hostels.filter(
-    (hostel) => hostel.status === "active" &&
-      (!hostel.accommodationTypeId || recoveryScopeTypeIds.includes(hostel.accommodationTypeId)),
+    (hostel) =>
+      hostel.status === "active" &&
+      hostel.accommodationTypeId === roomRecoveryScope,
   );
-  const recoveryAreas = [...new Set(
-    data.accommodationRooms
-      .filter((room) => room.status === "active" && outsideRecoveryTypeIds.includes(room.accommodationTypeId))
-      .map((room) => room.address?.trim() ?? "")
-      .filter(Boolean),
-  )].sort();
   const recoveryRooms = data.accommodationRooms.filter((room) => {
-    if (room.status !== "active" || !recoveryScopeTypeIds.includes(room.accommodationTypeId)) return false;
-    if (roomRecoveryScope === "joy" && roomRecoveryHostelId && room.hostelId !== roomRecoveryHostelId) return false;
-    if (roomRecoveryScope === "outside" && roomRecoveryArea && (room.address?.trim() ?? "") !== roomRecoveryArea) return false;
-    return true;
+    if (room.status !== "active" || room.accommodationTypeId !== roomRecoveryScope) return false;
+    if (!roomRecoveryHostelId) return false;
+    return room.hostelId === roomRecoveryHostelId;
   });
   const selectedRecoveryRoom = data.accommodationRooms.find((room) => room.id === roomRecoveryId);
   const existingRecoveryRoomMembers = employees.filter((employee) => employee.roomId === roomRecoveryId);
@@ -537,6 +522,18 @@ export function RecoveryCenter({
     });
   }
 
+  // Build bulk vouchers from the finalization register itself. This guarantees
+  // that every finalized employee is included even when normal recovery-table
+  // filters would otherwise hide that employee.
+  const finalizedVoucherRows = finalizations.flatMap((finalized) => {
+    const employee = employees.find((row) => row.id === finalized.employeeId);
+    if (!employee) return [];
+    return [{
+      employee,
+      charge: runCharges.find((row) => row.employeeId === employee.id),
+      item: items.find((row) => row.employeeId === employee.id),
+    }];
+  });
   async function addRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!run) return;
@@ -673,10 +670,110 @@ export function RecoveryCenter({
           </label>
           <button
             className="primary-button form-span"
-            disabled={isActing || !run || !employeeId || amount <= 0}
+            type={run && run.status === "approved" ? "button" : "submit"}
+            onClick={
+              run && run.status === "approved"
+                ? () =>
+                    void onAction(
+                      "reopen-payroll-for-recovery",
+                      "Payment batch and payroll reopened. You can now save the recovery.",
+                    )
+                : undefined
+            }
+            disabled={
+              run && run.status === "approved"
+                ? isActing || !canApprove
+                : isActing || !run || !employeeId || amount <= 0
+            }
           >
-            Add dated recovery
+            {run && run.status === "approved" ? "Reopen payment batch & payroll" : "Add dated recovery"}
           </button>
+        </form>
+      ) : null}
+      {run && run.status === "approved" ? (
+        <section className="panel recovery-lock-guidance">
+          <span className="eyebrow">Recovery entry locked by payroll approval</span>
+          <h2>Reopen the cleared batch and payroll here</h2>
+          <p className="muted-label">
+            {data.payrollBatches.filter((batch) => batch.runId === run.id && batch.status === "cleared").length
+              ? `The button below will reopen ${data.payrollBatches.filter((batch) => batch.runId === run.id && batch.status === "cleared").length} cleared payment batch(es) and the payroll together. Then add the dated recovery.`
+              : "Use the button below to reopen payroll, then add the dated recovery. Saving it will automatically recalculate final payable and bank payable."}
+          </p>
+        </section>
+      ) : null}
+      {(canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
+        </form>
+      ) : null}
+      {(canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
+        </form>
+      ) : null}
+      {(canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
+        </form>
+      ) : null}
+      {run && (canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
+        </form>
+      ) : null}
+      {run && (canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
         </form>
       ) : null}
       <section className="panel table-panel">
@@ -830,13 +927,6 @@ export function RecoveryCenter({
                       <td>{getRecoveryRoomNumber(employee)}</td><td>₹{preRecovery.toFixed(2)}</td>
                       <td>₹{(charge?.rent ?? 0).toFixed(2)}</td><td>₹{(charge?.bus ?? 0).toFixed(2)}</td><td>₹{(charge?.food ?? 0).toFixed(2)}</td><td>₹{(charge?.advance ?? 0).toFixed(2)}</td><td>₹{(charge?.idCard ?? 0).toFixed(2)}</td><td>₹{(charge?.medical ?? 0).toFixed(2)}</td><td>₹{(charge?.ticket ?? 0).toFixed(2)}</td><td>₹{(charge?.shoe ?? 0).toFixed(2)}</td><td>₹{(charge?.aadhaarUpdate ?? 0).toFixed(2)}</td><td>₹{(charge?.bankAccountCharge ?? 0).toFixed(2)}</td><td>₹{(charge?.tshirt ?? 0).toFixed(2)}</td><td>₹{(charge?.oldPending ?? 0).toFixed(2)}</td><td>₹{gasShare.toFixed(2)}{pendingShared > 0 ? <small>Draft room share</small> : null}</td><td>₹{rationShare.toFixed(2)}</td><td>₹{provisionShare.toFixed(2)}</td><td><strong>₹{(individual + shared).toFixed(2)}</strong></td><td>₹{(charge?.returnAmount ?? 0).toFixed(2)}</td><td><strong>₹{Math.max(0, (item?.netPayable ?? 0) - pendingShared).toFixed(2)}</strong></td>
                       <td>
-                        <button
-                          type="button"
-                          className="record-action"
-                          onClick={() => setVoucherEmployeeId(employee.id)}
-                        >
-                          Download deduction voucher
-                        </button>
                         {finalizations.some(
                           (finalized) => finalized.employeeId === employee.id,
                         ) ? (
@@ -905,7 +995,7 @@ export function RecoveryCenter({
         <section className="panel form-grid room-recovery-entry-panel">
           <div className="panel-heading form-span">
             <div>
-              <span className="eyebrow">Room-wise monthly recovery entry</span>
+              <span className="eyebrow">Add Recovery for Rooms</span>
               <h2>Room-wise recovery</h2>
             </div>
             <span className="muted-label">Select the recovery date first. Remaining room recovery fields will open after the date is selected.</span>
@@ -935,27 +1025,17 @@ export function RecoveryCenter({
               <option value="outside">Outside Room</option>
             </select>
           </label>
-          {roomRecoveryScope === "joy" ? (
+          {roomRecoveryScope ? (
             <label>
-              <span>Joy Hostel *</span>
+              <span>Sub category / {isOutsideRecoveryType ? "Area name" : "Hostel name"} *</span>
               <select value={roomRecoveryHostelId} onChange={(event) => {
                 setRoomRecoveryHostelId(event.target.value);
                 chooseRecoveryRoom("");
               }}>
-                <option value="">Select hostel</option>
-                {recoveryHostels.map((hostel) => <option key={hostel.id} value={hostel.id}>{hostel.name}</option>)}
-              </select>
-            </label>
-          ) : null}
-          {roomRecoveryScope === "outside" ? (
-            <label>
-              <span>Area name *</span>
-              <select value={roomRecoveryArea} onChange={(event) => {
-                setRoomRecoveryArea(event.target.value);
-                chooseRecoveryRoom("");
-              }}>
-                <option value="">Select area</option>
-                {recoveryAreas.map((area) => <option key={area} value={area}>{area}</option>)}
+                <option value="">Select {isOutsideRecoveryType ? "area" : "hostel"}</option>
+                {recoveryHostels.map((hostel) => (
+                  <option key={hostel.id} value={hostel.id}>{hostel.name}</option>
+                ))}
               </select>
             </label>
           ) : null}
@@ -1022,11 +1102,11 @@ export function RecoveryCenter({
       <section className="panel table-panel">
         <div className="panel-heading">
           <div>
-            <span className="eyebrow">Shared room recoveries</span>
+            <span className="eyebrow">Room recovery date-wise ledger</span>
             <h2>Gas, Ration & Provision split</h2>
           </div>
           <span className="muted-label">
-            Finalized total ÷ room occupant count
+            Every dated entry is preserved; monthly total ÷ confirmed room occupants
           </span>
         </div>
         <div className="table-scroll">
@@ -1035,6 +1115,7 @@ export function RecoveryCenter({
               <tr>
                 <th>Room</th>
                 <th>Month</th>
+                <th>Entry date</th>
                 <th>Occupants</th>
                 <th>Gas</th>
                 <th>Ration</th>
@@ -1050,6 +1131,7 @@ export function RecoveryCenter({
                     <strong>{room?.roomNumber ?? expense.roomId}</strong>
                   </td>
                   <td>{expense.payPeriod}</td>
+                  <td>{expense.gasDate ?? expense.rationDate ?? expense.provisionDate ?? "—"}</td>
                   <td>{expense.occupantCount}</td>
                   <td>₹{expense.gasAmount.toFixed(2)}</td>
                   <td>₹{expense.rationAmount.toFixed(2)}</td>
@@ -1103,7 +1185,7 @@ export function RecoveryCenter({
       ) : null}
       {bulkVouchers ? (
         <BulkRecoveryVouchers
-          rows={employeeRows.filter((row) => finalizations.some((entry) => entry.employeeId === row.employee.id) && (row.total > 0 || row.dated.some((datedEntry) => datedEntry.amount > 0)))}
+          rows={finalizedVoucherRows}
           entries={entries}
           units={data.units}
           vendors={data.vendors}
