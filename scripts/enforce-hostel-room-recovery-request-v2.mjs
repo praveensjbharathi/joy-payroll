@@ -81,7 +81,7 @@ let recovery = await readFile(recoveryPath, "utf8");
 
 // Do not auto-fill the room recovery date. The rest of the form appears only after user selects it.
 recovery = recovery.replace(
-  /const \[roomRecoveryDate, setRoomRecoveryDate\] = useState\([\s\S]*?\n  \);/,
+  /const \[roomRecoveryDate, setRoomRecoveryDate\] = useState\([\s\S]*?\)\s*;/,
   'const [roomRecoveryDate, setRoomRecoveryDate] = useState("");',
 );
 recovery = recovery.replaceAll("Room recovery date *", "Recovery date *");
@@ -406,6 +406,285 @@ recovery = recovery.replace(
                         )}`,
 );
 
+// JOY_HANDWRITTEN_RECOVERY_FIXES_V1
+// Reconcile the employee and room-wise statement from the authoritative
+// accommodation-charge ledger, add period/date totals, and make the printed
+// room statement and vouchers explicitly show their reconciled totals.
+if (!recovery.includes("JOY_HANDWRITTEN_RECOVERY_FIXES_V1_APPLIED")) {
+  if (!recovery.includes("const runCharges =")) {
+    recovery = recovery.replace(
+      `  const [bulkVouchers, setBulkVouchers] = useState(false);`,
+      `  const [bulkVouchers, setBulkVouchers] = useState(false);
+  // JOY_HANDWRITTEN_RECOVERY_FIXES_V1_APPLIED
+  const runCharges = run
+    ? charges.filter((charge) => charge.runId === run.id)
+    : [];
+  const entries = run
+    ? data.recoveryEntries.filter((entry) => entry.runId === run.id)
+    : [];
+  const finalizations = run
+    ? data.recoveryFinalizations.filter((entry) => entry.runId === run.id)
+    : [];
+  const recoveryVendorRoomIds = new Set(
+    data.accommodationRooms
+      .filter((room) => room.vendorId === vendorId)
+      .map((room) => room.id),
+  );
+  const recoveryRoomEntries = data.roomExpenses.filter((expense) =>
+    recoveryVendorRoomIds.has(expense.roomId),
+  );`,
+    );
+  } else {
+    recovery = recovery.replace(
+      `  const [bulkVouchers, setBulkVouchers] = useState(false);`,
+      `  const [bulkVouchers, setBulkVouchers] = useState(false);
+  // JOY_HANDWRITTEN_RECOVERY_FIXES_V1_APPLIED`,
+    );
+  }
+
+  recovery = recovery.replace(
+    `      const individual = datedDeduction > 0 ? datedDeduction : legacyIndividual;`,
+    `      // accommodationCharges is the authoritative merged ledger. Dated
+      // entries are its audit detail; replacing the ledger with only dated
+      // rows drops room rent and caused ₹10,450 to print as ₹9,250.
+      const individual = legacyIndividual;`,
+  );
+  recovery = recovery.replaceAll(
+    "const individual = datedDeduction > 0 ? datedDeduction : legacyIndividual;",
+    "const individual = legacyIndividual;",
+  );
+
+  recovery = recovery.replace(
+    `  const roomPrintRooms = [...new Set([`,
+    `  const roomPeriodTotals = roomRows.reduce(
+    (totals, { expense }) => ({
+      gas: totals.gas + expense.gasAmount,
+      ration: totals.ration + expense.rationAmount,
+      provision: totals.provision + expense.provisionAmount,
+      overall:
+        totals.overall +
+        expense.gasAmount +
+        expense.rationAmount +
+        expense.provisionAmount,
+      finalized:
+        totals.finalized +
+        (expense.status === "finalized"
+          ? expense.gasAmount + expense.rationAmount + expense.provisionAmount
+          : 0),
+      draft:
+        totals.draft +
+        (expense.status === "draft"
+          ? expense.gasAmount + expense.rationAmount + expense.provisionAmount
+          : 0),
+    }),
+    { gas: 0, ration: 0, provision: 0, overall: 0, finalized: 0, draft: 0 },
+  );
+  const roomRecoveryDateTotals = Object.values(
+    roomRows.reduce<
+      Record<
+        string,
+        {
+          date: string;
+          status: string;
+          gas: number;
+          ration: number;
+          provision: number;
+          overall: number;
+        }
+      >
+    >((totals, { expense }) => {
+      for (const [date, component, amount] of [
+        [expense.gasDate ?? \`${"${expense.payPeriod}"}-01\`, "gas", expense.gasAmount],
+        [expense.rationDate ?? \`${"${expense.payPeriod}"}-01\`, "ration", expense.rationAmount],
+        [expense.provisionDate ?? \`${"${expense.payPeriod}"}-01\`, "provision", expense.provisionAmount],
+      ] as const) {
+        if (amount <= 0) continue;
+        const key = \`${"${date}"}|${"${expense.status}"}\`;
+        totals[key] ??= {
+          date,
+          status: expense.status,
+          gas: 0,
+          ration: 0,
+          provision: 0,
+          overall: 0,
+        };
+        totals[key][component] += amount;
+        totals[key].overall += amount;
+      }
+      return totals;
+    }, {}),
+  ).sort((left, right) =>
+    left.date === right.date
+      ? left.status.localeCompare(right.status)
+      : left.date.localeCompare(right.date),
+  );
+  const roomPrintRooms = [...new Set([`,
+  );
+
+  recovery = recovery.replace(
+    `    <div className="section-stack">
+      {(canManage || canApprove) ? (`,
+    `    <div className="section-stack">
+      <section className="panel table-panel recovery-overview-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">Room-wise recovery overview</span>
+            <h2>Gas, Ration &amp; Provision totals · {recoveryPreviewPeriod}</h2>
+          </div>
+          <span className="muted-label">
+            {roomRows.length} dated room entr{roomRows.length === 1 ? "y" : "ies"}
+          </span>
+        </div>
+        <div className="room-recovery-summary room-recovery-period-summary">
+          <div><span>Gas overall</span><strong>₹{roomPeriodTotals.gas.toFixed(2)}</strong></div>
+          <div><span>Ration overall</span><strong>₹{roomPeriodTotals.ration.toFixed(2)}</strong></div>
+          <div><span>Provision overall</span><strong>₹{roomPeriodTotals.provision.toFixed(2)}</strong></div>
+          <div><span>Overall room recovery</span><strong>₹{roomPeriodTotals.overall.toFixed(2)}</strong></div>
+          <div><span>Finalized</span><strong>₹{roomPeriodTotals.finalized.toFixed(2)}</strong></div>
+          <div><span>Draft</span><strong>₹{roomPeriodTotals.draft.toFixed(2)}</strong></div>
+        </div>
+        {roomRecoveryDateTotals.length ? (
+          <div className="table-scroll">
+            <table className="data-table room-recovery-date-summary">
+              <thead><tr><th>Date</th><th>Status</th><th>Gas</th><th>Ration</th><th>Provision</th><th>Overall</th></tr></thead>
+              <tbody>
+                {roomRecoveryDateTotals.map((row) => (
+                  <tr key={\`${"${row.date}"}-${"${row.status}"}\`}>
+                    <td><strong>{row.date}</strong></td><td>{row.status}</td>
+                    <td>₹{row.gas.toFixed(2)}</td><td>₹{row.ration.toFixed(2)}</td>
+                    <td>₹{row.provision.toFixed(2)}</td><td><strong>₹{row.overall.toFixed(2)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="form-note">No room-wise Gas, Ration or Provision is recorded for this salary cycle.</p>
+        )}
+      </section>
+      {(canManage || canApprove) ? (`,
+  );
+
+  recovery = recovery.replace(
+    `      const provision = roomEmployees.length
+        ? roomEmployees.reduce((sum, row) => sum + (row.charge?.provisionShare ?? 0), 0)
+        : finalizedRoomRow?.expense.provisionAmount ?? 0;`,
+    `      const provision = roomEmployees.length
+        ? roomEmployees.reduce((sum, row) => sum + row.provisionShare, 0)
+        : finalizedRoomRow?.expense.provisionAmount ?? 0;
+      const roomTotalRecovery = roomEmployees.reduce((sum, row) => sum + row.total, 0);
+      const roomReturnTotal = roomEmployees.reduce(
+        (sum, row) => sum + (row.charge?.returnAmount ?? 0),
+        0,
+      );
+      const roomFinalPayableTotal = roomEmployees.reduce(
+        (sum, row) =>
+          sum + Math.max(0, (row.item?.netPayable ?? 0) - row.pendingShared),
+        0,
+      );
+      const roomPreRecoveryTotal = roomEmployees.reduce(
+        (sum, row) =>
+          sum +
+          ((row.item?.netPayable ?? 0) +
+            (row.item?.accommodationDeduction ?? 0) -
+            (row.item?.returnAmount ?? 0)),
+        0,
+      );`,
+  );
+  recovery = recovery.replace(
+    `summary.innerHTML = \`<div><span>Gas</span><strong>₹${"${gas.toFixed(2)}"}</strong></div><div><span>Ration</span><strong>₹${"${ration.toFixed(2)}"}</strong></div><div><span>Provision</span><strong>₹${"${provision.toFixed(2)}"}</strong></div><div><span>Roommates</span><strong>${"${roommates}"}</strong></div><div><span>Shared total</span><strong>₹${"${(gas + ration + provision).toFixed(2)}"}</strong></div>\`;`,
+    `summary.innerHTML = \`<div><span>Gas</span><strong>₹${"${gas.toFixed(2)}"}</strong></div><div><span>Ration</span><strong>₹${"${ration.toFixed(2)}"}</strong></div><div><span>Provision</span><strong>₹${"${provision.toFixed(2)}"}</strong></div><div><span>Roommates</span><strong>${"${roommates}"}</strong></div><div><span>Shared total</span><strong>₹${"${(gas + ration + provision).toFixed(2)}"}</strong></div><div><span>Total recovery</span><strong>₹${"${roomTotalRecovery.toFixed(2)}"}</strong></div>\`;`,
+  );
+  recovery = recovery.replace(
+    `        const header = clone.tHead?.rows[0];
+        if (header && voucherIndex >= 0 && header.cells[voucherIndex]) header.deleteCell(voucherIndex);
+        sheet.appendChild(clone);`,
+    `        const header = clone.tHead?.rows[0];
+        if (header && voucherIndex >= 0 && header.cells[voucherIndex]) header.deleteCell(voucherIndex);
+        const printableHeaders = Array.from(header?.cells ?? []).map(
+          (cell) => cell.textContent?.trim() ?? "",
+        );
+        const printableEmployeeIndex = printableHeaders.findIndex((label) => label === "Employee");
+        if (header && printableEmployeeIndex >= 0)
+          header.cells[printableEmployeeIndex].textContent = "Employee / Punching No.";
+        const footer = clone.createTFoot();
+        const totalRow = footer.insertRow();
+        printableHeaders.forEach((label) => {
+          const cell = totalRow.insertCell();
+          if (label === "#") cell.textContent = "TOTAL";
+          else if (label === "Employee") cell.textContent = \`ROOM ${"${roomName}"} TOTAL\`;
+          else if (label === "Room") cell.textContent = roomName;
+          else if (label === "Net before recovery") cell.textContent = \`₹${"${roomPreRecoveryTotal.toFixed(2)}"}\`;
+          else if (label === "Gas") cell.textContent = \`₹${"${gas.toFixed(2)}"}\`;
+          else if (label === "Ration") cell.textContent = \`₹${"${ration.toFixed(2)}"}\`;
+          else if (label === "Provision") cell.textContent = \`₹${"${provision.toFixed(2)}"}\`;
+          else if (label === "Total recovery") cell.textContent = \`₹${"${roomTotalRecovery.toFixed(2)}"}\`;
+          else if (label === "Return") cell.textContent = \`₹${"${roomReturnTotal.toFixed(2)}"}\`;
+          else if (label === "Final payable") cell.textContent = \`₹${"${roomFinalPayableTotal.toFixed(2)}"}\`;
+        });
+        sheet.appendChild(clone);`,
+  );
+
+  recovery = recovery.replace(
+    `    if (charge.provisionShare)
+      lines.push(["Provision share", charge.provisionShare]);
+  }
+  return (`,
+    `    if (charge.provisionShare)
+      lines.push(["Provision share", charge.provisionShare]);
+  }
+  const voucherTotal = lines.reduce((sum, [, value]) => sum + value, 0);
+  return (`,
+  );
+  recovery = recovery.replace(
+    `              {lines.map(([label, value], index) => (
+                <tr key={\`${"${label}"}-${"${index}"}\`}>
+                  <td>{label}</td>
+                  <td>₹{value.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>`,
+    `              {lines.map(([label, value], index) => (
+                <tr key={\`${"${label}"}-${"${index}"}\`}>
+                  <td>{label}</td>
+                  <td>₹{value.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr><th>Total recovery</th><th>₹{voucherTotal.toFixed(2)}</th></tr></tfoot>
+          </table>`,
+  );
+  recovery = recovery.replace(
+    `            if (charge?.provisionShare)
+              lines.push(["Provision share", charge.provisionShare]);
+            return (`,
+    `            if (charge?.provisionShare)
+              lines.push(["Provision share", charge.provisionShare]);
+            const voucherTotal = lines.reduce((sum, [, value]) => sum + value, 0);
+            return (`,
+  );
+  recovery = recovery.replace(
+    `                    {lines.map(([label, value], index) => (
+                      <tr key={\`${"${label}"}-${"${index}"}\`}>
+                        <td>{label}</td>
+                        <td>₹{value.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>`,
+    `                    {lines.map(([label, value], index) => (
+                      <tr key={\`${"${label}"}-${"${index}"}\`}>
+                        <td>{label}</td>
+                        <td>₹{value.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr><th>Total recovery</th><th>₹{voucherTotal.toFixed(2)}</th></tr></tfoot>
+                </table>`,
+  );
+}
+
 for (const [marker, message] of [
   ["Employee-wise recovery by date", "Employee-wise Recovery control is missing"],
   ["Room-wise recovery", "Room-wise Recovery control is missing"],
@@ -428,6 +707,14 @@ if (
   !recovery.includes("disabled={isActing || !run || !employeeId || amount <= 0}")
 )
   throw new Error("Employee-wise Recovery is not disabled before payroll creation");
+if (!recovery.includes("const individual = legacyIndividual"))
+  throw new Error("Employee recovery statement still drops non-dated recovery components");
+if (!recovery.includes("Overall room recovery"))
+  throw new Error("Room recovery period and date totals were not added");
+if (!recovery.includes("ROOM ${roomName} TOTAL"))
+  throw new Error("Room statement reconciled total row was not added");
+if (!recovery.includes("Total recovery</th><th>₹{voucherTotal.toFixed(2)}"))
+  throw new Error("Individual deduction voucher total was not added");
 
 await writeFile(recoveryPath, recovery, "utf8");
 
@@ -484,6 +771,441 @@ if (
   !recovery.includes("Draft room share")
 )
   throw new Error("Employee room-share component detail was not added");
+
+// JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1
+// The payslip reports salary earnings/statutory deductions only. Recovery
+// remains in item.netPayable for Final Payable and every bank format. Bank
+// downloads additionally require an explicit, persisted employee-batch lock.
+if (!payrollApp.includes("JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED")) {
+  const payslipStart = payrollApp.indexOf("function PayslipSheet(");
+  const payslipEnd = payrollApp.indexOf("function PayslipModal(", payslipStart);
+  if (payslipStart < 0 || payslipEnd < 0)
+    throw new Error("Payslip component was not found");
+  let payslipSheet = payrollApp.slice(payslipStart, payslipEnd);
+  payslipSheet = payslipSheet.replace(
+    `  const range = run`,
+    `  // JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED
+  const payslipTotalDeductions = Math.max(
+    0,
+    item.totalDeductions - item.accommodationDeduction,
+  );
+  const payslipNetPayable = Math.max(
+    0,
+    item.netPayable + item.accommodationDeduction - item.returnAmount,
+  );
+  const range = run`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `<b>{money(item.totalDeductions)}</b>`,
+    `<b>{money(payslipTotalDeductions)}</b>`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `<strong>{money(item.netPayable)}</strong>`,
+    `<strong>{money(payslipNetPayable)}</strong>`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `numberToWordsIndian(Math.round(item.netPayable))`,
+    `numberToWordsIndian(Math.round(payslipNetPayable))`,
+  );
+  payrollApp =
+    payrollApp.slice(0, payslipStart) +
+    payslipSheet +
+    payrollApp.slice(payslipEnd);
+
+  const mailerStart = payrollApp.indexOf("function PayslipModal(");
+  const mailerEnd = payrollApp.indexOf("function BulkPayslipModal(", mailerStart);
+  if (mailerStart < 0 || mailerEnd < 0)
+    throw new Error("Payslip email component was not found");
+  let payslipModal = payrollApp.slice(mailerStart, mailerEnd);
+  payslipModal = payslipModal.replace(
+    `    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
+    setEmailSending(true);
+    setEmailSent(false);
+    setEmailMessage("");`,
+    `    if (emailSending) return;
+    setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
+    setEmailMessage("");`,
+  );
+  payslipModal = payslipModal.replace(
+    `disabled={!employee?.emailAddress || emailSending || run?.status !== "approved"}`,
+    `disabled={emailSending}`,
+  );
+  payrollApp =
+    payrollApp.slice(0, mailerStart) +
+    payslipModal +
+    payrollApp.slice(mailerEnd);
+
+  const paymentsStart = payrollApp.indexOf("function PaymentsView(");
+  const nextTopLevelFunction = payrollApp
+    .slice(paymentsStart + 20)
+    .search(/\nfunction [A-Za-z]/);
+  const paymentsEnd =
+    nextTopLevelFunction >= 0
+      ? paymentsStart + 20 + nextTopLevelFunction + 1
+      : payrollApp.length;
+  if (paymentsStart < 0 || paymentsEnd < 0)
+    throw new Error("Payments component was not found");
+  let payments = payrollApp.slice(paymentsStart, paymentsEnd);
+  payments = payments.replace(
+    `  const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
+  useEffect(() => {
+    setSelectedPaymentIds((current) => {
+      const valid = current.filter((id) => bankItems.some((item) => item.id === id));
+      return valid.length ? valid : bankItems.map((item) => item.id);
+    });
+  }, [run.id, items]);`,
+    `  const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
+  const [paymentSelectionLocked, setPaymentSelectionLocked] = useState(false);
+  const [paymentAccommodationFilter, setPaymentAccommodationFilter] = useState("");
+  const paymentSelectionStorageKey = \`joy-payment-selection:${"${run.id}"}\`;
+  const bankItemKey = bankItems.map((item) => item.id).join("|");
+  const paymentAccommodationTypes = [...new Set(
+    bankItems.map((item) => item.accommodationType).filter(Boolean),
+  )].sort();
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem(paymentSelectionStorageKey) ?? "null",
+      ) as { ids?: string[]; locked?: boolean } | null;
+      const valid = (saved?.ids ?? []).filter((id) =>
+        bankItems.some((item) => item.id === id),
+      );
+      if (saved?.locked && valid.length) {
+        setSelectedPaymentIds(valid);
+        setPaymentSelectionLocked(true);
+        return;
+      }
+    } catch {
+      window.localStorage.removeItem(paymentSelectionStorageKey);
+    }
+    setSelectedPaymentIds([]);
+    setPaymentSelectionLocked(false);
+  }, [run.id, bankItemKey]);
+  function selectPaymentIds(ids: string[]) {
+    if (paymentSelectionLocked) return;
+    setSelectedPaymentIds([...new Set(ids)]);
+    window.localStorage.removeItem(paymentSelectionStorageKey);
+  }
+  function lockPaymentSelection() {
+    if (
+      run.status !== "approved" ||
+      !canExport ||
+      !selectedPaymentIds.length ||
+      bankValidationIssues.length
+    ) return;
+    window.localStorage.setItem(
+      paymentSelectionStorageKey,
+      JSON.stringify({ ids: selectedPaymentIds, locked: true }),
+    );
+    setPaymentSelectionLocked(true);
+  }
+  function unlockPaymentSelection() {
+    window.localStorage.removeItem(paymentSelectionStorageKey);
+    setPaymentSelectionLocked(false);
+  }`,
+  );
+  payments = payments.replace(
+    `  function exportRows(mode: "bank" | "cash") {
+    const rows = mode === "bank" ? selectedBankItems : cashItems;`,
+    `  function exportRows(mode: "bank" | "cash") {
+    if (mode === "bank" && (!paymentSelectionLocked || run.status !== "approved")) return;
+    const rows = mode === "bank" ? selectedBankItems : cashItems;`,
+  );
+  for (const name of ["exportIndianBank", "exportCubAnyBank", "exportCubToCub"]) {
+    payments = payments.replace(
+      `  function ${"${name}"}() {`,
+      `  function ${"${name}"}() {
+    if (!paymentSelectionLocked || run.status !== "approved") return;`,
+    );
+  }
+  payments = payments.replace(
+    `disabled={run.status !== "approved" || !canExport}`,
+    `disabled={run.status !== "approved" || !canExport || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0}`,
+  );
+  payments = payments.replace(
+    `          <div className="record-actions">
+            <button className="secondary-button" type="button" onClick={() => setSelectedPaymentIds(bankItems.map((item) => item.id))}>Select all</button>
+            <button className="secondary-button" type="button" onClick={() => setSelectedPaymentIds([])}>Clear selection</button>
+          </div>`,
+    `          <div className="record-actions payment-selection-controls">
+            <select
+              aria-label="Select employees by accommodation type"
+              value={paymentAccommodationFilter}
+              disabled={paymentSelectionLocked}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPaymentAccommodationFilter(value);
+                selectPaymentIds(
+                  value
+                    ? bankItems.filter((item) => item.accommodationType === value).map((item) => item.id)
+                    : [],
+                );
+              }}
+            >
+              <option value="">Accommodation-wise selection</option>
+              {paymentAccommodationTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <button className="secondary-button" type="button" disabled={paymentSelectionLocked} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds(bankItems.map((item) => item.id)); }}>Select all</button>
+            <button className="secondary-button" type="button" disabled={paymentSelectionLocked} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds([]); }}>Clear selection</button>
+            {paymentSelectionLocked ? (
+              <button className="secondary-button" type="button" onClick={unlockPaymentSelection}>Unlock / change selection</button>
+            ) : (
+              <button className="primary-button" type="button" disabled={run.status !== "approved" || !canExport || !selectedBankItems.length || bankValidationIssues.length > 0} onClick={lockPaymentSelection}>Lock selected batch</button>
+            )}
+          </div>`,
+  );
+  payments = payments.replace(
+    `<td><input type="checkbox" checked={selectedPaymentIds.includes(item.id)} onChange={(event) => setSelectedPaymentIds((current) => event.target.checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id))} /></td>`,
+    `<td><input type="checkbox" disabled={paymentSelectionLocked} checked={selectedPaymentIds.includes(item.id)} onChange={(event) => selectPaymentIds(event.target.checked ? [...selectedPaymentIds, item.id] : selectedPaymentIds.filter((id) => id !== item.id))} /></td>`,
+  );
+  payments = payments.replace(
+    `<div className="form-note"><strong>{selectedBankItems.length} employees selected</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? \`${"${bankValidationIssues.length}"} employee(s) need bank account / IFSC before download.\` : "Bank validation complete · upload formats ready."}</span></div>`,
+    `<div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionLocked ? "Selection locked" : "Lock required"}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? \`${"${bankValidationIssues.length}"} employee(s) need bank account / IFSC before download.\` : paymentSelectionLocked ? "Bank validation complete · locked upload formats ready." : "Review the employee batch, then lock it before downloading."}</span></div>`,
+  );
+  payments = payments.replaceAll(
+    `disabled={!selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}`,
+    `disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}`,
+  );
+  payments = payments.replace(
+    `exports are available for authorized checking, but use the file for payment only after payroll approval.`,
+    `bank outputs remain locked until payroll approval and an explicit employee-batch selection lock.`,
+  );
+  payments = payments.replace(
+    `Bank, cash and payslip outputs are now available.`,
+    `Select the employees (or an accommodation group), review the total, and lock the batch before downloading a bank file.`,
+  );
+  payrollApp =
+    payrollApp.slice(0, paymentsStart) +
+    payments +
+    payrollApp.slice(paymentsEnd);
+}
+
+if (!payrollApp.includes("const payslipNetPayable"))
+  throw new Error("Room recovery is still included in the displayed payslip net");
+if (!payrollApp.includes("Approve payroll before sending salary slips."))
+  throw new Error("Payslip email prerequisites are still silent");
+if (!payrollApp.includes("Lock selected batch"))
+  throw new Error("Bank output selection lock was not added");
+if (!payrollApp.includes("!paymentSelectionLocked || run.status !== \"approved\""))
+  throw new Error("Bank format downloads do not enforce the selection lock");
+
+// JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1
+// Salary-import runs use the uploaded payroll register's canonical headers,
+// and payslips omit every zero/blank field instead of printing dashes.
+if (!payrollApp.includes("JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1_APPLIED")) {
+  const payslipStart = payrollApp.indexOf("function PayslipSheet(");
+  const payslipEnd = payrollApp.indexOf("function PayslipModal(", payslipStart);
+  if (payslipStart < 0 || payslipEnd < 0)
+    throw new Error("Payslip component was not found for uploaded-header cleanup");
+  let payslipSheet = payrollApp.slice(payslipStart, payslipEnd);
+  const earningsStart = payslipSheet.indexOf("  const earnings =");
+  const deductionsStart = payslipSheet.indexOf("  const payslipHiddenRecoveryFields", earningsStart);
+  if (earningsStart < 0 || deductionsStart < 0)
+    throw new Error("Payslip earning fields were not found");
+  const earningsBlock = `  // JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1_APPLIED
+  const uploadedEarningFieldOrder = [
+    "basic", "da", "hra", "conveyance", "foodAllowance", "nightAllowance",
+    "overtimeWages", "attendanceBonus", "arrears", "holidayWages",
+    "productionIncentive", "medicalAllowance",
+  ];
+  const uploadedDeductionFieldOrder = [
+    "pfDeduction", "esiDeduction", "professionalTax", "lwf", "canteen",
+    "snacks", "tent", "advance", "otherDeduction", "tds", "medicalInsurance",
+  ];
+  const sourceEarningFields = run?.processingMode === "salary_import"
+    ? uploadedEarningFieldOrder
+    : configuredFields(unit.payslipEarningsJson, earningFields);
+  const sourceDeductionFields = run?.processingMode === "salary_import"
+    ? uploadedDeductionFieldOrder
+    : configuredFields(unit.payslipDeductionsJson, deductionFields);
+  const earnings = sourceEarningFields
+    .map(
+      (field) =>
+        [readableField(field), Number(item[field as keyof PayrollItem] ?? 0)] as [
+          string,
+          number,
+        ],
+    )
+    .filter(([, value]) => value !== 0);
+  const uploadedAttendanceHeaders = [
+    ["Fixed W days", item.fixedWorkingDays],
+    ["W days", item.presentDays],
+    ["NFH", item.nfhDays],
+    ["CO", item.compOffDays],
+    ["OD", item.onDutyDays],
+    ["Sundays", item.sundayDays],
+    ["PL", item.plDays],
+    ["CL", item.clDays],
+    ["SL", item.slDays],
+    ["Payable days", item.payableDays],
+    ["OT hours", item.overtimeHours],
+  ].filter(([, value]) => Number(value) !== 0) as Array<[string, number]>;
+  `;
+  payslipSheet =
+    payslipSheet.slice(0, earningsStart) +
+    earningsBlock +
+    payslipSheet.slice(deductionsStart);
+  const hiddenStart = payslipSheet.indexOf("  const payslipHiddenRecoveryFields");
+  const rangeStart = payslipSheet.indexOf("  const range = run", hiddenStart);
+  const deductionsBlock = `  const payslipHiddenRecoveryFields = new Set([
+    "accommodationDeduction",
+    "gasShare",
+    "rationShare",
+    "provisionShare",
+  ]);
+  const deductions = sourceDeductionFields
+    .filter((field) => !payslipHiddenRecoveryFields.has(field))
+    .map(
+      (field) =>
+        [readableField(field), Number(item[field as keyof PayrollItem] ?? 0)] as [
+          string,
+          number,
+        ],
+    )
+    .filter(([, value]) => value !== 0);
+  const payslipTotalDeductions = Math.max(
+    0,
+    item.totalDeductions - item.accommodationDeduction,
+  );
+  const payslipNetPayable = Math.max(
+    0,
+    item.netPayable + item.accommodationDeduction - item.returnAmount,
+  );
+`;
+  if (hiddenStart < 0 || rangeStart < 0)
+    throw new Error("Payslip deduction fields were not found");
+  payslipSheet =
+    payslipSheet.slice(0, hiddenStart) +
+    deductionsBlock +
+    payslipSheet.slice(rangeStart);
+
+  payslipSheet = payslipSheet.replace(
+    `        <div className="payslip-attendance-inline">
+          <span><b>Fixed W days</b> {item.fixedWorkingDays}</span>
+          <span><b>W days</b> {item.presentDays}</span>
+          <span><b>NFH</b> {item.nfhDays}</span>
+          <span><b>CO</b> {item.compOffDays}</span>
+          <span><b>OD</b> {item.onDutyDays}</span>
+          <span><b>Sundays</b> {item.sundayDays}</span>
+          <span><b>PL</b> {item.plDays}</span>
+          <span><b>CL</b> {item.clDays}</span>
+          <span><b>SL</b> {item.slDays}</span>
+          <span><b>Payable days</b> {item.payableDays}</span>
+          <span><b>OT hours</b> {item.overtimeHours}</span>
+        </div>`,
+    `        {uploadedAttendanceHeaders.length ? (
+          <div className="payslip-attendance-inline">
+            {uploadedAttendanceHeaders.map(([label, value]) => (
+              <span key={label}><b>{label}</b> {value}</span>
+            ))}
+          </div>
+        ) : null}`,
+  );
+  const optionalMeta = [
+    [
+      `<div>\n          <span>UAN / EPF</span>\n          <strong>{employee?.uanMasked ?? "—"}</strong>\n        </div>`,
+      `{employee?.uanMasked ? (\n          <div>\n            <span>UAN / EPF</span>\n            <strong>{employee.uanMasked}</strong>\n          </div>\n        ) : null}`,
+    ],
+    [
+      `<div>\n          <span>ESI number</span>\n          <strong>{employee?.esiMasked ?? "—"}</strong>\n        </div>`,
+      `{employee?.esiMasked ? (\n          <div>\n            <span>ESI number</span>\n            <strong>{employee.esiMasked}</strong>\n          </div>\n        ) : null}`,
+    ],
+    [
+      `<div>\n          <span>Bank account</span>\n          <strong>{employee?.bankAccountMasked ?? item.bankAccountMasked ?? "—"}</strong>\n        </div>`,
+      `{(employee?.bankAccountMasked ?? item.bankAccountMasked) ? (\n          <div>\n            <span>Bank account</span>\n            <strong>{employee?.bankAccountMasked ?? item.bankAccountMasked}</strong>\n          </div>\n        ) : null}`,
+    ],
+    [
+      `<div>\n          <span>IFSC</span>\n          <strong>{employee?.ifscMasked ?? item.ifscMasked ?? "—"}</strong>\n        </div>`,
+      `{(employee?.ifscMasked ?? item.ifscMasked) ? (\n          <div>\n            <span>IFSC</span>\n            <strong>{employee?.ifscMasked ?? item.ifscMasked}</strong>\n          </div>\n        ) : null}`,
+    ],
+    [
+      `<div>\n          <span>Bank name</span>\n          <strong>{employee?.bankName ?? "—"}</strong>\n        </div>`,
+      `{employee?.bankName ? (\n          <div>\n            <span>Bank name</span>\n            <strong>{employee.bankName}</strong>\n          </div>\n        ) : null}`,
+    ],
+    [
+      `<div>\n          <span>Bank branch</span>\n          <strong>{employee?.bankBranch ?? "—"}</strong>\n        </div>`,
+      `{employee?.bankBranch ? (\n          <div>\n            <span>Bank branch</span>\n            <strong>{employee.bankBranch}</strong>\n          </div>\n        ) : null}`,
+    ],
+  ];
+  for (const [from, to] of optionalMeta) payslipSheet = payslipSheet.replace(from, to);
+  payslipSheet = payslipSheet.replace(
+    `      {item.importedGrossEarnings !== null || item.importedNetPayable !== null ? (`,
+    `      {([item.importedGrossEarnings, item.importedTotalDeductions, item.importedNetPayable].some((value) => value !== null && Number(value) !== 0)) ? (`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `          <footer>\n            <span>Total deductions</span>\n            <b>{money(payslipTotalDeductions)}</b>\n          </footer>`,
+    `          {payslipTotalDeductions > 0 ? (\n            <footer>\n              <span>Total deductions</span>\n              <b>{money(payslipTotalDeductions)}</b>\n            </footer>\n          ) : null}`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `        <section>\n          <h4>\n            <span>Earnings</span>`,
+    `        {earnings.length ? (\n          <section>\n            <h4>\n              <span>Earnings</span>`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `          </footer>\n        </section>\n        <section>\n          <h4>\n            <span>Deductions</span>`,
+    `            </footer>\n          </section>\n        ) : null}\n        {deductions.length || payslipTotalDeductions > 0 ? (\n          <section>\n            <h4>\n              <span>Deductions</span>`,
+  );
+  payslipSheet = payslipSheet.replace(
+    `          {payslipTotalDeductions > 0 ? (\n            <footer>\n              <span>Total deductions</span>\n              <b>{money(payslipTotalDeductions)}</b>\n            </footer>\n          ) : null}\n        </section>`,
+    `            {payslipTotalDeductions > 0 ? (\n              <footer>\n                <span>Total deductions</span>\n                <b>{money(payslipTotalDeductions)}</b>\n              </footer>\n            ) : null}\n          </section>\n        ) : null}`,
+  );
+  payrollApp =
+    payrollApp.slice(0, payslipStart) +
+    payslipSheet +
+    payrollApp.slice(payslipEnd);
+}
+
+// Repair salary-only totals if an older generated PayslipSheet already has
+// the uploaded-header marker but lost these declarations during replacement.
+if (!payrollApp.includes("const payslipTotalDeductions")) {
+  const payslipStart = payrollApp.indexOf("function PayslipSheet");
+  if (payslipStart >= 0) {
+    const nextTopLevelFunction = payrollApp
+      .slice(payslipStart + 20)
+      .search(/\nfunction [A-Za-z]/);
+    const payslipEnd =
+      nextTopLevelFunction >= 0
+        ? payslipStart + 20 + nextTopLevelFunction + 1
+        : payrollApp.length;
+    let payslipSheet = payrollApp.slice(payslipStart, payslipEnd);
+    const salaryOnlyTotals = `  const payslipTotalDeductions = Math.max(
+    0,
+    item.totalDeductions - item.accommodationDeduction,
+  );
+  const payslipNetPayable = Math.max(
+    0,
+    item.netPayable + item.accommodationDeduction - item.returnAmount,
+  );
+`;
+    const rangeMarker = "  const range = run";
+    const rangeAt = payslipSheet.indexOf(rangeMarker);
+    if (rangeAt >= 0) {
+      payslipSheet =
+        payslipSheet.slice(0, rangeAt) +
+        salaryOnlyTotals +
+        payslipSheet.slice(rangeAt);
+      payrollApp =
+        payrollApp.slice(0, payslipStart) +
+        payslipSheet +
+        payrollApp.slice(payslipEnd);
+    }
+  }
+}
+
+if (!payrollApp.includes("uploadedEarningFieldOrder"))
+  throw new Error("Payslip does not use uploaded payroll header order");
+if (!payrollApp.includes(".filter(([, value]) => value !== 0)"))
+  throw new Error("Payslip zero-value fields were not removed");
+if (!payrollApp.includes("uploadedAttendanceHeaders.length ?"))
+  throw new Error("Payslip zero-value attendance headers were not removed");
 
 await writeFile(payrollAppPath, payrollApp, "utf8");
 
@@ -552,6 +1274,42 @@ if (!liveEnhancements.includes(".room-recovery-print-sheet table{font-size:8pt!i
   throw new Error("Room-wise salary recovery statement font was not increased");
 if (!liveEnhancements.includes(".payslip-columns section>div{font-size:9.5pt!important"))
   throw new Error("Payslip body font was not increased");
+
+// JOY_HANDWRITTEN_RECOVERY_PRINT_V1
+// Let the React room printer build both selected-room and all-room sheets so
+// the same reconciled totals are used. The older V4 all-room listener cloned
+// rows before totals were added and is intentionally left as a no-op.
+liveEnhancements = liveEnhancements.replace(
+  "function joyRecoveryPrintAllRoomsV4(){const panel",
+  "function joyRecoveryPrintAllRoomsV4(){return;const panel",
+);
+if (!liveEnhancements.includes("JOY_HANDWRITTEN_RECOVERY_PRINT_V1")) {
+  liveEnhancements += `
+
+// JOY_HANDWRITTEN_RECOVERY_PRINT_V1
+const joyRecoveryReconciliationStyle = document.createElement("style");
+joyRecoveryReconciliationStyle.dataset.joyRecoveryReconciliation = "true";
+joyRecoveryReconciliationStyle.textContent = [
+  ".room-recovery-period-summary{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}",
+  ".room-recovery-date-summary th,.room-recovery-date-summary td{text-align:right}",
+  ".room-recovery-date-summary th:first-child,.room-recovery-date-summary td:first-child,.room-recovery-date-summary th:nth-child(2),.room-recovery-date-summary td:nth-child(2){text-align:left}",
+  ".payment-selection-controls select{min-width:220px}",
+  ".payment-batch-selector input[type=checkbox]:disabled{cursor:not-allowed;opacity:.65}",
+  "@media print{",
+  ".room-recovery-print-sheet .room-recovery-summary{grid-template-columns:repeat(auto-fit,minmax(105px,1fr))!important}",
+  ".room-recovery-print-sheet thead th:nth-child(2){min-width:130px!important}",
+  ".room-recovery-print-sheet tbody td:nth-child(2) small{display:block!important;font-size:11pt!important;line-height:1.25!important;font-weight:900!important;letter-spacing:.35px!important;color:#0f172a!important;margin-top:2px!important}",
+  ".room-recovery-print-sheet tfoot td{font-size:9pt!important;font-weight:900!important;background:#eef3f8!important;border-top:2px solid #334155!important}",
+  "}",
+].join("\\n");
+document.head.appendChild(joyRecoveryReconciliationStyle);
+// END_JOY_HANDWRITTEN_RECOVERY_PRINT_V1
+`;
+}
+if (!liveEnhancements.includes("function joyRecoveryPrintAllRoomsV4(){return;const panel"))
+  throw new Error("Legacy all-room printer still bypasses reconciled totals");
+if (!liveEnhancements.includes("font-size:11pt!important;line-height:1.25!important;font-weight:900"))
+  throw new Error("Punching number font was not enlarged on the room statement");
 await writeFile(liveEnhancementsPath, liveEnhancements, "utf8");
 
 console.log("Recovery visibility fixed: dated draft room entries now preview per employee before payroll creation.");

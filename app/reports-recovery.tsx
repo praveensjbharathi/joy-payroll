@@ -41,6 +41,19 @@ function exportExcel(name: string, rows: ReportRow[]) {
   );
 }
 
+function printTarget() {
+  const target = document.querySelector(".bulk-recovery-vouchers")
+    ? "bulk-vouchers"
+    : document.querySelector(".room-report-modal .advance-voucher")
+      ? "voucher"
+      : "report";
+  document.body.dataset.printTarget = target;
+  const cleanup = () => delete document.body.dataset.printTarget;
+  window.addEventListener("afterprint", cleanup, { once: true });
+  window.print();
+  window.setTimeout(cleanup, 1800);
+}
+
 const recoveryLabels: Record<string, string> = {
   rent: "Room rent",
   bus: "Bus",
@@ -76,6 +89,7 @@ function voucherBrand(vendor?: Vendor, unit?: ClientUnit) {
 
 export function RecoveryCenter({
   run,
+  vendorId,
   employees,
   items,
   charges,
@@ -86,6 +100,7 @@ export function RecoveryCenter({
   onAction,
 }: {
   run: PayrollRun | null;
+  vendorId: string;
   employees: Employee[];
   items: PayrollItem[];
   charges: AccommodationCharge[];
@@ -112,6 +127,7 @@ export function RecoveryCenter({
     null,
   );
   const [bulkVouchers, setBulkVouchers] = useState(false);
+  // JOY_HANDWRITTEN_RECOVERY_FIXES_V1_APPLIED
   const runCharges = run
     ? charges.filter((charge) => charge.runId === run.id)
     : [];
@@ -121,13 +137,33 @@ export function RecoveryCenter({
   const finalizations = run
     ? data.recoveryFinalizations.filter((entry) => entry.runId === run.id)
     : [];
+  const recoveryVendorRoomIds = new Set(
+    data.accommodationRooms
+      .filter((room) => room.vendorId === vendorId)
+      .map((room) => room.id),
+  );
+  const recoveryRoomEntries = data.roomExpenses.filter((expense) =>
+    recoveryVendorRoomIds.has(expense.roomId),
+  );
+  const [roomRecoveryDate, setRoomRecoveryDate] = useState("");
+  const recoveryPreviewPeriod =
+    run?.payPeriod ??
+    [...new Set(recoveryRoomEntries.map((expense) => expense.payPeriod))]
+      .sort((left, right) => right.localeCompare(left))[0] ??
+    new Date().toISOString().slice(0, 7);
+  const roomRecoveryPeriod = roomRecoveryDate
+    ? roomRecoveryDate.slice(0, 7)
+    : recoveryPreviewPeriod;
+  function getRecoveryRoomNumber(employee: Employee) {
+    return data.accommodationRooms.find((room) => room.id === employee.roomId)?.roomNumber ?? employee.roomNumber ?? "—";
+  }
   const employeeRows = employees
     .map((employee) => {
       const charge = runCharges.find(
         (entry) => entry.employeeId === employee.id,
       );
       const item = items.find((entry) => entry.employeeId === employee.id);
-      const individual = charge
+      const legacyIndividual = charge
         ? charge.rent +
           charge.bus +
           charge.food +
@@ -141,27 +177,366 @@ export function RecoveryCenter({
           charge.tshirt +
           charge.oldPending
         : 0;
-      const shared = charge
-        ? charge.gasShare + charge.rationShare + charge.provisionShare
-        : 0;
+      const finalizedGasShare = charge?.gasShare ?? 0;
+      const finalizedRationShare = charge?.rationShare ?? 0;
+      const finalizedProvisionShare = charge?.provisionShare ?? 0;
+      const draftRoomLedger =
+        employee.roomId && !charge?.roomExpenseId
+          ? recoveryRoomEntries.filter(
+              (expense) =>
+                expense.roomId === employee.roomId &&
+                expense.payPeriod === recoveryPreviewPeriod &&
+                expense.status === "draft",
+            )
+          : [];
+      const activeRoommates = employee.roomId
+        ? data.employees.filter(
+            (candidate) =>
+              candidate.status === "active" &&
+              candidate.roomId === employee.roomId,
+          )
+        : [];
+      const roomDivisor = Math.max(1, activeRoommates.length);
+      const pendingGasShare =
+        draftRoomLedger.reduce(
+          (sum, expense) => sum + expense.gasAmount,
+          0,
+        ) / roomDivisor;
+      const pendingRationShare =
+        draftRoomLedger.reduce(
+          (sum, expense) => sum + expense.rationAmount,
+          0,
+        ) / roomDivisor;
+      const pendingProvisionShare =
+        draftRoomLedger.reduce(
+          (sum, expense) => sum + expense.provisionAmount,
+          0,
+        ) / roomDivisor;
+      const pendingShared =
+        pendingGasShare + pendingRationShare + pendingProvisionShare;
+      const gasShare = finalizedGasShare + pendingGasShare;
+      const rationShare = finalizedRationShare + pendingRationShare;
+      const provisionShare =
+        finalizedProvisionShare + pendingProvisionShare;
+      const shared = gasShare + rationShare + provisionShare;
       const dated = entries.filter((entry) => entry.employeeId === employee.id);
+      const datedDeduction = dated
+        .filter((entry) => entry.recoveryType !== "returnAmount")
+        .reduce((sum, entry) => sum + entry.amount, 0);
+      // accommodationCharges is the authoritative merged ledger. Dated
+      // entries are its audit detail; replacing the ledger with only dated
+      // rows drops room rent and caused ₹10,450 to print as ₹9,250.
+      const individual = legacyIndividual;
       return {
         employee,
         charge,
         individual,
         shared,
+        pendingShared,
+        gasShare,
+        rationShare,
+        provisionShare,
         total: individual + shared,
         item,
         dated,
       };
     })
-    .filter((row) => row.charge || row.dated.length || row.shared > 0);
-  const roomRows = data.roomExpenses
-    .filter((expense) => !run || expense.payPeriod === run.payPeriod)
+    .filter((row) => row.individual > 0 || row.shared > 0);
+  const roomRows = recoveryRoomEntries
+    .filter((expense) => expense.payPeriod === recoveryPreviewPeriod)
     .map((expense) => ({
       expense,
       room: data.accommodationRooms.find((room) => room.id === expense.roomId),
     }));
+  const roomPeriodTotals = roomRows.reduce(
+    (totals, { expense }) => ({
+      gas: totals.gas + expense.gasAmount,
+      ration: totals.ration + expense.rationAmount,
+      provision: totals.provision + expense.provisionAmount,
+      overall:
+        totals.overall +
+        expense.gasAmount +
+        expense.rationAmount +
+        expense.provisionAmount,
+      finalized:
+        totals.finalized +
+        (expense.status === "finalized"
+          ? expense.gasAmount + expense.rationAmount + expense.provisionAmount
+          : 0),
+      draft:
+        totals.draft +
+        (expense.status === "draft"
+          ? expense.gasAmount + expense.rationAmount + expense.provisionAmount
+          : 0),
+    }),
+    { gas: 0, ration: 0, provision: 0, overall: 0, finalized: 0, draft: 0 },
+  );
+  const roomRecoveryDateTotals = Object.values(
+    roomRows.reduce<
+      Record<
+        string,
+        {
+          date: string;
+          status: string;
+          gas: number;
+          ration: number;
+          provision: number;
+          overall: number;
+        }
+      >
+    >((totals, { expense }) => {
+      for (const [date, component, amount] of [
+        [expense.gasDate ?? `${expense.payPeriod}-01`, "gas", expense.gasAmount],
+        [expense.rationDate ?? `${expense.payPeriod}-01`, "ration", expense.rationAmount],
+        [expense.provisionDate ?? `${expense.payPeriod}-01`, "provision", expense.provisionAmount],
+      ] as const) {
+        if (amount <= 0) continue;
+        const key = `${date}|${expense.status}`;
+        totals[key] ??= {
+          date,
+          status: expense.status,
+          gas: 0,
+          ration: 0,
+          provision: 0,
+          overall: 0,
+        };
+        totals[key][component] += amount;
+        totals[key].overall += amount;
+      }
+      return totals;
+    }, {}),
+  ).sort((left, right) =>
+    left.date === right.date
+      ? left.status.localeCompare(right.status)
+      : left.date.localeCompare(right.date),
+  );
+  const roomPrintRooms = [...new Set([
+    ...employeeRows.map(({ employee }) => getRecoveryRoomNumber(employee)),
+    ...roomRows
+      .filter(({ expense }) => expense.status === "finalized")
+      .map(({ room }) => room?.roomNumber ?? "—"),
+  ])]
+    .filter((room) => room && room !== "—")
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  function printRoomRecovery(selectedRooms: string[]) {
+    if (!selectedRooms.length) return;
+    const panel = document.querySelector<HTMLElement>(".recovery-final-payable-panel");
+    const employeeTable = panel?.querySelector<HTMLTableElement>("table");
+    const sharedHeading = Array.from(document.querySelectorAll<HTMLElement>("h2")).find((node) =>
+      node.textContent?.includes("Gas, Ration") && node.textContent?.includes("Provision split"),
+    );
+    const sharedTable = sharedHeading?.closest<HTMLElement>(".panel")?.querySelector<HTMLTableElement>("table");
+    if (!employeeTable && !sharedTable) return;
+
+    const employeeHeaders = Array.from(employeeTable?.tHead?.rows[0]?.cells ?? []).map(
+      (cell) => cell.textContent?.trim() ?? "",
+    );
+    const employeeRoomIndex = employeeHeaders.findIndex((label) => label === "Room");
+    const voucherIndex = employeeHeaders.findIndex((label) => label === "Voucher");
+    const employeeSourceRows = Array.from(employeeTable?.tBodies[0]?.rows ?? []);
+
+    document.querySelector(".room-recovery-print-layer")?.remove();
+    const layer = document.createElement("div");
+    layer.className = "room-recovery-print-layer";
+
+    selectedRooms.forEach((roomName) => {
+      const roomEmployees = employeeRows.filter(({ employee }) => getRecoveryRoomNumber(employee) === roomName);
+      const finalizedRoomRow = roomRows.find(({ expense, room }) =>
+        expense.status === "finalized" && room?.roomNumber === roomName,
+      );
+      const gas = roomEmployees.length
+        ? roomEmployees.reduce((sum, row) => sum + (row.charge?.gasShare ?? 0), 0)
+        : finalizedRoomRow?.expense.gasAmount ?? 0;
+      const ration = roomEmployees.length
+        ? roomEmployees.reduce((sum, row) => sum + (row.charge?.rationShare ?? 0), 0)
+        : finalizedRoomRow?.expense.rationAmount ?? 0;
+      const provision = roomEmployees.length
+        ? roomEmployees.reduce((sum, row) => sum + row.provisionShare, 0)
+        : finalizedRoomRow?.expense.provisionAmount ?? 0;
+      const roomTotalRecovery = roomEmployees.reduce((sum, row) => sum + row.total, 0);
+      const roomReturnTotal = roomEmployees.reduce(
+        (sum, row) => sum + (row.charge?.returnAmount ?? 0),
+        0,
+      );
+      const roomFinalPayableTotal = roomEmployees.reduce(
+        (sum, row) =>
+          sum + Math.max(0, (row.item?.netPayable ?? 0) - row.pendingShared),
+        0,
+      );
+      const roomPreRecoveryTotal = roomEmployees.reduce(
+        (sum, row) =>
+          sum +
+          ((row.item?.netPayable ?? 0) +
+            (row.item?.accommodationDeduction ?? 0) -
+            (row.item?.returnAmount ?? 0)),
+        0,
+      );
+
+      const matchedRows = employeeRoomIndex >= 0
+        ? employeeSourceRows.filter((row) => (row.cells[employeeRoomIndex]?.textContent?.trim() || "—") === roomName)
+        : [];
+
+      const sheet = document.createElement("section");
+      sheet.className = "room-recovery-print-sheet";
+      const h1 = document.createElement("h1");
+      h1.textContent = "FINALIZED ROOM-WISE SALARY RECOVERY STATEMENT";
+      const h2 = document.createElement("h2");
+      h2.textContent = `Room: ${roomName}`;
+      const summary = document.createElement("div");
+      summary.className = "room-recovery-summary";
+      const roommates = matchedRows.length || finalizedRoomRow?.expense.occupantCount || roomEmployees.length;
+      summary.innerHTML = `<div><span>Gas</span><strong>₹${gas.toFixed(2)}</strong></div><div><span>Ration</span><strong>₹${ration.toFixed(2)}</strong></div><div><span>Provision</span><strong>₹${provision.toFixed(2)}</strong></div><div><span>Roommates</span><strong>${roommates}</strong></div><div><span>Shared total</span><strong>₹${(gas + ration + provision).toFixed(2)}</strong></div><div><span>Total recovery</span><strong>₹${roomTotalRecovery.toFixed(2)}</strong></div>`;
+      sheet.append(h1, h2, summary);
+
+      if (employeeTable && matchedRows.length && employeeRoomIndex >= 0) {
+        const clone = employeeTable.cloneNode(true) as HTMLTableElement;
+        Array.from(clone.tBodies[0]?.rows ?? []).forEach((row) => {
+          const room = row.cells[employeeRoomIndex]?.textContent?.trim() || "—";
+          if (room !== roomName) row.remove();
+          else if (voucherIndex >= 0 && row.cells[voucherIndex]) row.deleteCell(voucherIndex);
+        });
+        const header = clone.tHead?.rows[0];
+        if (header && voucherIndex >= 0 && header.cells[voucherIndex]) header.deleteCell(voucherIndex);
+        const printableHeaders = Array.from(header?.cells ?? []).map(
+          (cell) => cell.textContent?.trim() ?? "",
+        );
+        const printableEmployeeIndex = printableHeaders.findIndex((label) => label === "Employee");
+        if (header && printableEmployeeIndex >= 0)
+          header.cells[printableEmployeeIndex].textContent = "Employee / Punching No.";
+        const footer = clone.createTFoot();
+        const totalRow = footer.insertRow();
+        printableHeaders.forEach((label) => {
+          const cell = totalRow.insertCell();
+          if (label === "#") cell.textContent = "TOTAL";
+          else if (label === "Employee") cell.textContent = `ROOM ${roomName} TOTAL`;
+          else if (label === "Room") cell.textContent = roomName;
+          else if (label === "Net before recovery") cell.textContent = `₹${roomPreRecoveryTotal.toFixed(2)}`;
+          else if (label === "Gas") cell.textContent = `₹${gas.toFixed(2)}`;
+          else if (label === "Ration") cell.textContent = `₹${ration.toFixed(2)}`;
+          else if (label === "Provision") cell.textContent = `₹${provision.toFixed(2)}`;
+          else if (label === "Total recovery") cell.textContent = `₹${roomTotalRecovery.toFixed(2)}`;
+          else if (label === "Return") cell.textContent = `₹${roomReturnTotal.toFixed(2)}`;
+          else if (label === "Final payable") cell.textContent = `₹${roomFinalPayableTotal.toFixed(2)}`;
+        });
+        sheet.appendChild(clone);
+      } else if (sharedTable) {
+        const sharedHeaders = Array.from(sharedTable.tHead?.rows[0]?.cells ?? []).map((cell) => cell.textContent?.trim() ?? "");
+        const sharedRoomIndex = sharedHeaders.findIndex((label) => label === "Room");
+        const clone = sharedTable.cloneNode(true) as HTMLTableElement;
+        Array.from(clone.tBodies[0]?.rows ?? []).forEach((row) => {
+          const room = sharedRoomIndex >= 0 ? row.cells[sharedRoomIndex]?.textContent?.trim() || "—" : "—";
+          if (room !== roomName) row.remove();
+        });
+        sheet.appendChild(clone);
+      }
+
+      layer.appendChild(sheet);
+    });
+
+    if (!layer.children.length) return;
+    document.body.appendChild(layer);
+    const pageStyle = document.createElement("style");
+    pageStyle.textContent = "@page{size:A4 landscape;margin:8mm;}";
+    document.head.appendChild(pageStyle);
+    const cleanup = () => {
+      layer.remove();
+      pageStyle.remove();
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    window.setTimeout(cleanup, 3000);
+  }
+
+  const joyRecoveryTypeIds = data.accommodationTypes
+    .filter((type) => {
+      const name = type.name.toLowerCase();
+      return name.includes("joy") && (name.includes("room") || name.includes("hostel"));
+    })
+    .map((type) => type.id);
+  const outsideRecoveryTypeIds = data.accommodationTypes
+    .filter((type) => type.name.toLowerCase().includes("outside"))
+    .map((type) => type.id);
+  const recoveryScopeTypeIds = roomRecoveryScope === "joy"
+    ? joyRecoveryTypeIds
+    : roomRecoveryScope === "outside"
+      ? outsideRecoveryTypeIds
+      : [];
+  const recoveryHostels = data.hostels.filter(
+    (hostel) => hostel.status === "active" &&
+      (!hostel.accommodationTypeId || recoveryScopeTypeIds.includes(hostel.accommodationTypeId)),
+  );
+  const recoveryAreas = [...new Set(
+    data.accommodationRooms
+      .filter((room) => room.status === "active" && outsideRecoveryTypeIds.includes(room.accommodationTypeId))
+      .map((room) => room.address?.trim() ?? "")
+      .filter(Boolean),
+  )].sort();
+  const recoveryRooms = data.accommodationRooms.filter((room) => {
+    if (room.status !== "active" || !recoveryScopeTypeIds.includes(room.accommodationTypeId)) return false;
+    if (roomRecoveryScope === "joy" && roomRecoveryHostelId && room.hostelId !== roomRecoveryHostelId) return false;
+    if (roomRecoveryScope === "outside" && roomRecoveryArea && (room.address?.trim() ?? "") !== roomRecoveryArea) return false;
+    return true;
+  });
+  const selectedRecoveryRoom = data.accommodationRooms.find((room) => room.id === roomRecoveryId);
+  const existingRecoveryRoomMembers = employees.filter((employee) => employee.roomId === roomRecoveryId);
+
+  function chooseRecoveryRoom(roomId: string) {
+    setRoomRecoveryId(roomId);
+    setRoomRecoveryConfirmed(false);
+    const memberIds = employees.filter((employee) => employee.roomId === roomId).map((employee) => employee.id);
+    setRoomRecoveryMembers(memberIds);
+    const saved = data.roomExpenses.find((expense) => expense.roomId === roomId && expense.payPeriod === roomRecoveryPeriod);
+    setRoomRecoveryGas(saved?.gasAmount ?? 0);
+    setRoomRecoveryRation(saved?.rationAmount ?? 0);
+    setRoomRecoveryProvision(saved?.provisionAmount ?? 0);
+  }
+
+  async function confirmRecoveryRoomMembers() {
+    if (!selectedRecoveryRoom) return;
+    const current = new Set(existingRecoveryRoomMembers.map((employee) => employee.id));
+    const desired = new Set(roomRecoveryMembers);
+    for (const employeeId of desired) {
+      if (!current.has(employeeId)) {
+        const employee = employees.find((row) => row.id === employeeId);
+        await onAction("allocate-room", "Employee added to recovery room", {
+          roomId: selectedRecoveryRoom.id,
+          employeeId,
+          roomRentAmount: employee?.roomRentAmount ?? 0,
+        });
+      }
+    }
+    for (const employeeId of current) {
+      if (!desired.has(employeeId)) {
+        await onAction("allocate-room", "Employee removed from recovery room", {
+          employeeId,
+          roomId: null,
+        });
+      }
+    }
+    setRoomRecoveryConfirmed(true);
+  }
+
+  async function saveRoomWiseRecovery() {
+    if (!roomRecoveryDate || !selectedRecoveryRoom || !roomRecoveryConfirmed) return;
+    await onAction("save-room-expense", "Dated room-wise recovery saved", {
+      roomId: selectedRecoveryRoom.id,
+      payPeriod: roomRecoveryPeriod,
+      gasAmount: roomRecoveryGas,
+      gasDate: roomRecoveryDate,
+      gasCylinderCount: 0,
+      gasPaymentReference: "Recovery",
+      rationAmount: roomRecoveryRation,
+      rationDate: roomRecoveryDate,
+      rationPaymentReference: "Recovery",
+      provisionAmount: roomRecoveryProvision,
+      provisionDate: roomRecoveryDate,
+      provisionPaymentReference: "Recovery",
+      notes: "Saved from Recovery page after roommate confirmation",
+    });
+  }
+
   async function addRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!run) return;
@@ -178,7 +553,44 @@ export function RecoveryCenter({
   }
   return (
     <div className="section-stack">
-      {canManage && run ? (
+      <section className="panel table-panel recovery-overview-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">Room-wise recovery overview</span>
+            <h2>Gas, Ration &amp; Provision totals · {recoveryPreviewPeriod}</h2>
+          </div>
+          <span className="muted-label">
+            {roomRows.length} dated room entr{roomRows.length === 1 ? "y" : "ies"}
+          </span>
+        </div>
+        <div className="room-recovery-summary room-recovery-period-summary">
+          <div><span>Gas overall</span><strong>₹{roomPeriodTotals.gas.toFixed(2)}</strong></div>
+          <div><span>Ration overall</span><strong>₹{roomPeriodTotals.ration.toFixed(2)}</strong></div>
+          <div><span>Provision overall</span><strong>₹{roomPeriodTotals.provision.toFixed(2)}</strong></div>
+          <div><span>Overall room recovery</span><strong>₹{roomPeriodTotals.overall.toFixed(2)}</strong></div>
+          <div><span>Finalized</span><strong>₹{roomPeriodTotals.finalized.toFixed(2)}</strong></div>
+          <div><span>Draft</span><strong>₹{roomPeriodTotals.draft.toFixed(2)}</strong></div>
+        </div>
+        {roomRecoveryDateTotals.length ? (
+          <div className="table-scroll">
+            <table className="data-table room-recovery-date-summary">
+              <thead><tr><th>Date</th><th>Status</th><th>Gas</th><th>Ration</th><th>Provision</th><th>Overall</th></tr></thead>
+              <tbody>
+                {roomRecoveryDateTotals.map((row) => (
+                  <tr key={`${row.date}-${row.status}`}>
+                    <td><strong>{row.date}</strong></td><td>{row.status}</td>
+                    <td>₹{row.gas.toFixed(2)}</td><td>₹{row.ration.toFixed(2)}</td>
+                    <td>₹{row.provision.toFixed(2)}</td><td><strong>₹{row.overall.toFixed(2)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="form-note">No room-wise Gas, Ration or Provision is recorded for this salary cycle.</p>
+        )}
+      </section>
+      {(canManage || canApprove) ? (
         <form
           className="panel form-grid"
           onSubmit={(event) => void addRecovery(event)}
@@ -186,12 +598,18 @@ export function RecoveryCenter({
           <div className="panel-heading form-span">
             <div>
               <span className="eyebrow">Salary-cycle recovery entry</span>
-              <h2>Add recovery by date</h2>
+              <h2>Employee-wise recovery by date</h2>
             </div>
             <span className="muted-label">
               Every entry remains available for day-wise reporting
             </span>
           </div>
+          {!run ? (
+            <p className="form-note form-span">
+              <strong>Create the payroll run to save employee-wise recovery.</strong>{" "}
+              The employee selector remains visible so the missing payroll prerequisite is clear.
+            </p>
+          ) : null}
           <label>
             <span>Employee *</span>
             <select
@@ -255,7 +673,7 @@ export function RecoveryCenter({
           </label>
           <button
             className="primary-button form-span"
-            disabled={isActing || !employeeId || amount <= 0}
+            disabled={isActing || !run || !employeeId || amount <= 0}
           >
             Add dated recovery
           </button>
@@ -319,16 +737,6 @@ export function RecoveryCenter({
                     </td>
                     <td>
                       <div className="record-actions">
-                        {entry.recoveryType === "advance" ? (
-                          <button
-                            className="record-action"
-                            onClick={() =>
-                              setVoucherEmployeeId(entry.employeeId)
-                            }
-                          >
-                            Advance voucher
-                          </button>
-                        ) : null}
                         {canManage ? (
                           <button
                             className="record-action record-delete"
@@ -359,7 +767,7 @@ export function RecoveryCenter({
           </div>
         ) : null}
       </section>
-      <section className="panel table-panel">
+      <section className="panel table-panel recovery-final-payable-panel">
         <div className="panel-heading">
           <div>
             <span className="eyebrow">
@@ -367,32 +775,48 @@ export function RecoveryCenter({
             </span>
             <h2>Net salary → recoveries → final payable</h2>
           </div>
-          {finalizations.length ? (
-            <button
-              className="primary-button"
-              onClick={() => setBulkVouchers(true)}
+          <div className="room-print-toolbar recovery-left-room-toolbar">
+            <select
+              aria-label="Select room for recovery statement"
+              value={roomPrintRoom}
+              onChange={(event) => setRoomPrintRoom(event.target.value)}
             >
-              Download all finalized vouchers
+              <option value="">Select room</option>
+              {roomPrintRooms.map((room) => (
+                <option key={room} value={room}>{room}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!roomPrintRoom}
+              onClick={() => printRoomRecovery([roomPrintRoom])}
+            >
+              Selected room · A4 landscape
             </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!roomPrintRooms.length}
+              onClick={() => printRoomRecovery(roomPrintRooms)}
+            >
+              All rooms · A4 landscape
+            </button>
+          </div>
+          {finalizations.some((entry) => employeeRows.some((row) => row.employee.id === entry.employeeId && (row.total > 0 || row.dated.some((datedEntry) => datedEntry.amount > 0)))) ? (
+            <button className="primary-button" onClick={() => setBulkVouchers(true)}>Bulk deduction vouchers · Print recovery slip · A4 portrait</button>
           ) : null}
         </div>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Employee</th>
-                <th>Room</th>
-                <th>Net before recovery</th>
-                <th>Individual recovery</th>
-                <th>Gas / Ration / Provision</th>
-                <th>Return</th>
-                <th>Final payable</th>
-                <th>Voucher</th>
+                <th>#</th><th>Employee</th><th>Employer unit</th><th>Room</th><th>Net before recovery</th><th>Rent</th><th>Bus</th><th>Food</th><th>Advance</th><th>ID</th><th>Medical</th><th>Ticket</th><th>Shoe</th><th>Aadhaar</th><th>Bank A/c</th><th>T-shirt</th><th>Old pending</th><th>Gas</th><th>Ration</th><th>Provision</th><th>Total recovery</th><th>Return</th><th>Final payable</th><th>Voucher</th>
               </tr>
             </thead>
             <tbody>
               {employeeRows.map(
-                ({ employee, charge, individual, shared, item }) => {
+                ({ employee, charge, individual, shared, item, gasShare, rationShare, provisionShare, pendingShared }, rowIndex) => {
                   const preRecovery = item
                     ? item.netPayable +
                       item.accommodationDeduction -
@@ -400,19 +824,19 @@ export function RecoveryCenter({
                     : 0;
                   return (
                     <tr key={employee.id}>
+                      <td>{rowIndex + 1}</td>
+                      <td><strong>{employee.name}</strong><small>{employee.employeeCode}</small></td>
+                      <td>{(() => { const u = data.units.find((entry) => entry.id === employee.clientUnitId); return u ? `${u.clientName} · ${u.unitName}` : "—"; })()}</td>
+                      <td>{getRecoveryRoomNumber(employee)}</td><td>₹{preRecovery.toFixed(2)}</td>
+                      <td>₹{(charge?.rent ?? 0).toFixed(2)}</td><td>₹{(charge?.bus ?? 0).toFixed(2)}</td><td>₹{(charge?.food ?? 0).toFixed(2)}</td><td>₹{(charge?.advance ?? 0).toFixed(2)}</td><td>₹{(charge?.idCard ?? 0).toFixed(2)}</td><td>₹{(charge?.medical ?? 0).toFixed(2)}</td><td>₹{(charge?.ticket ?? 0).toFixed(2)}</td><td>₹{(charge?.shoe ?? 0).toFixed(2)}</td><td>₹{(charge?.aadhaarUpdate ?? 0).toFixed(2)}</td><td>₹{(charge?.bankAccountCharge ?? 0).toFixed(2)}</td><td>₹{(charge?.tshirt ?? 0).toFixed(2)}</td><td>₹{(charge?.oldPending ?? 0).toFixed(2)}</td><td>₹{gasShare.toFixed(2)}{pendingShared > 0 ? <small>Draft room share</small> : null}</td><td>₹{rationShare.toFixed(2)}</td><td>₹{provisionShare.toFixed(2)}</td><td><strong>₹{(individual + shared).toFixed(2)}</strong></td><td>₹{(charge?.returnAmount ?? 0).toFixed(2)}</td><td><strong>₹{Math.max(0, (item?.netPayable ?? 0) - pendingShared).toFixed(2)}</strong></td>
                       <td>
-                        <strong>{employee.name}</strong>
-                        <small>{employee.employeeCode}</small>
-                      </td>
-                      <td>{employee.roomNumber ?? "—"}</td>
-                      <td>₹{preRecovery.toFixed(2)}</td>
-                      <td>₹{individual.toFixed(2)}</td>
-                      <td>₹{shared.toFixed(2)}</td>
-                      <td>₹{(charge?.returnAmount ?? 0).toFixed(2)}</td>
-                      <td>
-                        <strong>₹{(item?.netPayable ?? 0).toFixed(2)}</strong>
-                      </td>
-                      <td>
+                        <button
+                          type="button"
+                          className="record-action"
+                          onClick={() => setVoucherEmployeeId(employee.id)}
+                        >
+                          Download deduction voucher
+                        </button>
                         {finalizations.some(
                           (finalized) => finalized.employeeId === employee.id,
                         ) ? (
@@ -421,7 +845,7 @@ export function RecoveryCenter({
                               className="record-action"
                               onClick={() => setVoucherEmployeeId(employee.id)}
                             >
-                              Generate voucher
+                              Individual deduction voucher
                             </button>
                             {canApprove ? (
                               <button
@@ -439,22 +863,34 @@ export function RecoveryCenter({
                               </button>
                             ) : null}
                           </div>
-                        ) : canApprove ? (
-                          <button
-                            className="primary-button"
-                            disabled={isActing}
-                            onClick={() =>
-                              void onAction(
-                                "finalize-employee-recovery",
-                                "Recovery finalized and voucher generated",
-                                { employeeId: employee.id },
-                              )
-                            }
-                          >
-                            Finalize recovery
-                          </button>
                         ) : (
-                          <small>Awaiting Super Admin approval</small>
+                          <div className="record-actions">
+                            <button
+                              type="button"
+                              className="record-action"
+                              disabled
+                              title="Available after recovery finalization"
+                            >
+                              Individual deduction voucher
+                            </button>
+                            {run && canApprove ? (
+                              <button
+                                className="primary-button"
+                                disabled={isActing}
+                                onClick={() =>
+                                  void onAction(
+                                    "finalize-employee-recovery",
+                                    "Recovery finalized and voucher generated",
+                                    { employeeId: employee.id },
+                                  )
+                                }
+                              >
+                                Finalize recovery
+                              </button>
+                            ) : (
+                              <small>{run ? "Awaiting Super Admin approval" : "Payroll run required before finalization and voucher"}</small>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -465,6 +901,124 @@ export function RecoveryCenter({
           </table>
         </div>
       </section>
+      {(canManage || canApprove) ? (
+        <section className="panel form-grid room-recovery-entry-panel">
+          <div className="panel-heading form-span">
+            <div>
+              <span className="eyebrow">Room-wise monthly recovery entry</span>
+              <h2>Room-wise recovery</h2>
+            </div>
+            <span className="muted-label">Select the recovery date first. Remaining room recovery fields will open after the date is selected.</span>
+          </div>
+          <label className="form-span">
+            <span>Recovery date *</span>
+            <input
+              type="date"
+              value={roomRecoveryDate}
+              onChange={(event) => {
+                setRoomRecoveryDate(event.target.value);
+                chooseRecoveryRoom("");
+              }}
+              required
+            />
+          </label>
+          <label>
+            <span>Accommodation category *</span>
+            <select disabled={!roomRecoveryDate} value={roomRecoveryScope} onChange={(event) => {
+              setRoomRecoveryScope(event.target.value as "" | "joy" | "outside");
+              setRoomRecoveryHostelId("");
+              setRoomRecoveryArea("");
+              chooseRecoveryRoom("");
+            }}>
+              <option value="">Select category</option>
+              <option value="joy">Joy Room / Joy Hostel</option>
+              <option value="outside">Outside Room</option>
+            </select>
+          </label>
+          {roomRecoveryScope === "joy" ? (
+            <label>
+              <span>Joy Hostel *</span>
+              <select value={roomRecoveryHostelId} onChange={(event) => {
+                setRoomRecoveryHostelId(event.target.value);
+                chooseRecoveryRoom("");
+              }}>
+                <option value="">Select hostel</option>
+                {recoveryHostels.map((hostel) => <option key={hostel.id} value={hostel.id}>{hostel.name}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {roomRecoveryScope === "outside" ? (
+            <label>
+              <span>Area name *</span>
+              <select value={roomRecoveryArea} onChange={(event) => {
+                setRoomRecoveryArea(event.target.value);
+                chooseRecoveryRoom("");
+              }}>
+                <option value="">Select area</option>
+                {recoveryAreas.map((area) => <option key={area} value={area}>{area}</option>)}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            <span>Room *</span>
+            <select value={roomRecoveryId} onChange={(event) => chooseRecoveryRoom(event.target.value)} disabled={!roomRecoveryDate || !roomRecoveryScope}>
+              <option value="">Select room</option>
+              {recoveryRooms.map((room) => <option key={room.id} value={room.id}>Room {room.roomNumber}</option>)}
+            </select>
+          </label>
+          {selectedRecoveryRoom ? (
+            <div className="form-span panel room-recovery-member-confirmation">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">Roommate confirmation</span>
+                  <h3>Are these the employees staying in Room {selectedRecoveryRoom.roomNumber}?</h3>
+                </div>
+                <span className="muted-label">{roomRecoveryMembers.length} selected</span>
+              </div>
+              <div className="room-recovery-member-grid">
+                {employees.filter((employee) => employee.status === "active").map((employee) => (
+                  <label key={employee.id} className="room-recovery-member-option">
+                    <input
+                      type="checkbox"
+                      checked={roomRecoveryMembers.includes(employee.id)}
+                      onChange={(event) => {
+                        setRoomRecoveryConfirmed(false);
+                        setRoomRecoveryMembers((current) => event.target.checked
+                          ? [...new Set([...current, employee.id])]
+                          : current.filter((id) => id !== employee.id));
+                      }}
+                    />
+                    <span><strong>{employee.employeeCode}</strong> · {employee.name}</span>
+                  </label>
+                ))}
+              </div>
+              <button type="button" className="secondary-button" disabled={isActing} onClick={() => void confirmRecoveryRoomMembers()}>
+                {roomRecoveryConfirmed ? "Roommates confirmed ✓" : "Confirm / update room employees"}
+              </button>
+            </div>
+          ) : null}
+          <label>
+            <span>Gas amount (₹)</span>
+            <input disabled={!roomRecoveryDate || !selectedRecoveryRoom} type="number" min="0" step="0.01" value={roomRecoveryGas} onChange={(event) => setRoomRecoveryGas(Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Ration amount (₹)</span>
+            <input disabled={!roomRecoveryDate || !selectedRecoveryRoom} type="number" min="0" step="0.01" value={roomRecoveryRation} onChange={(event) => setRoomRecoveryRation(Number(event.target.value))} />
+          </label>
+          <label>
+            <span>Provision amount (₹)</span>
+            <input disabled={!roomRecoveryDate || !selectedRecoveryRoom} type="number" min="0" step="0.01" value={roomRecoveryProvision} onChange={(event) => setRoomRecoveryProvision(Number(event.target.value))} />
+          </label>
+          <div className="form-span room-expense-calculation">
+            <strong>Total ₹{(roomRecoveryGas + roomRecoveryRation + roomRecoveryProvision).toFixed(2)}</strong>
+            <span>÷ {roomRecoveryMembers.length} confirmed roommates</span>
+            <strong>Per head ₹{(roomRecoveryMembers.length ? (roomRecoveryGas + roomRecoveryRation + roomRecoveryProvision) / roomRecoveryMembers.length : 0).toFixed(2)}</strong>
+          </div>
+          <button type="button" className="primary-button form-span" disabled={isActing || !roomRecoveryDate || !roomRecoveryId || !roomRecoveryConfirmed || roomRecoveryMembers.length === 0} onClick={() => void saveRoomWiseRecovery()}>
+            Save dated room recovery entry for {roomRecoveryPeriod}
+          </button>
+        </section>
+      ) : null}
       <section className="panel table-panel">
         <div className="panel-heading">
           <div>
@@ -549,9 +1103,7 @@ export function RecoveryCenter({
       ) : null}
       {bulkVouchers ? (
         <BulkRecoveryVouchers
-          rows={employeeRows.filter((row) =>
-            finalizations.some((entry) => entry.employeeId === row.employee.id),
-          )}
+          rows={employeeRows.filter((row) => finalizations.some((entry) => entry.employeeId === row.employee.id) && (row.total > 0 || row.dated.some((datedEntry) => datedEntry.amount > 0)))}
           entries={entries}
           units={data.units}
           vendors={data.vendors}
@@ -619,15 +1171,16 @@ function AdvanceVoucher({
     if (charge.provisionShare)
       lines.push(["Provision share", charge.provisionShare]);
   }
+  const voucherTotal = lines.reduce((sum, [, value]) => sum + value, 0);
   return (
     <div className="modal-layer advance-voucher-layer">
       <button className="modal-scrim" onClick={onClose} />
       <div className="room-report-modal">
         <div className="modal-toolbar">
-          <strong>Final employee deduction voucher</strong>
+          <strong>Final recovery voucher</strong>
           <div>
-            <button className="secondary-button" onClick={() => window.print()}>
-              Print / Save PDF
+            <button className="secondary-button" onClick={() => printTarget()}>
+              Print recovery slip · A4 portrait
             </button>
             <button className="icon-button" onClick={onClose}>
               ×
@@ -646,7 +1199,7 @@ function AdvanceVoucher({
               <p>{brand.email} · {brand.contact}</p>
             </div>
           </header>
-          <h3>FINAL SALARY DEDUCTION ACKNOWLEDGEMENT</h3>
+          <h3>FINAL SALARY RECOVERY ACKNOWLEDGEMENT</h3>
           <dl>
             <div>
               <dt>Voucher number</dt>
@@ -697,6 +1250,7 @@ function AdvanceVoucher({
                 </tr>
               ))}
             </tbody>
+            <tfoot><tr><th>Total recovery</th><th>₹{voucherTotal.toFixed(2)}</th></tr></tfoot>
           </table>
           <p>
             I acknowledge the above finalized salary deductions and final
@@ -737,13 +1291,13 @@ function BulkRecoveryVouchers({
       <div className="room-report-modal">
         <div className="modal-toolbar">
           <div>
-            <strong>Bulk finalized deduction vouchers</strong>
+            <strong>Bulk finalized recovery vouchers</strong>
             <span>
               {rows.length} employees · individual and room-wise shares included
             </span>
           </div>
           <div>
-            <button className="primary-button" onClick={() => window.print()}>
+            <button className="primary-button" onClick={() => printTarget()}>
               Print / Save bulk PDF
             </button>
             <button className="icon-button" onClick={onClose}>
@@ -792,6 +1346,7 @@ function BulkRecoveryVouchers({
               lines.push(["Ration share", charge.rationShare]);
             if (charge?.provisionShare)
               lines.push(["Provision share", charge.provisionShare]);
+            const voucherTotal = lines.reduce((sum, [, value]) => sum + value, 0);
             return (
               <article className="advance-voucher" key={employee.id}>
                 <header className="voucher-brand-header">
@@ -805,7 +1360,7 @@ function BulkRecoveryVouchers({
                     <p>{brand.email} · {brand.contact}</p>
                   </div>
                 </header>
-                <h3>FINAL SALARY DEDUCTION ACKNOWLEDGEMENT</h3>
+                <h3>FINAL SALARY RECOVERY ACKNOWLEDGEMENT</h3>
                 <dl>
                   <div>
                     <dt>Voucher number</dt>
@@ -856,6 +1411,7 @@ function BulkRecoveryVouchers({
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot><tr><th>Total recovery</th><th>₹{voucherTotal.toFixed(2)}</th></tr></tfoot>
                 </table>
                 <p>
                   I acknowledge the above finalized salary deductions and final
@@ -933,35 +1489,41 @@ export function ReportsCenter({
           ]),
         ],
       },
+      // JOY_EMPLOYEE_MASTER_FULL_REPORT_V1: Excel/CSV/print use every employee-master input field.
       employees: {
         label: "Employee master",
         rows: [
           [
-            "Employee ID",
-            "Employee",
-            "Department",
-            "Joining",
-            "Left",
-            "Accommodation",
-            "Room",
-            "Bank",
-            "EPF",
-            "ESI",
-            "Status",
+            "Group of Company", "Client Name", "Employer Unit", "Client Location",
+            "Employee ID", "Employee Name", "Department", "Employment Type",
+            "Date of Joining", "Date of Leaving", "Mobile Number", "Email ID", "Emergency Contact Number",
+            "Father Name", "Spouse Name", "Marital Status", "Highest Qualification", "Blood Group",
+            "Address", "District", "State", "Pincode",
+            "UAN / EPF", "ESI Number", "Bank Account", "IFSC", "Bank Name",
+            "Accommodation Type", "Room Number", "Room Rent Amount",
+            "PF Applicable", "PF Wage Amount", "ESI Applicable", "ESI Wage Amount",
+            "PT Applicable", "LWF Applicable", "Payment Mode", "Salary Amount", "Salary Basis",
+            "Default Shift", "Shift Pattern", "Applicable Shifts", "Remarks",
+            "Compliance Status", "Processing Stage", "Finalized By", "Finalized At", "Status"
           ],
-          ...employees.map((employee) => [
-            employee.employeeCode,
-            employee.name,
-            employee.department,
-            employee.dateOfJoining,
-            employee.dateOfLeaving ?? "",
-            employee.accommodationType,
-            employee.roomNumber ?? "",
-            employee.bankAccountMasked ? "Ready" : "Pending",
-            employee.uanMasked ? "Ready" : "Pending",
-            employee.esiMasked ? "Ready" : "Pending",
-            employee.status,
-          ]),
+          ...employees.map((employee) => {
+            const vendor = data.vendors.find((row) => row.id === employee.vendorId);
+            const unit = data.units.find((row) => row.id === employee.clientUnitId);
+            return [
+              vendor?.legalName ?? vendor?.name ?? "",
+              unit?.clientName ?? "", unit?.unitName ?? "", unit?.location ?? "",
+              employee.employeeCode, employee.name, employee.department, employee.employmentType,
+              employee.dateOfJoining, employee.dateOfLeaving ?? "", employee.mobileNumber ?? "", employee.emailAddress ?? "", employee.emergencyContactNumber ?? "",
+              employee.fatherName ?? "", employee.spouseName ?? "", employee.maritalStatus ?? "", employee.highestQualification ?? "", employee.bloodGroup ?? "",
+              employee.addressLine ?? "", employee.district ?? "", employee.stateName ?? "", employee.pincode ?? "",
+              employee.uanMasked ?? "", employee.esiMasked ?? "", employee.bankAccountMasked ?? "", employee.ifscMasked ?? "", employee.bankName ?? "",
+              employee.accommodationType, employee.roomNumber ?? "", employee.roomRentAmount,
+              employee.pfApplicable ? "Yes" : "No", employee.pfWageAmount, employee.esiApplicable ? "Yes" : "No", employee.esiWageAmount,
+              employee.ptApplicable ? "Yes" : "No", employee.lwfApplicable ? "Yes" : "No", employee.paymentMode, employee.salaryAmount, employee.salaryBasis,
+              employee.defaultShift, employee.shiftPattern, employee.applicableShiftsJson, employee.remarks ?? "",
+              employee.complianceStatus, employee.processingStage, employee.finalizedBy ?? "", employee.finalizedAt ?? "", employee.status
+            ];
+          }),
         ],
       },
       attendance: {
@@ -1404,7 +1966,7 @@ export function ReportsCenter({
           >
             CSV
           </button>
-          <button className="primary-button" onClick={() => window.print()}>
+          <button className="primary-button" onClick={() => printTarget()}>
             Print / PDF
           </button>
         </div>
@@ -1445,3 +2007,4 @@ export function ReportsCenter({
     </div>
   );
 }
+

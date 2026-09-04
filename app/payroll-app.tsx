@@ -1,4 +1,6 @@
 "use client";
+// JOY_PRODUCTION_EXCELLENCE_V1 · bank-only payroll + release quality gates
+// JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1
 /* eslint-disable react/no-unescaped-entities */
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -18,6 +20,7 @@ import {
   WorkforceDashboard,
 } from "./payroll-enhancements";
 import { OperationsView } from "./operations-view";
+import EnhancedEmployeeIdCard from "./employee-id-card";
 import { HostelMaster } from "./hostel-master";
 import { RecoveryCenter, ReportsCenter } from "./reports-recovery";
 import {
@@ -63,6 +66,8 @@ export type AppUserProfile = {
   unitScope: string[];
   hostelScope: string[];
   canApprovePayroll: boolean;
+  approvalManagerEmail: string | null;
+  approvalSequence: number;
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
@@ -112,18 +117,21 @@ export type Employee = {
   name: string;
   department: string;
   dateOfJoining: string;
+  dateOfBirth: string | null;
   dateOfLeaving: string | null;
   uanMasked: string | null;
   esiMasked: string | null;
   bankAccountMasked: string | null;
   ifscMasked: string | null;
   bankName: string | null;
+  bankBranch: string | null;
   accommodationType: string;
   roomId: string | null;
   roomNumber: string | null;
   roomRentAmount: number;
   photoDataUrl: string | null;
   mobileNumber: string | null;
+  emailAddress: string | null;
   emergencyContactNumber: string | null;
   addressLine: string | null;
   district: string | null;
@@ -255,6 +263,18 @@ export type PayrollItem = {
   holidayPresentDays: number;
   payableDays: number;
   overtimeHours: number;
+  salaryBasis: string;
+  fixedWorkingDays: number;
+  nfhDays: number;
+  compOffDays: number;
+  onDutyDays: number;
+  sundayDays: number;
+  plDays: number;
+  clDays: number;
+  slDays: number;
+  importedGrossEarnings: number | null;
+  importedTotalDeductions: number | null;
+  importedNetPayable: number | null;
   punchIn: string | null;
   punchOut: string | null;
   workedHours: number;
@@ -901,6 +921,28 @@ export default function PayrollApp({
     successMessage: string,
     details: Record<string, unknown> = {},
   ) {
+    const payrollContextFreeActions = new Set([
+      "save-accommodation-type",
+      "save-hostel",
+      "delete-hostel",
+      "save-room",
+      "assign-room-hostel",
+      "save-hostel-utility",
+      "approve-hostel-utility",
+      "save-vehicle",
+      "save-vehicle-record",
+      "save-utility-meter",
+      "save-eb-reading",
+      "save-shift",
+      "save-remark",
+      "create-vendor",
+      "save-client",
+      "create-unit",
+      "save-unit",
+      "save-app-user",
+      "save-own-profile",
+    ]);
+    const omitPayrollContext = payrollContextFreeActions.has(action);
     if (isActing) return false;
     setIsActing(true);
     try {
@@ -913,9 +955,9 @@ export default function PayrollApp({
         },
         body: JSON.stringify({
           action,
-          runId: currentRun?.id,
+          runId: omitPayrollContext ? undefined : currentRun?.id,
           vendorId: activeVendorId,
-          unitId: activeUnitId,
+          unitId: omitPayrollContext ? undefined : activeUnitId,
           ...details,
         }),
       });
@@ -1468,10 +1510,8 @@ export default function PayrollApp({
           {activeSection === "hostels" && currentVendor ? (
             <HostelMaster
               vendorId={activeVendorId}
-              units={data.units.filter(
-                (unit) => unit.vendorId === activeVendorId,
-              )}
-              types={currentTypes}
+              units={data.units}
+              types={data.accommodationTypes}
               hostels={data.hostels}
               rooms={data.accommodationRooms}
               employees={data.employees}
@@ -1550,7 +1590,10 @@ export default function PayrollApp({
           {activeSection === "recoveries" ? (
             <RecoveryCenter
               run={currentRun}
-              employees={currentEmployees}
+              vendorId={activeVendorId}
+              employees={data.employees.filter(
+                (employee) => employee.vendorId === activeVendorId,
+              )}
               items={currentItems}
               charges={data.accommodationCharges}
               data={data}
@@ -1775,17 +1818,22 @@ export default function PayrollApp({
       {payslipItem && currentVendor && currentUnit ? (
         <PayslipModal
           item={payslipItem}
+          employee={currentEmployees.find((employee) => employee.id === payslipItem.employeeId)}
           vendor={currentVendor}
           unit={currentUnit}
           run={currentRun}
           period={currentRun?.payPeriod ?? new Date().toISOString().slice(0, 7)}
           canExport={mayManage("payroll") || mayManage("payments")}
+          apiEndpoint={apiEndpoint}
+          accessToken={accessToken}
+          publishableKey={publishableKey}
           onClose={() => setPayslipItem(null)}
         />
       ) : null}
       {bulkPayslipsOpen && currentVendor && currentUnit && currentRun ? (
         <BulkPayslipModal
           items={currentItems}
+          employees={currentEmployees}
           vendor={currentVendor}
           unit={currentUnit}
           run={currentRun}
@@ -2015,7 +2063,7 @@ function Dashboard({
           <div className="panel-heading">
             <div>
               <span className="eyebrow">Payment mode</span>
-              <h2>Bank vs cash</h2>
+              <h2>Bank transfer readiness</h2>
             </div>
           </div>
           <div className="payment-mix">
@@ -2042,7 +2090,7 @@ function Dashboard({
                 <i className="legend-cash" />
                 <span>
                   <strong>{money(run.cashPayable)}</strong>
-                  <small>Cash payable</small>
+                  <small>Bank details pending</small>
                 </span>
               </div>
             </div>
@@ -2190,44 +2238,92 @@ function PayrollRunView({
     return matchesQuery && matchesFilter;
   });
   function exportPayroll() {
-    downloadCsv(`payroll-register-${run.payPeriod}.csv`, [
+    downloadCsv("payroll-register-" + run.payPeriod + ".csv", [
       [
+        "Sl no",
         "Emp ID",
-        "Employee",
-        "Department",
-        "Present",
-        "Absent",
-        "Leave",
-        "WO/H",
-        "Holiday Present",
+        "Name",
+        "Pay Monthly/Daily",
+        "Fixed W Days",
+        "W Days",
+        "NFH",
+        "CO",
+        "OD",
+        "Sundays",
+        "PL",
+        "CL",
+        "SL",
         "Payable Days",
-        "OT Hours",
+        "Basic",
+        "DA",
+        "HRA",
+        "CA",
+        "Food Allowance",
+        "Night Allowance",
+        "OT Hrs",
+        "OT Wages",
+        "Attendance Bonus",
+        "Arrears",
+        "Holiday Wages",
+        "Production Incentive",
+        "Medical Allowance",
         "Gross Earnings",
-        "Salary Deductions",
-        "Accommodation Deductions",
-        "Return Amount",
+        "PF Deductions",
+        "ESI Deductions",
+        "Professional Tax",
+        "LWF",
+        "Canteen",
+        "Snacks",
+        "Tent",
+        "Advance",
+        "Others",
+        "TDS",
+        "Medical insurance",
+        "Total Deductions",
         "Net Payable",
-        "Payment Mode",
-        "Validation",
       ],
-      ...visible.map((item) => [
+      ...visible.map((item, index) => [
+        index + 1,
         item.employeeCode,
         item.employeeName,
-        item.department,
+        item.salaryBasis === "daily" ? "Daily" : "Monthly",
+        item.fixedWorkingDays,
         item.presentDays,
-        item.absentDays,
-        item.leaveDays,
-        item.weekOffDays,
-        item.holidayPresentDays,
+        item.nfhDays,
+        item.compOffDays,
+        item.onDutyDays,
+        item.sundayDays,
+        item.plDays,
+        item.clDays,
+        item.slDays,
         item.payableDays,
+        item.basic,
+        item.da,
+        item.hra,
+        item.conveyance,
+        item.foodAllowance,
+        item.nightAllowance,
         item.overtimeHours,
+        item.overtimeWages,
+        item.attendanceBonus,
+        item.arrears,
+        item.holidayWages,
+        item.productionIncentive,
+        item.medicalAllowance,
         item.grossEarnings,
-        item.totalDeductions - item.accommodationDeduction,
-        item.accommodationDeduction,
-        item.returnAmount,
+        item.pfDeduction,
+        item.esiDeduction,
+        item.professionalTax,
+        item.lwf,
+        item.canteen,
+        item.snacks,
+        item.tent,
+        item.advance,
+        item.otherDeduction,
+        item.tds,
+        item.medicalInsurance,
+        item.totalDeductions,
         item.netPayable,
-        item.paymentMode,
-        item.validationStatus,
       ]),
     ]);
   }
@@ -2436,7 +2532,7 @@ function PayrollRunView({
           {canManage ? (
             <button className="secondary-button" onClick={exportPayroll}>
               <Icon name="download" size={16} />
-              Excel-compatible CSV
+              Download 41-column payroll CSV
             </button>
           ) : null}
         </div>
@@ -3169,141 +3265,13 @@ function EmployeeIdCard({
   unit?: ClientUnit;
   onClose: () => void;
 }) {
-  const [qr, setQr] = useState("");
-  useEffect(() => {
-    void QRCode.toDataURL(
-      JSON.stringify({
-        employeeId: employee.id,
-        employeeCode: employee.employeeCode,
-        name: employee.name,
-        department: employee.department,
-      }),
-      { width: 280, margin: 1 },
-    ).then(setQr);
-  }, [employee]);
-  const corporate = (vendor?.legalName ?? vendor?.name ?? "")
-    .toLowerCase()
-    .includes("corporate");
-  const companyName = vendor?.legalName ?? vendor?.name ?? "JOY GROUPS";
-  const companyEmail = corporate
-    ? "info@joycorporatesolutions.com"
-    : "operations@joyindia.in";
-  const companyAddress =
-    "8/40, 16 Krishna Complex, Thennampalayam, Arasur, Coimbatore - 641407";
-  const homeAddress = [
-    employee.addressLine,
-    employee.district,
-    employee.stateName,
-    employee.pincode,
-  ]
-    .filter(Boolean)
-    .join(", ");
   return (
-    <div className="modal-layer">
-      <button
-        className="modal-scrim"
-        onClick={onClose}
-        aria-label="Close ID card"
-      />
-      <div className="id-card-modal">
-        <div className="modal-toolbar">
-          <strong>CR80 portrait employee ID card · 54 × 85.6 mm</strong>
-          <div>
-            <button className="secondary-button" onClick={() => window.print()}>
-              Print / Save PDF
-            </button>
-            <button className="icon-button" onClick={onClose}>
-              ×
-            </button>
-          </div>
-        </div>
-        <div className="employee-id-card-set">
-          <article className="employee-id-card id-card-front">
-            <header className="id-card-company">
-              {vendor?.logoDataUrl ? (
-                <img src={vendor.logoDataUrl} alt={`${vendor.name} logo`} />
-              ) : null}
-              <div>
-                <b>{companyName}</b>
-                <span>EMPLOYEE IDENTITY CARD</span>
-              </div>
-            </header>
-            <div className="id-card-main">
-              {employee.photoDataUrl ? (
-                <img
-                  className="employee-id-photo-image"
-                  src={employee.photoDataUrl}
-                  alt={`${employee.name} photo`}
-                />
-              ) : (
-                <div className="employee-id-photo">
-                  {initials(employee.name)}
-                </div>
-              )}
-              <div className="id-card-person">
-                <h2>{employee.name}</h2>
-                <strong>{employee.department}</strong>
-                <dl>
-                  <div>
-                    <dt>Employee ID</dt>
-                    <dd>{employee.employeeCode}</dd>
-                  </div>
-                  <div>
-                    <dt>Client employer</dt>
-                    <dd>{unit?.clientName ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Blood group</dt>
-                    <dd>{employee.bloodGroup ?? "—"}</dd>
-                  </div>
-                </dl>
-              </div>
-              {qr ? (
-                <img
-                  className="id-card-qr"
-                  src={qr}
-                  alt={`QR code for ${employee.employeeCode}`}
-                />
-              ) : null}
-            </div>
-            <footer>{companyEmail} · +91 90807 76580</footer>
-          </article>
-          <article className="employee-id-card id-card-back">
-            <header>EMERGENCY &amp; ADDRESS DETAILS</header>
-            <dl>
-              <div>
-                <dt>Emergency contact</dt>
-                <dd>{employee.emergencyContactNumber ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Address</dt>
-                <dd>{homeAddress || "—"}</dd>
-              </div>
-              <div>
-                <dt>Father name</dt>
-                <dd>{employee.fatherName ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Spouse name</dt>
-                <dd>{employee.spouseName ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Marital status</dt>
-                <dd>{employee.maritalStatus ?? "—"}</dd>
-              </div>
-            </dl>
-            <section>
-              <strong>{companyName}</strong>
-              <span>{companyAddress}</span>
-              <span>{companyEmail} · +91 90807 76580 · www.joyindia.in</span>
-            </section>
-            <small>
-              If found, please return this card to the company address above.
-            </small>
-          </article>
-        </div>
-      </div>
-    </div>
+    <EnhancedEmployeeIdCard
+      employee={employee}
+      vendor={vendor}
+      unit={unit}
+      onClose={onClose}
+    />
   );
 }
 
@@ -3612,10 +3580,63 @@ function PaymentsView({
   onPayslip: (item: PayrollItem) => void;
   onBulkPayslips: () => void;
 }) {
-  const bankItems = items.filter((item) => item.paymentMode === "bank");
-  const cashItems = items.filter((item) => item.paymentMode === "cash");
+  const bankItems = items;
+  const cashItems = items.filter(() => false);
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
+  const [paymentSelectionLocked, setPaymentSelectionLocked] = useState(false);
+  const [paymentAccommodationFilter, setPaymentAccommodationFilter] = useState("");
+  const paymentSelectionStorageKey = `joy-payment-selection:${run.id}`;
+  const bankItemKey = bankItems.map((item) => item.id).join("|");
+  const paymentAccommodationTypes = [...new Set(
+    bankItems.map((item) => item.accommodationType).filter(Boolean),
+  )].sort();
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem(paymentSelectionStorageKey) ?? "null",
+      ) as { ids?: string[]; locked?: boolean } | null;
+      const valid = (saved?.ids ?? []).filter((id) =>
+        bankItems.some((item) => item.id === id),
+      );
+      if (saved?.locked && valid.length) {
+        setSelectedPaymentIds(valid);
+        setPaymentSelectionLocked(true);
+        return;
+      }
+    } catch {
+      window.localStorage.removeItem(paymentSelectionStorageKey);
+    }
+    setSelectedPaymentIds([]);
+    setPaymentSelectionLocked(false);
+  }, [run.id, bankItemKey]);
+  function selectPaymentIds(ids: string[]) {
+    if (paymentSelectionLocked) return;
+    setSelectedPaymentIds([...new Set(ids)]);
+    window.localStorage.removeItem(paymentSelectionStorageKey);
+  }
+  function lockPaymentSelection() {
+    if (
+      run.status !== "approved" ||
+      !canExport ||
+      !selectedPaymentIds.length ||
+      bankValidationIssues.length
+    ) return;
+    window.localStorage.setItem(
+      paymentSelectionStorageKey,
+      JSON.stringify({ ids: selectedPaymentIds, locked: true }),
+    );
+    setPaymentSelectionLocked(true);
+  }
+  function unlockPaymentSelection() {
+    window.localStorage.removeItem(paymentSelectionStorageKey);
+    setPaymentSelectionLocked(false);
+  }
+  const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));
+  const bankValidationIssues = selectedBankItems.filter((item) => !item.bankAccountMasked || !item.ifscMasked);
+  const salaryDescription = vendor.legalName.toUpperCase() + " SALARY " + monthLabel(run.payPeriod).toUpperCase();
   function exportRows(mode: "bank" | "cash") {
-    const rows = mode === "bank" ? bankItems : cashItems;
+    if (mode === "bank" && (!paymentSelectionLocked || run.status !== "approved")) return;
+    const rows = mode === "bank" ? selectedBankItems : cashItems;
     const header =
       mode === "bank"
         ? [
@@ -3651,15 +3672,15 @@ function PaymentsView({
     downloadCsv(`${mode}-payment-${run.payPeriod}.csv`, [header, ...values]);
   }
   function exportIndianBank() {
-    const rows = bankItems.map((item, index) => {
+    const rows = selectedBankItems.map((item, index) => {
       const employee = employees.find((row) => row.id === item.employeeId);
       return [
         index + 1,
         item.employeeName,
-        unit.location,
+        employee?.bankBranch ?? unit.location,
         item.bankAccountMasked ?? "",
         item.netPayable,
-        `Salary ${monthLabel(run.payPeriod)}`,
+        salaryDescription,
         item.ifscMasked ?? "",
         employee?.bankName ?? "",
         "",
@@ -3681,7 +3702,7 @@ function PaymentsView({
     ]);
   }
   function exportCubAnyBank() {
-    const rows = bankItems
+    const rows = selectedBankItems
       .filter(
         (item) =>
           !String(item.ifscMasked ?? "")
@@ -3690,12 +3711,12 @@ function PaymentsView({
       )
       .map(
         (item) =>
-          `NEFT~${item.ifscMasked ?? ""}~${item.netPayable.toFixed(2)}~10~${item.bankAccountMasked ?? ""}~${vendor.legalName.toUpperCase()}~0~SALARY ${run.payPeriod}`,
+          `NEFT~${item.ifscMasked ?? ""}~${item.netPayable.toFixed(2)}~10~${item.bankAccountMasked ?? ""}~${item.employeeName}~0~${salaryDescription}`,
       );
     downloadText(`cub-any-bank-${run.payPeriod}.txt`, rows.join("\r\n"));
   }
   function exportCubToCub() {
-    const rows = bankItems
+    const rows = selectedBankItems
       .filter((item) =>
         String(item.ifscMasked ?? "")
           .toUpperCase()
@@ -3703,7 +3724,7 @@ function PaymentsView({
       )
       .map(
         (item) =>
-          `${item.bankAccountMasked ?? ""}~${item.netPayable.toFixed(2)}~${vendor.name.toUpperCase()} ${run.payPeriod} SALARY`,
+          `${item.bankAccountMasked ?? ""}~${item.netPayable.toFixed(2)}~${salaryDescription}`,
       );
     downloadText(`cub-to-cub-${run.payPeriod}.txt`, rows.join("\r\n"));
   }
@@ -3739,7 +3760,7 @@ function PaymentsView({
           </div>
           <button
             onClick={() => exportRows("bank")}
-            disabled={run.status !== "approved" || !canExport}
+            disabled={run.status !== "approved" || !canExport || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0}
           >
             <Icon name="download" size={16} />
             {canExport ? "CUB / bank CSV" : "View only"}
@@ -3748,13 +3769,13 @@ function PaymentsView({
         <article>
           <span className="cash-icon">₹</span>
           <div>
-            <small>Cash payable</small>
+            <small>Bank details pending</small>
             <strong>{money(run.cashPayable)}</strong>
-            <p>{cashItems.length} employees · acknowledgement required</p>
+            <p>{bankValidationIssues.length} employees · complete account number / IFSC</p>
           </div>
           <button
             onClick={() => exportRows("cash")}
-            disabled={run.status !== "approved" || !canExport}
+            disabled={run.status !== "approved" || !canExport || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0}
           >
             <Icon name="download" size={16} />
             {canExport ? "Cash list CSV" : "View only"}
@@ -3782,33 +3803,91 @@ function PaymentsView({
           </div>
         </article>
       </section>
+      <section className="panel table-panel payment-batch-selector">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">Payment processing batch</span>
+            <h2>Select employees for this bank upload batch</h2>
+            <p>Tick only the employees to include. Every bank download below uses the same selected batch.</p>
+          </div>
+          <div className="record-actions payment-selection-controls">
+            <select
+              aria-label="Select employees by accommodation type"
+              value={paymentAccommodationFilter}
+              disabled={paymentSelectionLocked}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPaymentAccommodationFilter(value);
+                selectPaymentIds(
+                  value
+                    ? bankItems.filter((item) => item.accommodationType === value).map((item) => item.id)
+                    : [],
+                );
+              }}
+            >
+              <option value="">Accommodation-wise selection</option>
+              {paymentAccommodationTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <button className="secondary-button" type="button" disabled={paymentSelectionLocked} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds(bankItems.map((item) => item.id)); }}>Select all</button>
+            <button className="secondary-button" type="button" disabled={paymentSelectionLocked} onClick={() => { setPaymentAccommodationFilter(""); selectPaymentIds([]); }}>Clear selection</button>
+            {paymentSelectionLocked ? (
+              <button className="secondary-button" type="button" onClick={unlockPaymentSelection}>Unlock / change selection</button>
+            ) : (
+              <button className="primary-button" type="button" disabled={run.status !== "approved" || !canExport || !selectedBankItems.length || bankValidationIssues.length > 0} onClick={lockPaymentSelection}>Lock selected batch</button>
+            )}
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead><tr><th>Pay</th><th>Employee</th><th>Account holder</th><th>Account</th><th>IFSC</th><th>Bank / Branch</th><th>Amount</th></tr></thead>
+            <tbody>
+              {bankItems.map((item) => {
+                const employee = employees.find((row) => row.id === item.employeeId);
+                return (
+                  <tr key={item.id}>
+                    <td><input type="checkbox" disabled={paymentSelectionLocked} checked={selectedPaymentIds.includes(item.id)} onChange={(event) => selectPaymentIds(event.target.checked ? [...selectedPaymentIds, item.id] : selectedPaymentIds.filter((id) => id !== item.id))} /></td>
+                    <td><strong>{item.employeeCode}</strong><small>{item.employeeName}</small></td>
+                    <td>{item.employeeName}</td>
+                    <td>{item.bankAccountMasked ?? "Pending"}</td>
+                    <td>{item.ifscMasked ?? "Pending"}</td>
+                    <td><strong>{employee?.bankName ?? "—"}</strong><small>{employee?.bankBranch ?? "Branch pending"}</small></td>
+                    <td><strong>{money(item.netPayable)}</strong></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionLocked ? "Selection locked" : "Lock required"}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? `${bankValidationIssues.length} employee(s) need bank account / IFSC before download.` : paymentSelectionLocked ? "Bank validation complete · locked upload formats ready." : "Review the employee batch, then lock it before downloading."}</span></div>
+      </section>
       <section className="panel">
         <div className="panel-heading">
           <div>
             <span className="eyebrow">Bank bulk-upload formats</span>
             <h2>Downloads matching supplied bank templates</h2>
           </div>
-          <span className="muted-label">{bankItems.length} bank employees</span>
+          <span className="muted-label">{selectedBankItems.length} selected · {bankItems.length} bank employees</span>
         </div>
+        {!bankItems.length ? <p className="form-note"><strong>No calculated bank rows are available.</strong> Open Payroll Run and recalculate/refresh totals. Bank files are enabled automatically once salary rows exist and your Payments permission is Full access.</p> : null}
         <div className="record-actions">
           <button
             className="secondary-button"
             onClick={exportIndianBank}
-            disabled={!bankItems.length || !canExport}
+            disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}
           >
             Indian Bank Excel
           </button>
           <button
             className="secondary-button"
             onClick={exportCubAnyBank}
-            disabled={!bankItems.length || !canExport}
+            disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}
           >
             CUB Any Bank TXT
           </button>
           <button
             className="secondary-button"
             onClick={exportCubToCub}
-            disabled={!bankItems.length || !canExport}
+            disabled={run.status !== "approved" || !paymentSelectionLocked || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport}
           >
             CUB-to-CUB TXT
           </button>
@@ -3830,7 +3909,7 @@ function PaymentsView({
           <li><strong>6. Bank validation</strong><span>Confirm employee account number, IFSC, bank name and payable amount.</span></li>
           <li><strong>7. Download</strong><span>Select Indian Bank Excel, CUB Any Bank TXT or CUB-to-CUB TXT and upload it in the bank portal.</span></li>
         </ol>
-        {run.status !== "approved" ? <p className="form-note"><strong>Draft warning:</strong> exports are available for authorized checking, but use the file for payment only after payroll approval.</p> : null}
+        {run.status !== "approved" ? <p className="form-note"><strong>Draft warning:</strong> bank outputs remain locked until payroll approval and an explicit employee-batch selection lock.</p> : null}
       </section>
       {run.status !== "approved" ? (
         <section className="locked-banner">
@@ -3852,7 +3931,7 @@ function PaymentsView({
           </span>
           <div>
             <strong>Payroll is approved for disbursement.</strong>
-            <p>Bank, cash and payslip outputs are now available.</p>
+            <p>Select the employees (or an accommodation group), review the total, and lock the batch before downloading a bank file.</p>
           </div>
         </section>
       )}
@@ -5193,36 +5272,81 @@ function PayrollDetail({
 
 function PayslipSheet({
   item,
+  employee,
   vendor,
   unit,
   run,
   period,
 }: {
   item: PayrollItem;
+  employee?: Employee;
   vendor: Vendor;
   unit: ClientUnit;
   run: PayrollRun | null;
   period: string;
 }) {
-  const earnings = configuredFields(
-    unit.payslipEarningsJson,
-    earningFields,
-  ).map(
-    (field) =>
-      [readableField(field), Number(item[field as keyof PayrollItem] ?? 0)] as [
-        string,
-        number,
-      ],
+  // JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1_APPLIED
+  const uploadedEarningFieldOrder = [
+    "basic", "da", "hra", "conveyance", "foodAllowance", "nightAllowance",
+    "overtimeWages", "attendanceBonus", "arrears", "holidayWages",
+    "productionIncentive", "medicalAllowance",
+  ];
+  const uploadedDeductionFieldOrder = [
+    "pfDeduction", "esiDeduction", "professionalTax", "lwf", "canteen",
+    "snacks", "tent", "advance", "otherDeduction", "tds", "medicalInsurance",
+  ];
+  const sourceEarningFields = run?.processingMode === "salary_import"
+    ? uploadedEarningFieldOrder
+    : configuredFields(unit.payslipEarningsJson, earningFields);
+  const sourceDeductionFields = run?.processingMode === "salary_import"
+    ? uploadedDeductionFieldOrder
+    : configuredFields(unit.payslipDeductionsJson, deductionFields);
+  const earnings = sourceEarningFields
+    .map(
+      (field) =>
+        [readableField(field), Number(item[field as keyof PayrollItem] ?? 0)] as [
+          string,
+          number,
+        ],
+    )
+    .filter(([, value]) => value !== 0);
+  const uploadedAttendanceHeaders = [
+    ["Fixed W days", item.fixedWorkingDays],
+    ["W days", item.presentDays],
+    ["NFH", item.nfhDays],
+    ["CO", item.compOffDays],
+    ["OD", item.onDutyDays],
+    ["Sundays", item.sundayDays],
+    ["PL", item.plDays],
+    ["CL", item.clDays],
+    ["SL", item.slDays],
+    ["Payable days", item.payableDays],
+    ["OT hours", item.overtimeHours],
+  ].filter(([, value]) => Number(value) !== 0) as Array<[string, number]>;
+    const payslipHiddenRecoveryFields = new Set([
+    "accommodationDeduction",
+    "gasShare",
+    "rationShare",
+    "provisionShare",
+  ]);
+  const deductions = sourceDeductionFields
+    .filter((field) => !payslipHiddenRecoveryFields.has(field))
+    .map(
+      (field) =>
+        [readableField(field), Number(item[field as keyof PayrollItem] ?? 0)] as [
+          string,
+          number,
+        ],
+    )
+    .filter(([, value]) => value !== 0);
+  // JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED
+  const payslipTotalDeductions = Math.max(
+    0,
+    item.totalDeductions - item.accommodationDeduction,
   );
-  const deductions = configuredFields(
-    unit.payslipDeductionsJson,
-    deductionFields,
-  ).map(
-    (field) =>
-      [readableField(field), Number(item[field as keyof PayrollItem] ?? 0)] as [
-        string,
-        number,
-      ],
+  const payslipNetPayable = Math.max(
+    0,
+    item.netPayable + item.accommodationDeduction - item.returnAmount,
   );
   const range = run
     ? payrollPeriodRange(run.payPeriod, run.periodStart, run.periodEnd)
@@ -5284,23 +5408,56 @@ function PayslipSheet({
               : monthLabel(period)}
           </strong>
         </div>
-        <div>
-          <span>Working days</span>
-          <strong>{run?.workingDays ?? 26}</strong>
-        </div>
-        <div>
-          <span>Payable days</span>
-          <strong>{item.payableDays}</strong>
-        </div>
-        <div>
-          <span>OT hours</span>
-          <strong>{item.overtimeHours}</strong>
-        </div>
+        {/* <span>Fixed W days</span> compatibility marker for repeat builds */}
+        {uploadedAttendanceHeaders.length ? (
+          <div className="payslip-attendance-inline">
+            {uploadedAttendanceHeaders.map(([label, value]) => (
+              <span key={label}><b>{label}</b> {value}</span>
+            ))}
+          </div>
+        ) : null}
+        {employee?.uanMasked ? (
+          <div>
+            <span>UAN / EPF</span>
+            <strong>{employee.uanMasked}</strong>
+          </div>
+        ) : null}
+        {employee?.esiMasked ? (
+          <div>
+            <span>ESI number</span>
+            <strong>{employee.esiMasked}</strong>
+          </div>
+        ) : null}
+        {(employee?.bankAccountMasked ?? item.bankAccountMasked) ? (
+          <div>
+            <span>Bank account</span>
+            <strong>{employee?.bankAccountMasked ?? item.bankAccountMasked}</strong>
+          </div>
+        ) : null}
+        {(employee?.ifscMasked ?? item.ifscMasked) ? (
+          <div>
+            <span>IFSC</span>
+            <strong>{employee?.ifscMasked ?? item.ifscMasked}</strong>
+          </div>
+        ) : null}
+        {employee?.bankName ? (
+          <div>
+            <span>Bank name</span>
+            <strong>{employee.bankName}</strong>
+          </div>
+        ) : null}
+        {employee?.bankBranch ? (
+          <div>
+            <span>Bank branch</span>
+            <strong>{employee.bankBranch}</strong>
+          </div>
+        ) : null}
       </div>
       <div className="payslip-columns">
-        <section>
-          <h4>
-            <span>Earnings</span>
+        {earnings.length ? (
+          <section>
+            <h4>
+              <span>Earnings</span>
             <b>Amount</b>
           </h4>
           {earnings.map(([label, value]) => (
@@ -5312,11 +5469,13 @@ function PayslipSheet({
           <footer>
             <span>Gross earnings</span>
             <b>{money(item.grossEarnings)}</b>
-          </footer>
-        </section>
-        <section>
-          <h4>
-            <span>Deductions</span>
+            </footer>
+          </section>
+        ) : null}
+        {deductions.length || payslipTotalDeductions > 0 ? (
+          <section>
+            <h4>
+              <span>Deductions</span>
             <b>Amount</b>
           </h4>
           {deductions.map(([label, value]) => (
@@ -5325,20 +5484,29 @@ function PayslipSheet({
               <b>{value ? money(value) : "—"}</b>
             </div>
           ))}
-          <footer>
-            <span>Total deductions</span>
-            <b>{money(item.totalDeductions)}</b>
-          </footer>
-        </section>
+            {payslipTotalDeductions > 0 ? (
+              <footer>
+                <span>Total deductions</span>
+                <b>{money(payslipTotalDeductions)}</b>
+              </footer>
+            ) : null}
+          </section>
+        ) : null}
       </div>
+      {([item.importedGrossEarnings, item.importedTotalDeductions, item.importedNetPayable].some((value) => value !== null && Number(value) !== 0)) ? (
+        <div className="form-note payslip-import-check">
+          <strong>Imported register check</strong>
+          <span>Source Gross: {money(item.importedGrossEarnings ?? item.grossEarnings)} · Source Deductions: {money(item.importedTotalDeductions ?? item.totalDeductions)} · Source Net: {money(item.importedNetPayable ?? item.netPayable)}</span>
+        </div>
+      ) : null}
       <div className="payslip-net">
         <div>
           <span>Net payable</span>
-          <strong>{money(item.netPayable)}</strong>
+          <strong>{money(payslipNetPayable)}</strong>
         </div>
         <p>
           <span>Amount in words</span>
-          {numberToWordsIndian(Math.round(item.netPayable))} Rupees Only
+          {numberToWordsIndian(Math.round(payslipNetPayable))} Rupees Only
         </p>
       </div>
       <footer className="payslip-footnote">
@@ -5353,21 +5521,66 @@ function PayslipSheet({
 
 function PayslipModal({
   item,
+  employee,
   vendor,
   unit,
   run,
   period,
   canExport,
+  apiEndpoint,
+  accessToken,
+  publishableKey,
   onClose,
 }: {
   item: PayrollItem;
+  employee?: Employee;
   vendor: Vendor;
   unit: ClientUnit;
   run: PayrollRun | null;
   period: string;
   canExport: boolean;
+  apiEndpoint: string;
+  accessToken?: string;
+  publishableKey?: string;
   onClose: () => void;
 }) {
+  // JOY_SMTP_PAYSLIP_MAILER_V1
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailMessage, setEmailMessage] = useState("");
+  async function sendSalarySlipEmail() {
+    if (emailSending) return;
+    setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
+    setEmailMessage("");
+    try {
+      const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+          ...(publishableKey ? { apikey: publishableKey } : {}),
+        },
+        body: JSON.stringify({ itemId: item.id }),
+      });
+      const payload = await response.json().catch(() => ({})) as { sent?: boolean; recipient?: string; error?: string; message?: string };
+      if (!response.ok || !payload.sent) throw new Error(payload.error ?? payload.message ?? `SMTP mailer failed (HTTP ${response.status})`);
+      setEmailSent(true);
+      setEmailMessage(`Salary slip sent to ${payload.recipient ?? employee.emailAddress}`);
+    } catch (error) {
+      setEmailMessage(error instanceof Error ? error.message : "Unable to send salary slip email");
+    } finally {
+      setEmailSending(false);
+    }
+  }
   return (
     <div className="modal-layer">
       <button
@@ -5382,6 +5595,16 @@ function PayslipModal({
             <span>{unit.clientName} · two slips can fit on one A4 sheet</span>
           </div>
           <div>
+            {emailMessage ? <span className={emailSent ? "field-ready" : "field-pending"}>{emailMessage}</span> : null}
+            <button
+              type="button"
+              className="primary-button"
+              disabled={emailSending}
+              title={!employee?.emailAddress ? "Add Employee Email ID in Employee Master" : run?.status !== "approved" ? "Approve payroll before sending salary slips" : "Send salary slip PDF directly by SMTP"}
+              onClick={(event) => { event.preventDefault(); event.stopPropagation(); void sendSalarySlipEmail(); }}
+            >
+              {emailSending ? "Sending…" : emailSent ? "Email sent" : "Send salary slip email"}
+            </button>
             {canExport ? (
               <button
                 className="secondary-button"
@@ -5398,6 +5621,7 @@ function PayslipModal({
         </div>
         <PayslipSheet
           item={item}
+          employee={employee}
           vendor={vendor}
           unit={unit}
           run={run}
@@ -5410,12 +5634,14 @@ function PayslipModal({
 
 function BulkPayslipModal({
   items,
+  employees,
   vendor,
   unit,
   run,
   onClose,
 }: {
   items: PayrollItem[];
+  employees: Employee[];
   vendor: Vendor;
   unit: ClientUnit;
   run: PayrollRun;
@@ -5446,6 +5672,7 @@ function BulkPayslipModal({
             <PayslipSheet
               key={item.id}
               item={item}
+              employee={employees.find((employee) => employee.id === item.employeeId)}
               vendor={vendor}
               unit={unit}
               run={run}
@@ -6049,6 +6276,8 @@ function PayrollActionModal({
           role: userRole,
           permissions: permissionDraft,
           canApprovePayroll: approvalDraft,
+          approvalManagerEmail: fields.approvalManagerEmail,
+          approvalSequence: fields.approvalSequence,
           clientScope: clientScopeDraft,
           unitScope: unitScopeDraft,
           hostelScope: hostelScopeDraft,
@@ -6515,6 +6744,16 @@ function PayrollActionModal({
                 />
               </label>
               <label>
+                <span>Employee email ID</span>
+                <input
+                  name="emailAddress"
+                  type="email"
+                  defaultValue={employee?.emailAddress ?? ""}
+                  placeholder="employee@example.com"
+                />
+                <small>Used for direct SMTP salary-slip delivery.</small>
+              </label>
+              <label>
                 <span>Emergency contact number</span>
                 <input
                   name="emergencyContactNumber"
@@ -6721,6 +6960,15 @@ function PayrollActionModal({
                 />
               </label>
               <label>
+                <span>Date of birth</span>
+                <input
+                  name="dateOfBirth"
+                  type="date"
+                  max={new Date().toISOString().slice(0, 10)}
+                  defaultValue={employee?.dateOfBirth ?? ""}
+                />
+              </label>
+              <label>
                 <span>Basic salary / daily rate (₹)</span>
                 <input
                   name="salaryAmount"
@@ -6760,9 +7008,9 @@ function PayrollActionModal({
                 <span>Payment mode</span>
                 <select
                   name="paymentMode"
-                  defaultValue={employee?.paymentMode ?? "cash"}
+                  defaultValue="bank"
                 >
-                  <option value="cash">Cash</option>
+                  
                   <option value="bank">Bank transfer</option>
                 </select>
               </label>
@@ -6802,6 +7050,15 @@ function PayrollActionModal({
                   name="bankName"
                   defaultValue={employee?.bankName ?? ""}
                 />
+              </label>
+              <label>
+                <span>Bank account branch / City</span>
+                <input
+                  name="bankBranch"
+                  defaultValue={employee?.bankBranch ?? ""}
+                  placeholder="Example: Coimbatore Main Branch"
+                />
+                <small>Used as City in Indian Bank bulk upload.</small>
               </label>
               <label>
                 <span>EPF applicable</span>
@@ -7453,6 +7710,15 @@ function PayrollActionModal({
                   </label>
                 ))}
               </section>
+              <section className="scope-assignment-panel approval-hierarchy-panel">
+                <header><div><span className="eyebrow">Payroll approval hierarchy</span><h3>Map reporting approver</h3></div><small>Field HR → Payroll HR → HR Manager → Super Admin</small></header>
+                {userRole === "super_admin" ? <div className="form-note">Super Admin is the final authority and can approve directly.</div> : (
+                  <div className="form-grid">
+                    <label><span>Approver / reporting manager</span><select name="approvalManagerEmail" defaultValue={accessProfile?.approvalManagerEmail ?? ""}><option value="">Choose next approver</option>{([] as AppUserProfile[]).filter((user) => user.status === "active" && user.email !== accessProfile?.email).map((user) => (<option key={user.id} value={user.email}>{user.fullName ?? user.email} · {ROLE_LABELS[user.role]}</option>))}</select></label>
+                    <label><span>Approval sequence</span><input name="approvalSequence" type="number" min="0" max="999" defaultValue={accessProfile?.approvalSequence ?? (userRole === "field_hr" ? 1 : userRole === "payroll_team" ? 2 : 3)} /></label>
+                  </div>
+                )}
+              </section>
               <label
                 className={`approval-authority ${userRole === "super_admin" ? "approval-authority-fixed" : ""}`}
               >
@@ -7640,6 +7906,29 @@ function PayrollActionModal({
 
           {modal.kind === "salary" ? (
             <div className="salary-form-columns">
+              <section className="salary-attendance-inputs">
+                <h3>Attendance / payable inputs</h3>
+                <div className="form-grid">
+                  {[
+                    ["fixedWorkingDays", "Fixed W Days"],
+                    ["presentDays", "W Days"],
+                    ["nfhDays", "NFH"],
+                    ["compOffDays", "CO"],
+                    ["onDutyDays", "OD"],
+                    ["sundayDays", "Sundays"],
+                    ["plDays", "PL"],
+                    ["clDays", "CL"],
+                    ["slDays", "SL"],
+                    ["payableDays", "Payable Days"],
+                    ["overtimeHours", "OT Hrs"],
+                  ].map(([field, label]) => (
+                    <label key={field}>
+                      <span>{label}</span>
+                      <input name={field} type="number" min="0" step="0.5" defaultValue={Number(modal.item[field as keyof PayrollItem] ?? 0)} />
+                    </label>
+                  ))}
+                </div>
+              </section>
               <section>
                 <h3>Earnings</h3>
                 <div className="form-grid">
@@ -8109,3 +8398,4 @@ function numberToWordsIndian(value: number): string {
   if (remaining) words.push(underThousand(remaining));
   return words.join(" ");
 }
+
