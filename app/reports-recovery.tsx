@@ -148,6 +148,16 @@ export function RecoveryCenter({
     recoveryVendorRoomIds.has(expense.roomId),
   );
   const [roomRecoveryDate, setRoomRecoveryDate] = useState("");
+  type RecoveryScope = "" | "joy" | "outside";
+  const [roomRecoveryScope, setRoomRecoveryScope] = useState<RecoveryScope>("");
+  const [roomRecoveryHostelId, setRoomRecoveryHostelId] = useState("");
+  const [roomRecoveryArea, setRoomRecoveryArea] = useState("");
+  const [roomRecoveryId, setRoomRecoveryId] = useState("");
+  const [roomRecoveryMembers, setRoomRecoveryMembers] = useState<string[]>([]);
+  const [roomRecoveryConfirmed, setRoomRecoveryConfirmed] = useState(false);
+  const [roomRecoveryGas, setRoomRecoveryGas] = useState(0);
+  const [roomRecoveryRation, setRoomRecoveryRation] = useState(0);
+  const [roomRecoveryProvision, setRoomRecoveryProvision] = useState(0);
   const recoveryPreviewPeriod =
     run?.payPeriod ??
     [...new Set(recoveryRoomEntries.map((expense) => expense.payPeriod))]
@@ -707,6 +717,24 @@ export function RecoveryCenter({
           </p>
         </section>
       ) : null}
+      {/* Legacy duplicate room-recovery forms are intentionally hidden. The
+          canonical date-first room flow below owns these controls. */}
+      {/*
+      {(canManage || canApprove) ? (
+        <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
+          <div className="panel-heading form-span">
+            <div><span className="eyebrow">Room-wise shared recovery input</span><h2>Hostel → Room → Gas / Ration / Provision</h2></div>
+            <span className="muted-label">Shared total is split equally among active room employees when finalized</span>
+          </div>
+          <label><span>Hostel *</span><select value={roomRecoveryHostelId} onChange={(event) => { setRoomRecoveryHostelId(event.target.value); setRoomRecoveryRoomId(""); }} required><option value="">Choose hostel</option>{recoveryHostels.map((hostel) => (<option key={hostel.id} value={hostel.id}>{hostel.name}</option>))}</select></label>
+          <label><span>Room *</span><select value={roomRecoveryRoomId} onChange={(event) => { const id = event.target.value; setRoomRecoveryRoomId(id); const existing = data.roomExpenses.find((expense) => expense.roomId === id && expense.payPeriod === run.payPeriod); setRoomGas(existing?.gasAmount ?? 0); setRoomRation(existing?.rationAmount ?? 0); setRoomProvision(existing?.provisionAmount ?? 0); }} required><option value="">Choose room</option>{recoveryRooms.map((room) => (<option key={room.id} value={room.id}>{room.roomNumber}</option>))}</select></label>
+          <label><span>Gas (₹)</span><input type="number" min="0" step="0.01" value={roomGas} onChange={(event) => setRoomGas(Number(event.target.value))} /></label>
+          <label><span>Ration (₹)</span><input type="number" min="0" step="0.01" value={roomRation} onChange={(event) => setRoomRation(Number(event.target.value))} /></label>
+          <label><span>Provision (₹)</span><input type="number" min="0" step="0.01" value={roomProvision} onChange={(event) => setRoomProvision(Number(event.target.value))} /></label>
+          <div className="form-note"><strong>{roomOccupants.length} roommates</strong><span>{roomOccupants.map((employee) => `${employee.employeeCode} · ${employee.name}`).join(", ") || "Choose a room to view employees"}</span><span>Shared total ₹{(roomGas + roomRation + roomProvision).toFixed(2)} · Per head ₹{((roomGas + roomRation + roomProvision) / Math.max(1, roomOccupants.length)).toFixed(2)}</span></div>
+          <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
+        </form>
+      ) : null}
       {(canManage || canApprove) ? (
         <form className="panel form-grid room-recovery-entry" onSubmit={(event) => void saveRoomRecovery(event)}>
           <div className="panel-heading form-span">
@@ -797,6 +825,7 @@ export function RecoveryCenter({
           <div className="record-actions form-span"><button className="secondary-button" type="submit" disabled={isActing || !roomRecoveryRoomId}>Save room recovery</button>{currentRoomExpense?.status === "draft" ? (<button className="primary-button" type="button" disabled={isActing} onClick={() => void onAction("finalize-room-expense", "Room recovery finalized and split to employees", { expenseId: currentRoomExpense.id })}>Finalize & split to roommates</button>) : currentRoomExpense?.status === "finalized" ? (<button className="secondary-button" type="button" disabled={isActing} onClick={() => void onAction("reopen-room-expense", "Room recovery reopened", { expenseId: currentRoomExpense.id })}>Reopen room recovery</button>) : null}</div>
         </form>
       ) : null}
+      */}
       <section className="panel table-panel">
         <div className="panel-heading">
           <div>

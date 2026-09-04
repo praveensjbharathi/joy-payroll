@@ -410,6 +410,23 @@ recovery = recovery.replace(
 // Reconcile the employee and room-wise statement from the authoritative
 // accommodation-charge ledger, add period/date totals, and make the printed
 // room statement and vouchers explicitly show their reconciled totals.
+const roomRecoveryStateAnchor = `  const [roomRecoveryDate, setRoomRecoveryDate] = useState("");`;
+if (recovery.includes(roomRecoveryStateAnchor) && !recovery.includes("const [roomRecoveryScope, setRoomRecoveryScope]")) {
+  recovery = recovery.replace(
+    roomRecoveryStateAnchor,
+    `${roomRecoveryStateAnchor}
+  type RecoveryScope = "" | "joy" | "outside";
+  const [roomRecoveryScope, setRoomRecoveryScope] = useState<RecoveryScope>("");
+  const [roomRecoveryHostelId, setRoomRecoveryHostelId] = useState("");
+  const [roomRecoveryArea, setRoomRecoveryArea] = useState("");
+  const [roomRecoveryId, setRoomRecoveryId] = useState("");
+  const [roomRecoveryMembers, setRoomRecoveryMembers] = useState<string[]>([]);
+  const [roomRecoveryConfirmed, setRoomRecoveryConfirmed] = useState(false);
+  const [roomRecoveryGas, setRoomRecoveryGas] = useState(0);
+  const [roomRecoveryRation, setRoomRecoveryRation] = useState(0);
+  const [roomRecoveryProvision, setRoomRecoveryProvision] = useState(0);`,
+  );
+}
 if (!recovery.includes("JOY_HANDWRITTEN_RECOVERY_FIXES_V1_APPLIED")) {
   if (!recovery.includes("const runCharges =")) {
     recovery = recovery.replace(
@@ -1313,8 +1330,8 @@ if (!liveEnhancements.includes(".payslip-columns section>div{font-size:9.5pt!imp
 // the same reconciled totals are used. The older V4 all-room listener cloned
 // rows before totals were added and is intentionally left as a no-op.
 liveEnhancements = liveEnhancements.replace(
-  "function joyRecoveryPrintAllRoomsV4(){const panel",
-  "function joyRecoveryPrintAllRoomsV4(){return;const panel",
+  /function joyRecoveryPrintAllRoomsV4\(\)\{(?:return;)?const panel[\s\S]*?\nfunction joyBuildAllRoomSheetsV4/,
+  "function joyRecoveryPrintAllRoomsV4(){return;}\nfunction joyBuildAllRoomSheetsV4",
 );
 if (!liveEnhancements.includes("JOY_HANDWRITTEN_RECOVERY_PRINT_V1")) {
   liveEnhancements += `
@@ -1339,7 +1356,7 @@ document.head.appendChild(joyRecoveryReconciliationStyle);
 // END_JOY_HANDWRITTEN_RECOVERY_PRINT_V1
 `;
 }
-if (!liveEnhancements.includes("function joyRecoveryPrintAllRoomsV4(){return;const panel"))
+if (!liveEnhancements.includes("function joyRecoveryPrintAllRoomsV4(){return;}"))
   throw new Error("Legacy all-room printer still bypasses reconciled totals");
 if (!liveEnhancements.includes("font-size:11pt!important;line-height:1.25!important;font-weight:900"))
   throw new Error("Punching number font was not enlarged on the room statement");
