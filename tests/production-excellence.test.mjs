@@ -41,9 +41,21 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(api, /payment_export_batch_run_item_unique/);
   assert.match(api, /duplicate processing was blocked/);
   assert.match(payroll, /const bankDownloadBlockReason/);
-  assert.match(payroll, /Bank formats unavailable:/);
+  assert.match(payroll, /Download check:/);
   assert.match(payroll, /zero-pay employee\(s\) omitted from bank files/);
   assert.doesNotMatch(payroll, /lock the batch before downloading a bank file/);
+  assert.match(payroll, /JOY_ALWAYS_AVAILABLE_BANK_DOWNLOAD_V2/);
+  assert.match(payroll, /const availableBankItems = bankItems\.filter/);
+  assert.match(payroll, /const prepared = resolveBankExport\("indian_bank_xlsx"\)/);
+  assert.match(payroll, /all .* eligible employee\(s\) will be included automatically/);
+  assert.match(payroll, /window\.confirm/);
+  assert.match(payroll, /-COPY/);
+  const formatsStart = payroll.indexOf('<span className="eyebrow">Bank bulk-upload formats</span>');
+  const formatsEnd = payroll.indexOf('<section className="panel payroll-bank-flow">', formatsStart);
+  const formats = payroll.slice(formatsStart, formatsEnd);
+  assert.ok(formatsStart >= 0 && formatsEnd > formatsStart);
+  assert.doesNotMatch(formats, /disabled=\{run\.status|!selectedBankItems/);
+  assert.match(formats, /disabled=\{paymentSelectionBusy\}/);
 });
 
 test("recovery category choices resolve to real hostel and room master IDs", async () => {

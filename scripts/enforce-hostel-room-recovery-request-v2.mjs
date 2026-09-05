@@ -1052,6 +1052,10 @@ if (!payrollApp.includes("JOY_ONE_CLICK_BANK_EXPORT_V1"))
   throw new Error("One-click bank output reservation was not added");
 if (!payrollApp.includes("const bankDownloadBlockReason"))
   throw new Error("Bank output prerequisites are still hidden from the user");
+if (!payrollApp.includes("JOY_ALWAYS_AVAILABLE_BANK_DOWNLOAD_V2"))
+  throw new Error("Bank format buttons still depend on manual employee selection");
+if (!payrollApp.includes("includes all eligible employees automatically"))
+  throw new Error("Automatic all-eligible bank download guidance is missing");
 if (payrollApp.includes("lock the batch before downloading a bank file"))
   throw new Error("Obsolete manual bank batch lock guidance is still visible");
 const hasPersistentPaymentBatchGuard =

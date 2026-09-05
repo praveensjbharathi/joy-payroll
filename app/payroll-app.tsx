@@ -3706,6 +3706,7 @@ function PaymentsView({
   const cashItems = items.filter(() => false);
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
   const [paymentSelectionBusy, setPaymentSelectionBusy] = useState(false);
+  const [paymentActionMessage, setPaymentActionMessage] = useState("");
   const [paymentAccommodationFilter, setPaymentAccommodationFilter] = useState("");
   const bankItemKey = bankItems.map((item) => item.id).join("|");
   const paymentBatchStateKey = paymentExportBatches
@@ -3734,6 +3735,24 @@ function PaymentsView({
           .map((item) => item.payrollItemId),
       ),
   );
+  const availableBankItems = bankItems.filter(
+    (item) =>
+      !downloadedPaymentItemIds.has(item.id) &&
+      !lockedPaymentItemIds.has(item.id),
+  );
+  const latestDownloadedBatch = [...paymentExportBatches]
+    .filter((batch) => batch.status === "downloaded")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
+  const latestDownloadedItemIds = new Set(
+    latestDownloadedBatch
+      ? paymentExportBatchItems
+          .filter((item) => item.batchId === latestDownloadedBatch.id)
+          .map((item) => item.payrollItemId)
+      : [],
+  );
+  const latestDownloadedBankItems = bankItems.filter((item) =>
+    latestDownloadedItemIds.has(item.id),
+  );
   const paymentAccommodationTypes = [...new Set(
     bankItems.map((item) => item.accommodationType).filter(Boolean),
   )].sort();
@@ -3758,9 +3777,11 @@ function PaymentsView({
           ),
     );
     setPaymentSelectionBusy(false);
+    setPaymentActionMessage("");
   }, [run.id, bankItemKey, paymentBatchStateKey]);
   function selectPaymentIds(ids: string[]) {
     if (legacyLockedBatch || paymentSelectionBusy) return;
+    setPaymentActionMessage("");
     setSelectedPaymentIds(
       [...new Set(ids)].filter(
         (id) =>
@@ -3770,22 +3791,119 @@ function PaymentsView({
   }
   const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));
   const bankValidationIssues = selectedBankItems.filter((item) => !item.bankAccountMasked || !item.ifscMasked);
+  const defaultBankItems = selectedBankItems.length
+    ? selectedBankItems
+    : availableBankItems;
+  const defaultBankValidationIssues = defaultBankItems.filter(
+    (item) => !item.bankAccountMasked || !item.ifscMasked,
+  );
+  const displayedBankItems = defaultBankItems.length
+    ? defaultBankItems
+    : latestDownloadedBankItems;
+  // JOY_ALWAYS_AVAILABLE_BANK_DOWNLOAD_V2: format buttons stay clickable.
+  // No manual selection means all eligible unpaid rows. An already downloaded
+  // batch can only be reconstructed in its original format as a warned copy.
   const bankDownloadBlockReason =
     run.status !== "approved"
       ? `Payroll is ${run.status}. Approve it in Payroll Run before downloading a bank format.`
       : !canExport
         ? "Full access to Payments & Payslips is required to download bank formats."
-        : !selectedBankItems.length
-          ? "Select at least one employee with a positive final payable."
-          : bankValidationIssues.length
-            ? `${bankValidationIssues.length} selected employee(s) need an account number and IFSC.`
+        : defaultBankValidationIssues.length
+          ? `${defaultBankValidationIssues.length} employee(s) need an account number and IFSC.`
+          : !defaultBankItems.length && !latestDownloadedBatch
+            ? "No positive, unprocessed salary amount is available for a bank file."
             : "";
   const paymentSelectionStatus = legacyLockedBatch
     ? "Prepared batch ready"
     : bankDownloadBlockReason
       ? "Action required"
-      : "Ready for one-click download";
+      : selectedBankItems.length
+        ? "Ready for one-click download"
+        : availableBankItems.length
+          ? "All available employees will be included"
+          : "Processed batch copy available";
   const salaryDescription = vendor.legalName.toUpperCase() + " SALARY " + monthLabel(run.payPeriod).toUpperCase();
+  type BankExportFormat =
+    | "bank_csv"
+    | "indian_bank_xlsx"
+    | "cub_any_bank_txt"
+    | "cub_to_cub_txt";
+  function bankFormatLabel(format: BankExportFormat) {
+    if (format === "indian_bank_xlsx") return "Indian Bank Excel";
+    if (format === "cub_any_bank_txt") return "CUB Any Bank TXT";
+    if (format === "cub_to_cub_txt") return "CUB-to-CUB TXT";
+    return "CUB / bank CSV";
+  }
+  function resolveBankExport(
+    format: BankExportFormat,
+    isEligible: (item: PayrollItem) => boolean = () => true,
+  ) {
+    setPaymentActionMessage("");
+    if (run.status !== "approved") {
+      setPaymentActionMessage(
+        `Payroll is ${run.status}. Approve it in Payroll Run before downloading a bank format.`,
+      );
+      return null;
+    }
+    if (!canExport) {
+      setPaymentActionMessage(
+        "Full access to Payments & Payslips is required to download bank formats.",
+      );
+      return null;
+    }
+    const freshItems = defaultBankItems.filter(isEligible);
+    const invalidItems = freshItems.filter(
+      (item) => !item.bankAccountMasked || !item.ifscMasked,
+    );
+    if (invalidItems.length) {
+      setPaymentActionMessage(
+        `${invalidItems.length} employee(s) need an account number and IFSC before download.`,
+      );
+      return null;
+    }
+    if (freshItems.length)
+      return { items: freshItems, isCopy: false, batch: null };
+
+    // A copy is offered only when there are no selectable unpaid rows. This
+    // prevents a selected new batch from being silently replaced by old data.
+    const downloadedBatch = !selectedBankItems.length && !availableBankItems.length
+      ? [...paymentExportBatches]
+          .filter(
+            (batch) =>
+              batch.status === "downloaded" && batch.exportFormat === format,
+          )
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null
+      : null;
+    const downloadedIds = new Set(
+      downloadedBatch
+        ? paymentExportBatchItems
+            .filter((item) => item.batchId === downloadedBatch.id)
+            .map((item) => item.payrollItemId)
+        : [],
+    );
+    const copyItems = bankItems.filter(
+      (item) => downloadedIds.has(item.id) && isEligible(item),
+    );
+    if (downloadedBatch && copyItems.length) {
+      const confirmed = window.confirm(
+        `${bankFormatLabel(format)} was already downloaded for this salary batch. ` +
+          "This creates a COPY only. Do not upload both files because that may duplicate salary payment. Continue?",
+      );
+      if (!confirmed) return null;
+      return { items: copyItems, isCopy: true, batch: downloadedBatch };
+    }
+    setPaymentActionMessage(
+      availableBankItems.length || selectedBankItems.length
+        ? `No selected employee is eligible for ${bankFormatLabel(format)}.`
+        : `This salary was already processed in another bank format. ${bankFormatLabel(format)} cannot be newly generated because that could duplicate salary payment.`,
+    );
+    return null;
+  }
+  function finishCopiedDownload(format: BankExportFormat) {
+    setPaymentActionMessage(
+      `${bankFormatLabel(format)} copy downloaded. It represents an already processed salary batch—do not upload both the original and the copy.`,
+    );
+  }
   async function markPaymentBatchDownloaded(
     format: string,
     exportItems: PayrollItem[],
@@ -3818,13 +3936,15 @@ function PaymentsView({
     return saved;
   }
   async function exportRows(mode: "bank" | "cash") {
-    if (mode === "bank" && run.status !== "approved") return;
+    const prepared = mode === "bank" ? resolveBankExport("bank_csv") : null;
+    if (mode === "bank" && !prepared) return;
     if (
       mode === "bank" &&
-      !(await markPaymentBatchDownloaded("bank_csv", selectedBankItems))
-    )
-      return;
-    const rows = mode === "bank" ? selectedBankItems : cashItems;
+      prepared &&
+      !prepared.isCopy &&
+      !(await markPaymentBatchDownloaded("bank_csv", prepared.items))
+    ) return;
+    const rows = mode === "bank" ? prepared!.items : cashItems;
     const header =
       mode === "bank"
         ? [
@@ -3858,11 +3978,17 @@ function PaymentsView({
           ],
     );
     downloadCsv(`${mode}-payment-${run.payPeriod}.csv`, [header, ...values]);
+    if (mode === "bank" && prepared?.isCopy)
+      finishCopiedDownload("bank_csv");
   }
   async function exportIndianBank() {
-    const exportItems = [...selectedBankItems];
-    if (!(await markPaymentBatchDownloaded("indian_bank_xlsx", exportItems)))
-      return;
+    const prepared = resolveBankExport("indian_bank_xlsx");
+    if (!prepared) return;
+    const exportItems = prepared.items;
+    if (
+      !prepared.isCopy &&
+      !(await markPaymentBatchDownloaded("indian_bank_xlsx", exportItems))
+    ) return;
     const rows = exportItems.map((item, index) => {
       const employee = employees.find((row) => row.id === item.employeeId);
       return [
@@ -3877,7 +4003,7 @@ function PaymentsView({
         "",
       ];
     });
-    downloadXlsx(`indian-bank-bulk-${run.payPeriod}.xlsx`, [
+    downloadXlsx(`indian-bank-bulk-${run.payPeriod}${prepared.isCopy ? "-COPY" : ""}.xlsx`, [
       [
         "SNO_REF_NO",
         "CUSTOMER_NAME",
@@ -3891,35 +4017,49 @@ function PaymentsView({
       ],
       ...rows,
     ]);
+    if (prepared.isCopy) finishCopiedDownload("indian_bank_xlsx");
   }
   async function exportCubAnyBank() {
-    const exportItems = selectedBankItems.filter(
-        (item) =>
-          !String(item.ifscMasked ?? "")
-            .toUpperCase()
-            .startsWith("CIUB"),
-      );
-    if (!(await markPaymentBatchDownloaded("cub_any_bank_txt", exportItems)))
-      return;
+    const prepared = resolveBankExport(
+      "cub_any_bank_txt",
+      (item) =>
+        !String(item.ifscMasked ?? "")
+          .toUpperCase()
+          .startsWith("CIUB"),
+    );
+    if (!prepared) return;
+    const exportItems = prepared.items;
+    if (
+      !prepared.isCopy &&
+      !(await markPaymentBatchDownloaded("cub_any_bank_txt", exportItems))
+    ) return;
     const rows = exportItems.map(
         (item) =>
           `NEFT~${item.ifscMasked ?? ""}~${item.netPayable.toFixed(2)}~10~${item.bankAccountMasked ?? ""}~${item.employeeName}~0~${salaryDescription}`,
       );
-    downloadText(`cub-any-bank-${run.payPeriod}.txt`, rows.join("\r\n"));
+    downloadText(`cub-any-bank-${run.payPeriod}${prepared.isCopy ? "-COPY" : ""}.txt`, rows.join("\r\n"));
+    if (prepared.isCopy) finishCopiedDownload("cub_any_bank_txt");
   }
   async function exportCubToCub() {
-    const exportItems = selectedBankItems.filter((item) =>
+    const prepared = resolveBankExport(
+      "cub_to_cub_txt",
+      (item) =>
         String(item.ifscMasked ?? "")
           .toUpperCase()
           .startsWith("CIUB"),
       );
-    if (!(await markPaymentBatchDownloaded("cub_to_cub_txt", exportItems)))
-      return;
+    if (!prepared) return;
+    const exportItems = prepared.items;
+    if (
+      !prepared.isCopy &&
+      !(await markPaymentBatchDownloaded("cub_to_cub_txt", exportItems))
+    ) return;
     const rows = exportItems.map(
         (item) =>
           `${item.bankAccountMasked ?? ""}~${item.netPayable.toFixed(2)}~${salaryDescription}`,
       );
-    downloadText(`cub-to-cub-${run.payPeriod}.txt`, rows.join("\r\n"));
+    downloadText(`cub-to-cub-${run.payPeriod}${prepared.isCopy ? "-COPY" : ""}.txt`, rows.join("\r\n"));
+    if (prepared.isCopy) finishCopiedDownload("cub_to_cub_txt");
   }
   return (
     <div className="section-stack">
@@ -3953,7 +4093,8 @@ function PaymentsView({
           </div>
           <button
             onClick={() => exportRows("bank")}
-            disabled={run.status !== "approved" || !canExport || !selectedBankItems.length || bankValidationIssues.length > 0 || paymentSelectionBusy}
+            disabled={paymentSelectionBusy}
+            title="Download selected employees, or all eligible employees when none are selected"
           >
             <Icon name="download" size={16} />
             {canExport ? "CUB / bank CSV" : "View only"}
@@ -4043,7 +4184,7 @@ function PaymentsView({
             </tbody>
           </table>
         </div>
-        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionStatus}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankDownloadBlockReason || (legacyLockedBatch ? "Choose a bank format to complete the previously prepared selection." : "Select employees, review the total, then click the required format. The download is recorded automatically.")}</span>{nonPayableBankItemCount ? <span>{nonPayableBankItemCount} zero-pay employee(s) omitted from bank files.</span> : null}</div>
+        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionStatus}</strong><span>Batch total: {money(displayedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankDownloadBlockReason || (legacyLockedBatch ? "Choose a bank format to complete the previously prepared selection." : selectedBankItems.length ? "The selected employees will be used." : availableBankItems.length ? `No manual selection: all ${availableBankItems.length} eligible employee(s) will be included automatically.` : "All positive-pay employees were already processed. Click the matching original format to download a warned COPY.")}</span>{nonPayableBankItemCount ? <span>{nonPayableBankItemCount} zero-pay employee(s) omitted from bank files.</span> : null}</div>
       </section>
       <section className="panel">
         <div className="panel-heading">
@@ -4051,32 +4192,33 @@ function PaymentsView({
             <span className="eyebrow">Bank bulk-upload formats</span>
             <h2>Downloads matching supplied bank templates</h2>
           </div>
-          <span className="muted-label">{selectedBankItems.length} selected · {bankItems.length} bank employees</span>
+          <span className="muted-label">{selectedBankItems.length} selected · {availableBankItems.length} available · {bankItems.length} bank employees</span>
         </div>
         {!bankItems.length ? <p className="form-note"><strong>No calculated bank rows are available.</strong> Open Payroll Run and recalculate/refresh totals. Bank files are enabled automatically once salary rows exist and your Payments permission is Full access.</p> : null}
-        {bankDownloadBlockReason ? <p className="form-note"><strong>Bank formats unavailable:</strong> {bankDownloadBlockReason}</p> : <p className="form-note"><strong>Bank formats ready.</strong> Clicking a format reserves only its selected employees and prevents duplicate salary processing.</p>}
+        {bankDownloadBlockReason ? <p className="form-note"><strong>Download check:</strong> {bankDownloadBlockReason} Click a format to see the required action.</p> : <p className="form-note"><strong>Bank formats ready.</strong> With no manual selection, the button includes all eligible employees automatically. Clicking a format reserves them and prevents duplicate salary processing.</p>}
+        {paymentActionMessage ? <p className="form-note"><strong>Download information:</strong> {paymentActionMessage}</p> : null}
         <div className="record-actions">
           <button
             className="secondary-button"
             onClick={() => void exportIndianBank()}
-            title={bankDownloadBlockReason || "Download Indian Bank Excel"}
-            disabled={run.status !== "approved" || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
+            title="Download Indian Bank Excel"
+            disabled={paymentSelectionBusy}
           >
             Indian Bank Excel
           </button>
           <button
             className="secondary-button"
             onClick={() => void exportCubAnyBank()}
-            title={bankDownloadBlockReason || "Download CUB Any Bank TXT"}
-            disabled={run.status !== "approved" || !selectedBankItems.some((item) => !String(item.ifscMasked ?? "").toUpperCase().startsWith("CIUB")) || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
+            title="Download CUB Any Bank TXT"
+            disabled={paymentSelectionBusy}
           >
             CUB Any Bank TXT
           </button>
           <button
             className="secondary-button"
             onClick={() => void exportCubToCub()}
-            title={bankDownloadBlockReason || "Download CUB-to-CUB TXT"}
-            disabled={run.status !== "approved" || !selectedBankItems.some((item) => String(item.ifscMasked ?? "").toUpperCase().startsWith("CIUB")) || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
+            title="Download CUB-to-CUB TXT"
+            disabled={paymentSelectionBusy}
           >
             CUB-to-CUB TXT
           </button>
@@ -5738,9 +5880,17 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
-    setEmailSending(true);
+    if (emailSending) return;
     setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
