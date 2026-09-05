@@ -783,6 +783,10 @@ if (!payrollApp.includes("const employerTitle = unit.payslipTitle ?? unit.client
   throw new Error("The configured payslip header was not preserved");
 if (!recovery.includes("const recoveryPreviewPeriod"))
   throw new Error("Recovery preview period was not added");
+if (!recovery.includes("JOY_RECOVERY_SCOPE_MAPPING_V2"))
+  throw new Error("Recovery category concepts are not mapped to real accommodation type IDs");
+if (recovery.includes("accommodationTypeId === roomRecoveryScope"))
+  throw new Error("Recovery category labels are still compared directly with master IDs");
 if (
   !recovery.includes("Draft room-share preview") &&
   !recovery.includes("Draft room share")
@@ -1046,6 +1050,10 @@ if (!payrollApp.includes("Approve payroll before sending salary slips."))
   throw new Error("Payslip email prerequisites are still silent");
 if (!payrollApp.includes("JOY_ONE_CLICK_BANK_EXPORT_V1"))
   throw new Error("One-click bank output reservation was not added");
+if (!payrollApp.includes("const bankDownloadBlockReason"))
+  throw new Error("Bank output prerequisites are still hidden from the user");
+if (payrollApp.includes("lock the batch before downloading a bank file"))
+  throw new Error("Obsolete manual bank batch lock guidance is still visible");
 const hasPersistentPaymentBatchGuard =
   payrollApp.includes("download-payment-batch") &&
   payrollApp.includes("itemIds: exportItems.map");

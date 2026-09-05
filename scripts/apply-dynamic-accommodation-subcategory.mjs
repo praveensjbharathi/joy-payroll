@@ -20,6 +20,14 @@ await writeFile(hostelPath, hostel, "utf8");
 const recoveryPath = join(root, "app/reports-recovery.tsx");
 let recovery = await readFile(recoveryPath, "utf8");
 
+// The production UI keeps the stable conceptual choices "joy" and
+// "outside", then maps them to real Operational Master IDs. Do not restore
+// the obsolete direct ID comparison when the corrected mapping is present.
+if (recovery.includes("JOY_RECOVERY_SCOPE_MAPPING_V2")) {
+  console.log("Dynamic accommodation mapping already uses real master IDs; preserved.");
+  process.exit(0);
+}
+
 recovery = recovery.replace(
   'const [roomRecoveryScope, setRoomRecoveryScope] = useState<"" | "joy" | "outside">("");',
   'const [roomRecoveryScope, setRoomRecoveryScope] = useState("");',

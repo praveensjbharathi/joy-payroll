@@ -3694,7 +3694,15 @@ function PaymentsView({
   onPayslip: (item: PayrollItem) => void;
   onBulkPayslips: () => void;
 }) {
-  const bankItems = items.filter((item) => item.paymentMode !== "cash");
+  // Bank files contain only employees with an actual positive payment. A
+  // zero-pay salary row remains in payroll reports but must never become a
+  // beneficiary row or consume the duplicate-payment reservation.
+  const bankItems = items.filter(
+    (item) => item.paymentMode !== "cash" && item.netPayable > 0,
+  );
+  const nonPayableBankItemCount = items.filter(
+    (item) => item.paymentMode !== "cash" && item.netPayable <= 0,
+  ).length;
   const cashItems = items.filter(() => false);
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
   const [paymentSelectionBusy, setPaymentSelectionBusy] = useState(false);
@@ -3762,9 +3770,21 @@ function PaymentsView({
   }
   const selectedBankItems = bankItems.filter((item) => selectedPaymentIds.includes(item.id));
   const bankValidationIssues = selectedBankItems.filter((item) => !item.bankAccountMasked || !item.ifscMasked);
+  const bankDownloadBlockReason =
+    run.status !== "approved"
+      ? `Payroll is ${run.status}. Approve it in Payroll Run before downloading a bank format.`
+      : !canExport
+        ? "Full access to Payments & Payslips is required to download bank formats."
+        : !selectedBankItems.length
+          ? "Select at least one employee with a positive final payable."
+          : bankValidationIssues.length
+            ? `${bankValidationIssues.length} selected employee(s) need an account number and IFSC.`
+            : "";
   const paymentSelectionStatus = legacyLockedBatch
     ? "Prepared batch ready"
-    : "Ready for one-click download";
+    : bankDownloadBlockReason
+      ? "Action required"
+      : "Ready for one-click download";
   const salaryDescription = vendor.legalName.toUpperCase() + " SALARY " + monthLabel(run.payPeriod).toUpperCase();
   async function markPaymentBatchDownloaded(
     format: string,
@@ -4023,7 +4043,7 @@ function PaymentsView({
             </tbody>
           </table>
         </div>
-        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionStatus}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankValidationIssues.length ? `${bankValidationIssues.length} employee(s) need bank account / IFSC before download.` : legacyLockedBatch ? "Choose a bank format to complete the previously prepared selection." : "Select employees, review the total, then click the required format. The download is recorded automatically."}</span></div>
+        <div className="form-note"><strong>{selectedBankItems.length} employees selected · {paymentSelectionStatus}</strong><span>Batch total: {money(selectedBankItems.reduce((sum, item) => sum + item.netPayable, 0))}</span><span>{bankDownloadBlockReason || (legacyLockedBatch ? "Choose a bank format to complete the previously prepared selection." : "Select employees, review the total, then click the required format. The download is recorded automatically.")}</span>{nonPayableBankItemCount ? <span>{nonPayableBankItemCount} zero-pay employee(s) omitted from bank files.</span> : null}</div>
       </section>
       <section className="panel">
         <div className="panel-heading">
@@ -4034,10 +4054,12 @@ function PaymentsView({
           <span className="muted-label">{selectedBankItems.length} selected · {bankItems.length} bank employees</span>
         </div>
         {!bankItems.length ? <p className="form-note"><strong>No calculated bank rows are available.</strong> Open Payroll Run and recalculate/refresh totals. Bank files are enabled automatically once salary rows exist and your Payments permission is Full access.</p> : null}
+        {bankDownloadBlockReason ? <p className="form-note"><strong>Bank formats unavailable:</strong> {bankDownloadBlockReason}</p> : <p className="form-note"><strong>Bank formats ready.</strong> Clicking a format reserves only its selected employees and prevents duplicate salary processing.</p>}
         <div className="record-actions">
           <button
             className="secondary-button"
             onClick={() => void exportIndianBank()}
+            title={bankDownloadBlockReason || "Download Indian Bank Excel"}
             disabled={run.status !== "approved" || !selectedBankItems.length || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
           >
             Indian Bank Excel
@@ -4045,6 +4067,7 @@ function PaymentsView({
           <button
             className="secondary-button"
             onClick={() => void exportCubAnyBank()}
+            title={bankDownloadBlockReason || "Download CUB Any Bank TXT"}
             disabled={run.status !== "approved" || !selectedBankItems.some((item) => !String(item.ifscMasked ?? "").toUpperCase().startsWith("CIUB")) || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
           >
             CUB Any Bank TXT
@@ -4052,6 +4075,7 @@ function PaymentsView({
           <button
             className="secondary-button"
             onClick={() => void exportCubToCub()}
+            title={bankDownloadBlockReason || "Download CUB-to-CUB TXT"}
             disabled={run.status !== "approved" || !selectedBankItems.some((item) => String(item.ifscMasked ?? "").toUpperCase().startsWith("CIUB")) || bankValidationIssues.length > 0 || !canExport || paymentSelectionBusy}
           >
             CUB-to-CUB TXT
@@ -4096,7 +4120,7 @@ function PaymentsView({
           </span>
           <div>
             <strong>Payroll is approved for disbursement.</strong>
-            <p>Select the employees (or an accommodation group), review the total, and lock the batch before downloading a bank file.</p>
+            <p>Select the employees (or an accommodation group), review the total, then click the required bank format. The selected employees are reserved automatically to prevent duplicate processing.</p>
           </div>
         </section>
       )}
@@ -5714,17 +5738,9 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (emailSending) return;
-    setEmailSent(false);
-    if (!employee?.emailAddress) {
-      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
-      return;
-    }
-    if (!run?.id || run.status !== "approved") {
-      setEmailMessage("Approve payroll before sending salary slips.");
-      return;
-    }
+    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
     setEmailSending(true);
+    setEmailSent(false);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {

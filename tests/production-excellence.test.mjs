@@ -26,7 +26,7 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   const payroll = await source("app/payroll-app.tsx");
   const api = await source("app/api/app-data/route.ts");
   assert.doesNotMatch(payroll, /<option value="cash">Cash<\/option>/);
-  assert.match(payroll, /const bankItems = items\.filter\(\(item\) => item\.paymentMode !== "cash"\)/);
+  assert.match(payroll, /item\.paymentMode !== "cash" && item\.netPayable > 0/);
   assert.match(payroll, /bankValidationIssues/);
   assert.match(api, /const paymentMode = "bank";/);
   assert.doesNotMatch(api, /paymentMode: "cash"/);
@@ -40,6 +40,20 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(api, /requestedItemIds/);
   assert.match(api, /payment_export_batch_run_item_unique/);
   assert.match(api, /duplicate processing was blocked/);
+  assert.match(payroll, /const bankDownloadBlockReason/);
+  assert.match(payroll, /Bank formats unavailable:/);
+  assert.match(payroll, /zero-pay employee\(s\) omitted from bank files/);
+  assert.doesNotMatch(payroll, /lock the batch before downloading a bank file/);
+});
+
+test("recovery category choices resolve to real hostel and room master IDs", async () => {
+  const recovery = await source("app/reports-recovery.tsx");
+  assert.match(recovery, /JOY_RECOVERY_SCOPE_MAPPING_V2/);
+  assert.match(recovery, /joySharedRecoveryTypeIds\.has\(type\.id\)/);
+  assert.match(recovery, /recoveryScopeTypeIds\.has\(hostel\.accommodationTypeId\)/);
+  assert.match(recovery, /recoveryScopeTypeIds\.has\(room\.accommodationTypeId\)/);
+  assert.match(recovery, /scope\.includes\(run\.clientUnitId\)/);
+  assert.doesNotMatch(recovery, /accommodationTypeId === roomRecoveryScope/);
 });
 
 test("payroll page explains wage-to-bank flow", async () => {
