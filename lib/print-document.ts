@@ -156,6 +156,33 @@ function runtimePrintCss(target: PayrollPrintTarget) {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
       }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet table {
+        table-layout: auto !important;
+        font-size: 9pt !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet th,
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet td {
+        padding: 1.5mm 1mm !important;
+        font-size: 9pt !important;
+        line-height: 1.25 !important;
+        white-space: normal !important;
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet th:nth-child(2),
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet td:nth-child(2) {
+        min-width: 36mm !important;
+        text-align: left !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet th:nth-child(3),
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet td:nth-child(3) {
+        min-width: 32mm !important;
+        text-align: left !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet tbody td:nth-child(n+4),
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet tfoot td:nth-child(n+4) {
+        white-space: nowrap !important;
+      }
 
       body.joy-print-target-voucher #joy-print-root .advance-voucher,
       body.joy-print-target-bulk-vouchers #joy-print-root .advance-voucher {
