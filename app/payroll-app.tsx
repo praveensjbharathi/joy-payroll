@@ -918,6 +918,30 @@ export default function PayrollApp({
   const operationalEmployees = currentEmployees.filter(
     (employee) => employee.status === "active",
   );
+  const currentDownloadedBatchIds = new Set(
+    (data?.paymentExportBatches ?? [])
+      .filter(
+        (batch) =>
+          batch.runId === currentRun?.id && batch.status === "downloaded",
+      )
+      .map((batch) => batch.id),
+  );
+  const downloadedPayrollItemIds = new Set(
+    (data?.paymentExportBatchItems ?? [])
+      .filter(
+        (item) =>
+          item.runId === currentRun?.id &&
+          currentDownloadedBatchIds.has(item.batchId),
+      )
+      .map((item) => item.payrollItemId),
+  );
+  const currentPayrollEmployeeIds = new Set(
+    currentItems.map((item) => item.employeeId),
+  );
+  const missingPayrollEmployeeCount = operationalEmployees.filter(
+    (employee) => !currentPayrollEmployeeIds.has(employee.id),
+  ).length;
+  const hasDownloadedPaymentBatch = currentDownloadedBatchIds.size > 0;
   const currentRules =
     data?.rules.find((rule) => rule.vendorId === activeVendorId) ?? null;
   const currentShifts =
@@ -1444,6 +1468,8 @@ export default function PayrollApp({
               <PayrollRunView
                 run={currentRun}
                 items={currentItems}
+                missingEmployeeCount={missingPayrollEmployeeCount}
+                paymentProtected={hasDownloadedPaymentBatch}
                 isActing={isActing}
                 canManage={mayManage("payroll")}
                 canManageEmployees={mayManage("employees")}
@@ -1492,7 +1518,9 @@ export default function PayrollApp({
               }
               onImport={() => setModal({ kind: "import" })}
               locked={
-                currentRun.status === "approved" || !mayManage("attendance")
+                currentRun.status === "approved" ||
+                hasDownloadedPaymentBatch ||
+                !mayManage("attendance")
               }
             />
           ) : null}
@@ -1609,6 +1637,7 @@ export default function PayrollApp({
                   }
                   locked={
                     currentRun.status === "approved" ||
+                    hasDownloadedPaymentBatch ||
                     !mayManage("accommodation")
                   }
                 />
@@ -1626,7 +1655,9 @@ export default function PayrollApp({
               charges={data.accommodationCharges}
               data={data}
               canManage={
-                mayManage("recoveries") && currentRun?.status !== "approved"
+                mayManage("recoveries") &&
+                currentRun?.status !== "approved" &&
+                !hasDownloadedPaymentBatch
               }
               canApprove={
                 data.currentUser.role === "super_admin" ||
@@ -1847,7 +1878,11 @@ export default function PayrollApp({
             setModal({ kind: "salary", item: selectedItem });
             setSelectedItem(null);
           }}
-          locked={currentRun?.status === "approved" || !mayManage("payroll")}
+          locked={
+            currentRun?.status === "approved" ||
+            downloadedPayrollItemIds.has(selectedItem.id) ||
+            !mayManage("payroll")
+          }
         />
       ) : null}
       {payslipItem && currentVendor && currentUnit ? (
@@ -2243,6 +2278,8 @@ function MetricCard({
 function PayrollRunView({
   run,
   items,
+  missingEmployeeCount,
+  paymentProtected,
   isActing,
   canManage,
   canManageEmployees,
@@ -2253,6 +2290,8 @@ function PayrollRunView({
 }: {
   run: PayrollRun;
   items: PayrollItem[];
+  missingEmployeeCount: number;
+  paymentProtected: boolean;
   isActing: boolean;
   canManage: boolean;
   canManageEmployees: boolean;
@@ -2437,7 +2476,12 @@ function PayrollRunView({
                   </button>
                   <button
                     className="danger-button"
-                    disabled={isActing}
+                    disabled={isActing || paymentProtected}
+                    title={
+                      paymentProtected
+                        ? "Downloaded bank batches protect this payroll from deletion"
+                        : undefined
+                    }
                     onClick={() => {
                       if (
                         window.confirm(
@@ -2507,11 +2551,18 @@ function PayrollRunView({
                   className="secondary-button"
                   disabled={isActing}
                   onClick={() =>
-                    onAction("reopen", "Payroll reopened for corrections")
+                    onAction(
+                      "reopen",
+                      missingEmployeeCount
+                        ? `${missingEmployeeCount} missed employee${missingEmployeeCount === 1 ? "" : "s"} added to payroll; downloaded salary records remain locked`
+                        : "Payroll reopened for corrections",
+                    )
                   }
                 >
                   <Icon name="refresh" size={17} />
-                  Reopen payroll
+                  {missingEmployeeCount
+                    ? `Add ${missingEmployeeCount} missed employee${missingEmployeeCount === 1 ? "" : "s"} & reopen`
+                    : "Reopen payroll"}
                 </button>
               )}
             </>
@@ -3641,10 +3692,11 @@ function PaymentsView({
   const paymentBatchStateKey = paymentExportBatches
     .map((batch) => `${batch.id}:${batch.status}:${batch.updatedAt}`)
     .join("|");
+  // Downloaded batches are immutable history, not the active selection. This
+  // allows a supplementary batch for newly added employees while the paid
+  // employee item IDs below remain disabled and duplicate-safe.
   const activePaymentBatch =
-    paymentExportBatches.find((batch) => batch.status === "locked") ??
-    paymentExportBatches.find((batch) => batch.status === "downloaded") ??
-    null;
+    paymentExportBatches.find((batch) => batch.status === "locked") ?? null;
   const downloadedPaymentItemIds = new Set(
     paymentExportBatches
       .filter((batch) => batch.status === "downloaded")
@@ -5679,9 +5731,17 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
-    setEmailSending(true);
+    if (emailSending) return;
     setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
