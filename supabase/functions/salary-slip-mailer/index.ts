@@ -48,7 +48,7 @@ Deno.serve(async(req:Request)=>{
       const{data:bulkRun,error:bulkRunError}=await admin.from("payroll_runs").select("*").eq("id",runId).single();
       if(bulkRunError||!bulkRun)return json({error:"Payroll run not found"},404,origin);
       if(String(bulkRun.status).toLowerCase()!=="approved")return json({error:"Approve payroll before sending salary slips"},409,origin);
-      const{data:allItems,error:bulkItemsError}=await admin.from("payroll_items").select("*").eq("run_id",runId).order("employee_name");
+      const{data:allItems,error:bulkItemsError}=await admin.from("payroll_items").select("*").eq("run_id",runId);
       if(bulkItemsError)return json({error:bulkItemsError.message},500,origin);
       const selected=requestedIds.length?(allItems??[]).filter((item:any)=>requestedIds.includes(item.id)):(allItems??[]);
       if(!selected.length)return json({error:"No payroll items found for this run"},404,origin);
@@ -61,8 +61,12 @@ Deno.serve(async(req:Request)=>{
       const{data:bulkEmployees,error:employeeError}=await admin.from("employees").select("*").in("id",employeeIds);
       if(employeeError)return json({error:employeeError.message},500,origin);
       const employeeById=new Map((bulkEmployees??[]).map((employee:any)=>[employee.id,employee]));
+      const orderedSelected=[...selected].sort((left:any,right:any)=>{
+        const leftEmployee:any=employeeById.get(left.employee_id),rightEmployee:any=employeeById.get(right.employee_id);
+        return safe(leftEmployee?.name,"").localeCompare(safe(rightEmployee?.name,""),"en",{sensitivity:"base",numeric:true})||safe(leftEmployee?.employee_code,"").localeCompare(safe(rightEmployee?.employee_code,""),"en",{sensitivity:"base",numeric:true});
+      });
       const details=[];
-      for(const item of selected)details.push(await sendOne(item,employeeById.get(item.employee_id),bulkRun,vendor,unit));
+      for(const item of orderedSelected)details.push(await sendOne(item,employeeById.get(item.employee_id),bulkRun,vendor,unit));
       const sentCount=details.filter((detail:any)=>detail.status==="sent").length;
       const skippedCount=details.filter((detail:any)=>detail.status==="skipped").length;
       const failedCount=details.filter((detail:any)=>detail.status==="failed").length;
