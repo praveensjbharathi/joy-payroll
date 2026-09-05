@@ -88,6 +88,24 @@ test("bulk salary-slip mailer sorts with employee master data, not a missing pay
   assert.match(mailer, /for\(const item of orderedSelected\)/);
 });
 
+test("every payslip format includes DOJ only when employee data is available", async () => {
+  const payroll = await source("app/payroll-app.tsx");
+  const mailer = await source("supabase/functions/salary-slip-mailer/index.ts");
+  assert.match(payroll, /Date of joining \(DOJ\)/);
+  assert.match(payroll, /employee\?\.dateOfJoining\s*\?/);
+  assert.match(mailer, /Date of joining \(DOJ\)/);
+  assert.match(mailer, /displayDate\(employee\.date_of_joining\)/);
+});
+
+test("room recovery print totals every applicable visible monetary header", async () => {
+  const recovery = await source("app/reports-recovery.tsx");
+  assert.match(recovery, /const financialHeaders = new Set/);
+  assert.match(recovery, /\.\.\.optionalRecoveryPrintHeaders/);
+  assert.match(recovery, /const sourceHeaderIndex = new Map/);
+  assert.match(recovery, /matchedRows\.reduce/);
+  assert.match(recovery, /cell\.textContent = `₹\$\{total\.toFixed\(2\)\}`/);
+});
+
 test("individual dated recoveries persist as transactions and synchronize final payroll", async () => {
   const api = await source("app/api/app-data/route.ts");
   const start = api.indexOf('    } else if (action === "save-recovery-entry") {');
