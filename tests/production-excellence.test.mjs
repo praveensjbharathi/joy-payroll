@@ -79,6 +79,15 @@ test("normal form actions stay on payroll-api and only payslip email uses salary
   assert.match(payslip, /itemId: item\.id/);
 });
 
+test("bulk salary-slip mailer sorts with employee master data, not a missing payroll item column", async () => {
+  const mailer = await source("supabase/functions/salary-slip-mailer/index.ts");
+  assert.doesNotMatch(mailer, /\.from\("payroll_items"\)[\s\S]{0,200}\.order\("employee_name"\)/);
+  assert.match(mailer, /const orderedSelected=\[\.\.\.selected\]\.sort/);
+  assert.match(mailer, /leftEmployee\?\.name/);
+  assert.match(mailer, /rightEmployee\?\.employee_code/);
+  assert.match(mailer, /for\(const item of orderedSelected\)/);
+});
+
 test("individual dated recoveries persist as transactions and synchronize final payroll", async () => {
   const api = await source("app/api/app-data/route.ts");
   const start = api.indexOf('    } else if (action === "save-recovery-entry") {');
