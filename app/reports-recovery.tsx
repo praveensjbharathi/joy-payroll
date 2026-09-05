@@ -453,18 +453,7 @@ export function RecoveryCenter({
     });
 
     if (!layer.children.length) return;
-    document.body.appendChild(layer);
-    const pageStyle = document.createElement("style");
-    pageStyle.textContent = "@page{size:A4 landscape;margin:8mm;}";
-    document.head.appendChild(pageStyle);
-    const cleanup = () => {
-      layer.remove();
-      pageStyle.remove();
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup);
-    window.print();
-    window.setTimeout(cleanup, 3000);
+    void printIsolatedElement(layer, "room");
   }
 
   const recoveryAccommodationTypes = data.accommodationTypes.filter((type) => type.status === "active");
