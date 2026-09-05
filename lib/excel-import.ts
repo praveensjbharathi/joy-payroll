@@ -14,13 +14,83 @@ export type ImportedEmployee = {
   bankAccountMasked: string | null;
   ifscMasked: string | null;
   bankName: string | null;
+  bankBranch?: string | null;
   accommodationType: string;
+  hostelName?: string | null;
   roomNumber: string | null;
+  roomRentAmount?: number;
   paymentMode: string;
   salaryAmount: number;
   salaryBasis: string;
   defaultShift: string;
+  dateOfBirth?: string | null;
+  mobileNumber?: string | null;
+  emailAddress?: string | null;
+  emergencyContactNumber?: string | null;
+  addressLine?: string | null;
+  district?: string | null;
+  stateName?: string | null;
+  pincode?: string | null;
+  bloodGroup?: string | null;
+  highestQualification?: string | null;
+  fatherName?: string | null;
+  maritalStatus?: string | null;
+  spouseName?: string | null;
+  pfApplicable?: string;
+  pfWageAmount?: number;
+  esiApplicable?: string;
+  esiWageAmount?: number;
+  ptApplicable?: string;
+  lwfApplicable?: string;
+  shiftPattern?: string;
+  applicableShiftsJson?: string;
+  remarks?: string | null;
+  employmentType?: string;
 };
+
+export const EMPLOYEE_IMPORT_HEADERS = [
+  "Employee code",
+  "Employee name",
+  "Department",
+  "Employment type",
+  "Date of joining",
+  "Date of birth",
+  "Employee mobile number",
+  "Employee email ID",
+  "Emergency contact number",
+  "Residential address",
+  "District",
+  "State",
+  "Pincode",
+  "Blood group",
+  "Highest qualification",
+  "Father name",
+  "Marital status",
+  "Spouse name",
+  "Basic salary / daily rate",
+  "Salary basis",
+  "Default shift",
+  "Shift pattern",
+  "Applicable shifts",
+  "Payment mode",
+  "UAN",
+  "ESI number",
+  "Bank account number",
+  "IFSC code",
+  "Bank name",
+  "Bank account branch / City",
+  "EPF applicable",
+  "Customized EPF wage",
+  "ESI applicable",
+  "Customized ESI wage",
+  "Professional Tax",
+  "Tamil Nadu LWF",
+  "Accommodation type",
+  "Hostel / area",
+  "Room number",
+  "Individual monthly rent",
+  "Other remarks",
+] as const;
 
 export type ImportedAttendance = {
   employeeCode: string;
@@ -35,7 +105,7 @@ export type ImportedSalaryItem = Record<string, string | number> & {
 };
 
 export type WorkbookImport = {
-  sourceType: "attendance" | "salary" | "csv" | "txt";
+  sourceType: "attendance" | "salary" | "employee" | "csv" | "txt";
   sheetName: string;
   employees: ImportedEmployee[];
   attendance: ImportedAttendance[];
@@ -95,10 +165,8 @@ function dateValue(value: CellValue | undefined, fallback: string) {
 }
 
 function normalizeAccommodation(value: CellValue | undefined) {
-  const name = text(value).toLowerCase();
-  if (name.includes("outside")) return "Outside Room";
-  if (name.includes("joy")) return "Joy Room";
-  return "Tamil Own";
+  const name = text(value);
+  return name || "Tamil Own";
 }
 
 function normalizeHeader(value: CellValue | undefined) {
@@ -281,7 +349,302 @@ function attendanceSheet(
   return imported;
 }
 
+function looksLikeEmployeeMaster(rows: SheetRow[]) {
+  return rows.some((row) => {
+    const headers = new Set(Array.from(row.values()).map(normalizeHeader));
+    const hasCode = headers.has("employee code") || headers.has("employee id");
+    const hasName = headers.has("employee name") || headers.has("name");
+    return (
+      hasCode &&
+      hasName &&
+      [
+        "employee email id",
+        "date of birth",
+        "blood group",
+        "pf applicable",
+        "accommodation type",
+      ].filter((header) => headers.has(header)).length >= 2
+    );
+  });
+}
+
+function employeeMasterSheet(
+  name: string,
+  rows: SheetRow[],
+  period: string,
+): WorkbookImport {
+  const headerIndex = rows.findIndex((row) => {
+    const headers = new Set(Array.from(row.values()).map(normalizeHeader));
+    return (
+      (headers.has("employee code") || headers.has("employee id")) &&
+      (headers.has("employee name") || headers.has("name"))
+    );
+  });
+  if (headerIndex < 0)
+    throw new Error("Employee Master needs Employee code and Employee name columns.");
+  const headerMap = new Map<string, number>();
+  for (const [column, cellValue] of rows[headerIndex]) {
+    const header = normalizeHeader(cellValue);
+    if (header && !headerMap.has(header)) headerMap.set(header, column);
+  }
+  const column = (...aliases: string[]) => {
+    for (const alias of aliases) {
+      const match = headerMap.get(normalizeHeader(alias));
+      if (match !== undefined) return match;
+    }
+    return undefined;
+  };
+  const value = (row: SheetRow, ...aliases: string[]) => {
+    const index = column(...aliases);
+    return index === undefined ? undefined : row.get(index);
+  };
+  const yesNo = (input: CellValue | undefined, fallback = "yes") => {
+    const normalized = text(input).toLowerCase();
+    if (!normalized) return fallback;
+    return ["no", "n", "false", "0", "not required", "not applicable"].includes(
+      normalized,
+    )
+      ? "no"
+      : "yes";
+  };
+  const imported: WorkbookImport = {
+    sourceType: "employee",
+    sheetName: name,
+    employees: [],
+    attendance: [],
+    salaryItems: [],
+  };
+  for (const row of rows.slice(headerIndex + 1)) {
+    const code = text(value(row, "Employee code", "Employee ID", "Emp ID"));
+    const employeeName = text(value(row, "Employee name", "Name"));
+    if (!code || !employeeName) continue;
+    const employee = emptyEmployee(code, employeeName, period);
+    employee.department = text(value(row, "Department")) || "General";
+    employee.employmentType = /direct/i.test(
+      text(value(row, "Employment type")),
+    )
+      ? "direct"
+      : "client";
+    employee.dateOfJoining = dateValue(
+      value(row, "Date of joining", "DOJ"),
+      `${period}-01`,
+    );
+    const birthDate = value(row, "Date of birth", "DOB");
+    employee.dateOfBirth = birthDate ? dateValue(birthDate, "") || null : null;
+    employee.mobileNumber = nullable(value(row, "Employee mobile number", "Mobile number"));
+    employee.emailAddress = nullable(value(row, "Employee email ID", "Email", "Email ID"));
+    employee.emergencyContactNumber = nullable(
+      value(row, "Emergency contact number"),
+    );
+    employee.addressLine = nullable(value(row, "Residential address", "Address"));
+    employee.district = nullable(value(row, "District"));
+    employee.stateName = nullable(value(row, "State"));
+    employee.pincode = nullable(value(row, "Pincode", "PIN code"));
+    employee.bloodGroup = nullable(value(row, "Blood group"));
+    employee.highestQualification = nullable(value(row, "Highest qualification"));
+    employee.fatherName = nullable(value(row, "Father name"));
+    employee.maritalStatus = nullable(value(row, "Marital status"));
+    employee.spouseName = nullable(value(row, "Spouse name"));
+    employee.salaryAmount = numberValue(
+      value(row, "Basic salary / daily rate", "Salary amount", "Basic salary"),
+    );
+    employee.salaryBasis = /daily/i.test(text(value(row, "Salary basis")))
+      ? "daily"
+      : "monthly";
+    employee.defaultShift = text(value(row, "Default shift")) || "General";
+    employee.shiftPattern = /rotational/i.test(
+      text(value(row, "Shift pattern")),
+    )
+      ? "rotational"
+      : "general";
+    const applicableShifts = text(value(row, "Applicable shifts"))
+      .split(/[,|;]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    employee.applicableShiftsJson = JSON.stringify(
+      applicableShifts.length ? applicableShifts : [employee.defaultShift],
+    );
+    employee.paymentMode = "bank";
+    employee.uanMasked = nullable(value(row, "UAN", "UAN / EPF"));
+    employee.esiMasked = nullable(value(row, "ESI number", "ESI No"));
+    employee.bankAccountMasked = nullable(
+      value(row, "Bank account number", "Bank account", "Account number"),
+    );
+    employee.ifscMasked = nullable(value(row, "IFSC code", "IFSC"));
+    employee.bankName = nullable(value(row, "Bank name"));
+    employee.bankBranch = nullable(
+      value(row, "Bank account branch / City", "Bank branch", "City"),
+    );
+    employee.pfApplicable = yesNo(value(row, "EPF applicable", "PF applicable"));
+    employee.pfWageAmount = numberValue(value(row, "Customized EPF wage", "PF wage"));
+    employee.esiApplicable = yesNo(value(row, "ESI applicable"));
+    employee.esiWageAmount = numberValue(value(row, "Customized ESI wage", "ESI wage"));
+    employee.ptApplicable = yesNo(value(row, "Professional Tax", "PT applicable"));
+    employee.lwfApplicable = yesNo(value(row, "Tamil Nadu LWF", "LWF applicable"));
+    employee.accommodationType = normalizeAccommodation(
+      value(row, "Accommodation type"),
+    );
+    employee.hostelName = nullable(value(row, "Hostel / area", "Hostel", "Area"));
+    employee.roomNumber = nullable(value(row, "Room number", "Existing room"));
+    employee.roomRentAmount = numberValue(
+      value(row, "Individual monthly rent", "Room rent amount"),
+    );
+    employee.remarks = nullable(value(row, "Other remarks", "Remarks"));
+    imported.employees.push(employee);
+  }
+  return imported;
+}
+
 function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookImport {
+  const normalizeHeader = (value: CellValue | undefined) =>
+    text(value)
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const headerIndex = rows.findIndex((row) => {
+    const values = Array.from(row.values()).map(normalizeHeader);
+    return values.includes("emp id") && values.includes("name");
+  });
+  if (headerIndex < 0)
+    throw new Error("Salary Register sheet needs Emp ID and Name columns.");
+
+  const headers = rows[headerIndex];
+  const headerMap = new Map<string, number>();
+  for (const [columnIndex, value] of headers) {
+    const normalized = normalizeHeader(value);
+    if (normalized && !headerMap.has(normalized)) headerMap.set(normalized, columnIndex);
+  }
+  const column = (...aliases: string[]) =>
+    aliases
+      .map((alias) => headerMap.get(normalizeHeader(alias)))
+      .find((value) => value !== undefined);
+
+  const isEmployerPayrollFormat = [
+    "pay monthly daily",
+    "fixed w days",
+    "w days",
+    "payable days",
+    "gross earnings",
+    "total deductions",
+    "net payable",
+  ].every((header) => headerMap.has(header));
+  if (!isEmployerPayrollFormat) return legacySalarySheet(name, rows, period);
+
+  const codeColumn = column("Emp ID")!;
+  const nameColumn = column("Name")!;
+  const salaryBasisColumn = column("Pay Monthly/Daily");
+  const fixedWorkingDaysColumn = column("Fixed W Days");
+  const workedDaysColumn = column("W Days");
+  const nfhColumn = column("NFH");
+  const compOffColumn = column("CO");
+  const onDutyColumn = column("OD");
+  const sundayColumn = column("Sundays");
+  const plColumn = column("PL");
+  const clColumn = column("CL");
+  const slColumn = column("SL");
+  const payableDaysColumn = column("Payable Days");
+  const overtimeHoursColumn = column("OT Hrs");
+  const grossColumn = column("Gross Earnings");
+  const totalDeductionColumn = column("Total Deductions");
+  const netColumn = column("Net Payable");
+
+  const monetaryColumns: Array<[number | undefined, string]> = [
+    [column("Basic"), "basic"],
+    [column("DA"), "da"],
+    [column("HRA"), "hra"],
+    [column("CA"), "conveyance"],
+    [column("Food Allowance"), "foodAllowance"],
+    [column("Night Allowance"), "nightAllowance"],
+    [column("OT Wages"), "overtimeWages"],
+    [column("Attendance Bonus"), "attendanceBonus"],
+    [column("Arrears"), "arrears"],
+    [column("Holiday Wages"), "holidayWages"],
+    [column("Production Incentive"), "productionIncentive"],
+    [column("Medical Allowance"), "medicalAllowance"],
+    [column("PF Deductions", "PF Deduction"), "pfDeduction"],
+    [column("ESI Deductions", "ESI Deduction"), "esiDeduction"],
+    [column("Professional Tax"), "professionalTax"],
+    [column("LWF"), "lwf"],
+    [column("Canteen"), "canteen"],
+    [column("Snacks"), "snacks"],
+    [column("Tent"), "tent"],
+    [column("Advance"), "advance"],
+    [column("Others", "Other Deduction"), "otherDeduction"],
+    [column("TDS"), "tds"],
+    [column("Medical insurance", "Medical Insurance"), "medicalInsurance"],
+  ];
+
+  const imported: WorkbookImport = {
+    sourceType: "salary",
+    sheetName: name,
+    employees: [],
+    attendance: [],
+    salaryItems: [],
+  };
+
+  for (const row of rows.slice(headerIndex + 1)) {
+    const code = text(row.get(codeColumn));
+    const employeeName = text(row.get(nameColumn));
+    if (!code || !employeeName) continue;
+
+    const employee = emptyEmployee(code, employeeName, period);
+    const salaryBasisText =
+      salaryBasisColumn === undefined ? "" : text(row.get(salaryBasisColumn));
+    employee.salaryBasis = /daily|day/i.test(salaryBasisText) ? "daily" : "monthly";
+    const basicColumn = column("Basic");
+    employee.salaryAmount =
+      basicColumn === undefined ? 0 : numberValue(row.get(basicColumn));
+    imported.employees.push(employee);
+
+    const co = compOffColumn === undefined ? 0 : numberValue(row.get(compOffColumn));
+    const pl = plColumn === undefined ? 0 : numberValue(row.get(plColumn));
+    const cl = clColumn === undefined ? 0 : numberValue(row.get(clColumn));
+    const sl = slColumn === undefined ? 0 : numberValue(row.get(slColumn));
+    const item: ImportedSalaryItem = {
+      employeeCode: code,
+      fixedWorkingDays:
+        fixedWorkingDaysColumn === undefined
+          ? 0
+          : numberValue(row.get(fixedWorkingDaysColumn)),
+      presentDays:
+        workedDaysColumn === undefined ? 0 : numberValue(row.get(workedDaysColumn)),
+      holidayPresentDays:
+        nfhColumn === undefined ? 0 : numberValue(row.get(nfhColumn)),
+      compOffDays: co,
+      onDutyDays:
+        onDutyColumn === undefined ? 0 : numberValue(row.get(onDutyColumn)),
+      weekOffDays:
+        sundayColumn === undefined ? 0 : numberValue(row.get(sundayColumn)),
+      plDays: pl,
+      clDays: cl,
+      slDays: sl,
+      leaveDays: co + pl + cl + sl,
+      payableDays:
+        payableDaysColumn === undefined ? 0 : numberValue(row.get(payableDaysColumn)),
+      overtimeHours:
+        overtimeHoursColumn === undefined
+          ? 0
+          : numberValue(row.get(overtimeHoursColumn)),
+      sourceGrossEarnings:
+        grossColumn === undefined ? 0 : numberValue(row.get(grossColumn)),
+      sourceTotalDeductions:
+        totalDeductionColumn === undefined
+          ? 0
+          : numberValue(row.get(totalDeductionColumn)),
+      sourceNetPayable:
+        netColumn === undefined ? 0 : numberValue(row.get(netColumn)),
+    };
+    for (const [mappedColumn, field] of monetaryColumns) {
+      item[field] =
+        mappedColumn === undefined ? 0 : numberValue(row.get(mappedColumn));
+    }
+    imported.salaryItems.push(item);
+  }
+  return imported;
+}
+
+function legacySalarySheet(name: string, rows: SheetRow[], period: string): WorkbookImport {
   const headerIndex = rows.findIndex((row) => {
     const values = Array.from(row.values()).map(normalizeHeader);
     return values.includes("emp id") && values.includes("name");
@@ -308,15 +671,19 @@ function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookIm
 
   const codeColumn = required("Emp ID", "Emp ID", "Employee ID", "Emp Code");
   const nameColumn = required("Name", "Name", "Employee Name");
-  const departmentColumn = findColumn("Department", "Dept");
+  // JOY_LEGACY_SALARY_REGISTER_V1
+  const legacyLayout = headerMap.size <= 6 && rows.slice(headerIndex + 1).some((row) => row.has(24));
+  const legacyColumn = (column: number | undefined, fallback: number) =>
+    column ?? (legacyLayout ? fallback : undefined);
+  const departmentColumn = legacyColumn(findColumn("Department", "Dept"), 3);
   const joiningColumn = findColumn("Date of Joining", "DOJ");
   const uanColumn = findColumn("UAN", "UAN No");
   const esiNumberColumn = findColumn("ESI No", "ESI Number");
-  const accountColumn = findColumn("Bank Account", "Account No", "Account Number");
-  const ifscColumn = findColumn("IFSC", "IFSC Code");
+  const accountColumn = legacyColumn(findColumn("Bank Account", "Account No", "Account Number"), 8);
+  const ifscColumn = legacyColumn(findColumn("IFSC", "IFSC Code"), 10);
   const bankNameColumn = findColumn("Bank Name");
-  const accommodationColumn = findColumn("Accommodation Type");
-  const roomColumn = findColumn("Room", "Room Number");
+  const accommodationColumn = legacyColumn(findColumn("Accommodation Type"), 51);
+  const roomColumn = legacyColumn(findColumn("Room", "Room Number"), 53);
   const basisColumn = findColumn("Pay Monthly/Daily", "Salary Basis", "Pay Basis");
 
   const itemFields: Record<string, string[]> = {
@@ -347,6 +714,11 @@ function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookIm
     tds: ["TDS"],
     medicalInsurance: ["Medical insurance", "Medical Insurance"],
   };
+  const legacyItemColumns: Record<string, number> = {
+    basic: 24,
+    hra: 26,
+    pfDeduction: 38,
+  };
   const extraAuditFields: Record<string, string[]> = {
     fixedWorkingDays: ["Fixed W Days", "Fixed Working Days"],
     nfhDays: ["NFH"],
@@ -358,7 +730,10 @@ function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookIm
     slDays: ["SL"],
   };
   const mappedFields = Object.entries(itemFields)
-    .map(([field, aliases]) => [field, findColumn(...aliases)] as const)
+    .map(([field, aliases]) => [
+      field,
+      findColumn(...aliases) ?? (legacyLayout ? legacyItemColumns[field] : undefined),
+    ] as const)
     .filter((entry): entry is readonly [string, number] => entry[1] !== undefined);
   const mappedAudit = Object.entries(extraAuditFields)
     .map(([field, aliases]) => [field, findColumn(...aliases)] as const)
@@ -397,7 +772,8 @@ function salarySheet(name: string, rows: SheetRow[], period: string): WorkbookIm
         ? "daily"
         : "monthly";
 
-    const basicColumn = findColumn("Basic", "Basic Salary");
+    const basicColumn = findColumn("Basic", "Basic Salary") ??
+      (legacyLayout ? legacyItemColumns.basic : undefined);
     const grossColumn = findColumn("Gross Earnings", "Gross Salary", "Gross");
     employee.salaryAmount =
       (basicColumn === undefined ? 0 : numberValue(row.get(basicColumn))) ||
@@ -474,6 +850,8 @@ function delimitedSheet(
       ),
     ),
   );
+  if (looksLikeEmployeeMaster(rows))
+    return employeeMasterSheet(filename, rows, period);
   if (hasDates) return attendanceSheet(filename, rows, period);
   return salarySheet(filename, rows, period);
 }
@@ -492,6 +870,11 @@ export async function parsePayrollWorkbook(
     throw new Error("Upload an .xlsx, .csv, or .txt file.");
 
   const sheets = workbookSheets(await file.arrayBuffer());
+  const employeeMaster =
+    sheets.find((sheet) => /employee.*(master|import)/i.test(sheet.name)) ??
+    sheets.find((sheet) => looksLikeEmployeeMaster(sheet.rows));
+  if (employeeMaster)
+    return employeeMasterSheet(employeeMaster.name, employeeMaster.rows, period);
   const salary = sheets.find((sheet) => /^salary register$/i.test(sheet.name));
   if (salary) return salarySheet(salary.name, salary.rows, period);
   const attendance =
@@ -499,6 +882,6 @@ export async function parsePayrollWorkbook(
     sheets.find((sheet) => /attendance/i.test(sheet.name));
   if (attendance) return attendanceSheet(attendance.name, attendance.rows, period);
   throw new Error(
-    "Workbook needs an ‘Attendance Input’ or ‘Salary Register’ worksheet.",
+    "Workbook needs an ‘Employee Master’, ‘Attendance Input’, or ‘Salary Register’ worksheet.",
   );
 }

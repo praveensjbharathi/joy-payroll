@@ -41,3 +41,23 @@ test("imports Salary Register components without expanding stray XFD cells", asy
   assert.equal(result.salaryItems[0].hra, 3500);
   assert.equal(result.salaryItems[0].pfDeduction, 1800);
 });
+
+test("imports the employee-master format with hostel and UI profile fields", async () => {
+  const file = workbook(
+    "Employee Master",
+    `<row r="1">${cell("A1", "Employee code")}${cell("B1", "Employee name")}${cell("C1", "Employee email ID")}${cell("D1", "Date of birth")}${cell("E1", "Accommodation type")}${cell("F1", "Hostel / area")}${cell("G1", "Room number")}${cell("H1", "Individual monthly rent")}${cell("I1", "EPF applicable")}${cell("J1", "Applicable shifts")}${cell("K1", "Employment type")}</row><row r="2">${cell("A2", "J1007")}${cell("B2", "Employee Three")}${cell("C2", "three@example.com")}${cell("D2", "2000-01-31")}${cell("E2", "Joy Hostel")}${cell("F2", "Joy Madhapur")}${cell("G2", "MF1")}${cell("H2", 1200)}${cell("I2", "No")}${cell("J2", "General, Night")}${cell("K2", "Direct")}</row>`,
+  );
+  const result = await parsePayrollWorkbook(file, "2026-09");
+  assert.equal(result.sourceType, "employee");
+  assert.equal(result.employees.length, 1);
+  assert.equal(result.employees[0].employeeCode, "J1007");
+  assert.equal(result.employees[0].hostelName, "Joy Madhapur");
+  assert.equal(result.employees[0].roomNumber, "MF1");
+  assert.equal(result.employees[0].roomRentAmount, 1200);
+  assert.equal(result.employees[0].pfApplicable, "no");
+  assert.deepEqual(JSON.parse(result.employees[0].applicableShiftsJson), [
+    "General",
+    "Night",
+  ]);
+  assert.equal(result.employees[0].employmentType, "direct");
+});

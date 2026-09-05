@@ -1022,3 +1022,48 @@ html,body,.app-shell{background:radial-gradient(circle at 90% 0%,rgba(46,130,246
 .advance-voucher .data-table th,
 .advance-voucher .data-table td { font-size: 13px; line-height: 1.4; }
 .bulk-recovery-vouchers .advance-voucher { break-inside: avoid; }
+
+/* JOY_PREVIEW_SCROLL_V1 */
+.payslip-modal,
+.room-report-modal,
+.id-card-modal,
+.action-modal {
+  max-height: 94dvh !important;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.payslip-modal::-webkit-scrollbar,
+.room-report-modal::-webkit-scrollbar,
+.id-card-modal::-webkit-scrollbar,
+.action-modal::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.payslip-modal::-webkit-scrollbar-thumb,
+.room-report-modal::-webkit-scrollbar-thumb,
+.id-card-modal::-webkit-scrollbar-thumb,
+.action-modal::-webkit-scrollbar-thumb {
+  background: #b9c8da;
+  border: 2px solid #fff;
+  border-radius: 999px;
+}
+@media (max-width: 700px) {
+  .payslip-modal,
+  .room-report-modal,
+  .id-card-modal,
+  .action-modal {
+    max-height: 100dvh !important;
+  }
+}
+@media print {
+  .payslip-modal,
+  .room-report-modal,
+  .id-card-modal,
+  .action-modal {
+    max-height: none !important;
+    overflow: visible !important;
+    scrollbar-gutter: auto;
+  }
+}

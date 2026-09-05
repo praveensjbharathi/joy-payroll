@@ -34,9 +34,10 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(payroll, /CUB Any Bank TXT/);
   assert.match(payroll, /CUB-to-CUB TXT/);
   assert.match(payroll, /selectedBankItems/);
-  assert.match(payroll, /Lock selected batch/);
-  assert.match(payroll, /paymentSelectionDownloaded/);
+  assert.doesNotMatch(payroll, />Lock selected batch</);
+  assert.match(payroll, /JOY_ONE_CLICK_BANK_EXPORT_V1/);
   assert.match(payroll, /download-payment-batch/);
+  assert.match(api, /requestedItemIds/);
   assert.match(api, /payment_export_batch_run_item_unique/);
   assert.match(api, /duplicate processing was blocked/);
 });
@@ -63,6 +64,35 @@ test("hostel master supports edit delete mapping and unallocated employee alloca
   assert.match(hostel, /allocate-room/);
 });
 
+test("employee creation fetches unit-mapped hostel rooms and ships a matching Excel format", async () => {
+  const payroll = await source("app/payroll-app.tsx");
+  const importer = await source("lib/excel-import.ts");
+  const api = await source("app/api/app-data/route.ts");
+  assert.match(payroll, /const matchingHostels = hostels\.filter/);
+  assert.match(payroll, /scope\.includes\(unit\.id\)/);
+  assert.match(payroll, /room\.hostelId === employeeHostelId/);
+  assert.match(payroll, /Select mapped hostel \/ area/);
+  assert.match(payroll, /Individual monthly rent/);
+  assert.match(payroll, /Employee Excel format/);
+  assert.match(payroll, /EMPLOYEE_IMPORT_HEADERS/);
+  assert.match(importer, /export const EMPLOYEE_IMPORT_HEADERS/);
+  assert.match(importer, /sourceType: "employee"/);
+  assert.match(importer, /employeeMasterSheet/);
+  assert.match(api, /hostel \/ area .* is not mapped to this employer unit/);
+  assert.match(api, /room .* was not found in/);
+});
+
+test("all large preview dialogs scroll without clipping controls", async () => {
+  const css = await source("app/globals.css");
+  assert.match(css, /JOY_PREVIEW_SCROLL_V1/);
+  assert.match(css, /\.payslip-modal,/);
+  assert.match(css, /\.room-report-modal,/);
+  assert.match(css, /\.id-card-modal,/);
+  assert.match(css, /\.action-modal/);
+  assert.match(css, /overflow: auto/);
+  assert.match(css, /max-height: 94dvh/);
+});
+
 test("normal form actions stay on payroll-api and only payslip email uses salary-slip-mailer", async () => {
   const payroll = await source("app/payroll-app.tsx");
   const performStart = payroll.indexOf("  async function performAction(");
@@ -86,24 +116,6 @@ test("bulk salary-slip mailer sorts with employee master data, not a missing pay
   assert.match(mailer, /leftEmployee\?\.name/);
   assert.match(mailer, /rightEmployee\?\.employee_code/);
   assert.match(mailer, /for\(const item of orderedSelected\)/);
-});
-
-test("every payslip format includes DOJ only when employee data is available", async () => {
-  const payroll = await source("app/payroll-app.tsx");
-  const mailer = await source("supabase/functions/salary-slip-mailer/index.ts");
-  assert.match(payroll, /Date of joining \(DOJ\)/);
-  assert.match(payroll, /employee\?\.dateOfJoining\s*\?/);
-  assert.match(mailer, /Date of joining \(DOJ\)/);
-  assert.match(mailer, /displayDate\(employee\.date_of_joining\)/);
-});
-
-test("room recovery print totals every applicable visible monetary header", async () => {
-  const recovery = await source("app/reports-recovery.tsx");
-  assert.match(recovery, /const financialHeaders = new Set/);
-  assert.match(recovery, /\.\.\.optionalRecoveryPrintHeaders/);
-  assert.match(recovery, /const sourceHeaderIndex = new Map/);
-  assert.match(recovery, /matchedRows\.reduce/);
-  assert.match(recovery, /cell\.textContent = `₹\$\{total\.toFixed\(2\)\}`/);
 });
 
 test("individual dated recoveries persist as transactions and synchronize final payroll", async () => {

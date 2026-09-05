@@ -792,7 +792,8 @@ if (
 // JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1
 // The payslip reports salary earnings/statutory deductions only. Recovery
 // remains in item.netPayable for Final Payable and every bank format. Bank
-// downloads additionally require an explicit, persisted employee-batch lock.
+// downloads reserve the selected employees atomically in one click so the
+// same salary cannot be exported twice.
 if (!payrollApp.includes("JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED")) {
   const payslipStart = payrollApp.indexOf("function PayslipSheet(");
   const payslipEnd = payrollApp.indexOf("function PayslipModal(", payslipStart);
@@ -1043,16 +1044,16 @@ if (!payrollApp.includes("const payslipNetPayable"))
   throw new Error("Room recovery is still included in the displayed payslip net");
 if (!payrollApp.includes("Approve payroll before sending salary slips."))
   throw new Error("Payslip email prerequisites are still silent");
-if (!payrollApp.includes("Lock selected batch"))
-  throw new Error("Bank output selection lock was not added");
+if (!payrollApp.includes("JOY_ONE_CLICK_BANK_EXPORT_V1"))
+  throw new Error("One-click bank output reservation was not added");
 const hasPersistentPaymentBatchGuard =
-  payrollApp.includes("paymentSelectionDownloaded") &&
-  payrollApp.includes("download-payment-batch");
+  payrollApp.includes("download-payment-batch") &&
+  payrollApp.includes("itemIds: exportItems.map");
 if (
   !hasPersistentPaymentBatchGuard &&
   !payrollApp.includes("!paymentSelectionLocked || run.status !== \"approved\"")
 )
-  throw new Error("Bank format downloads do not enforce the selection lock");
+  throw new Error("Bank format downloads do not enforce duplicate prevention");
 
 // JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1
 // Salary-import runs use the uploaded payroll register's canonical headers,

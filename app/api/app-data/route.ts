@@ -2203,6 +2203,15 @@ async function createRun(
   return requireRun(db, id);
 }
 
+function isJoySharedAccommodation(value: string | null | undefined) {
+  const name = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return name.includes("joy") &&
+    (name.includes("hostel") || name.includes("room"));
+}
+
 function employeeValues(
   payload: Record<string, unknown>,
   vendorId: string,
@@ -2336,9 +2345,20 @@ async function assignEmployeeAccommodation(
   }
 
   if (!room) return { ...values, roomId: null, roomNumber: null };
+  const [roomType] = await db
+    .select()
+    .from(accommodationTypes)
+    .where(eq(accommodationTypes.id, room.accommodationTypeId))
+    .limit(1);
+  const sharedJoyRoom = Boolean(
+    roomType &&
+      isJoySharedAccommodation(type.name) &&
+      isJoySharedAccommodation(roomType.name),
+  );
   if (
-    room.vendorId !== values.vendorId ||
-    room.accommodationTypeId !== type.id
+    (room.vendorId !== values.vendorId ||
+      room.accommodationTypeId !== type.id) &&
+    !sharedJoyRoom
   ) {
     throw new RequestError(
       "The selected room does not belong to this client and accommodation type",
@@ -2593,7 +2613,13 @@ async function importWorkbook(
   }
   await requireRun(db, run.id, true);
 
-  const allEmployees = await db.select().from(employees);
+  const [allEmployees, allAccommodationTypes, allHostels, allRooms] =
+    await Promise.all([
+      db.select().from(employees),
+      db.select().from(accommodationTypes),
+      db.select().from(hostels),
+      db.select().from(accommodationRooms),
+    ]);
   const existingByCode = new Map(
     allEmployees.map((employee) => [
       employee.employeeCode.toUpperCase(),
@@ -2624,6 +2650,78 @@ async function importWorkbook(
       }
       continue;
     }
+    const importedAccommodationType = normalizeAccommodationType(
+      imported.accommodationType,
+    );
+    const sharedJoyImport = isJoySharedAccommodation(
+      importedAccommodationType,
+    );
+    const matchedType = allAccommodationTypes.find(
+      (type) =>
+        type.status === "active" &&
+        type.vendorId === vendorId &&
+        (type.name.toLowerCase() === importedAccommodationType.toLowerCase() ||
+          (sharedJoyImport && isJoySharedAccommodation(type.name))),
+    );
+    let importedRoomId: string | null = null;
+    let importedRoomNumber = optionalValue(imported.roomNumber);
+    const importedHostelName = optionalValue(imported.hostelName);
+    if (importedHostelName) {
+      if (!matchedType)
+        throw new RequestError(
+          `Employee ${code}: accommodation type ${importedAccommodationType} is not active for this group company`,
+          409,
+        );
+      const importedHostel = allHostels.find((hostel) => {
+        if (
+          hostel.status !== "active" ||
+          hostel.name.toLowerCase() !== importedHostelName.toLowerCase()
+        )
+          return false;
+        const hostelType = allAccommodationTypes.find(
+          (type) => type.id === hostel.accommodationTypeId,
+        );
+        const compatibleType =
+          hostel.accommodationTypeId === matchedType.id ||
+          (sharedJoyImport &&
+            hostelType &&
+            isJoySharedAccommodation(hostelType.name));
+        if (!compatibleType) return false;
+        try {
+          const scope = JSON.parse(hostel.clientScopeJson || "[]") as unknown;
+          return (
+            !Array.isArray(scope) ||
+            scope.length === 0 ||
+            scope.includes(unitId)
+          );
+        } catch {
+          return true;
+        }
+      });
+      if (!importedHostel)
+        throw new RequestError(
+          `Employee ${code}: hostel / area ${importedHostelName} is not mapped to this employer unit`,
+          409,
+        );
+      if (!importedRoomNumber)
+        throw new RequestError(
+          `Employee ${code}: enter Room number for hostel / area ${importedHostelName}`,
+          409,
+        );
+      const importedRoom = allRooms.find(
+        (room) =>
+          room.status === "active" &&
+          room.hostelId === importedHostel.id &&
+          room.roomNumber.toLowerCase() === importedRoomNumber!.toLowerCase(),
+      );
+      if (!importedRoom)
+        throw new RequestError(
+          `Employee ${code}: room ${importedRoomNumber} was not found in ${importedHostelName}`,
+          409,
+        );
+      importedRoomId = importedRoom.id;
+      importedRoomNumber = importedRoom.roomNumber;
+    }
     const value = await assignEmployeeAccommodation(
       db,
       employeeValues(
@@ -2633,8 +2731,10 @@ async function importWorkbook(
           salaryAmount: 0,
           paymentMode: "bank",
           shiftPattern: "general",
-          accommodationType: "Tamil",
           ...imported,
+          accommodationType: matchedType?.name ?? importedAccommodationType,
+          roomId: importedRoomId,
+          roomNumber: importedRoomNumber,
         },
         vendorId,
         unitId,
@@ -3641,7 +3741,13 @@ export async function POST(request: Request) {
             "Remove the employee from the present room before allocating another room",
             409,
           );
-        if (employee.accommodationType !== type.name)
+        if (
+          employee.accommodationType !== type.name &&
+          !(
+            isJoySharedAccommodation(employee.accommodationType) &&
+            isJoySharedAccommodation(type.name)
+          )
+        )
           throw new RequestError(
             `This room is under ${type.name}. Change the employee accommodation type first`,
             409,
@@ -5541,11 +5647,32 @@ export async function POST(request: Request) {
         .from(hostels)
         .where(eq(hostels.id, hostelId))
         .limit(1);
+      const [roomType] = room
+        ? await db
+            .select()
+            .from(accommodationTypes)
+            .where(eq(accommodationTypes.id, room.accommodationTypeId))
+            .limit(1)
+        : [];
+      const [hostelType] = hostel?.accommodationTypeId
+        ? await db
+            .select()
+            .from(accommodationTypes)
+            .where(eq(accommodationTypes.id, hostel.accommodationTypeId))
+            .limit(1)
+        : [];
+      const sharedJoyMapping = Boolean(
+        roomType &&
+          hostelType &&
+          isJoySharedAccommodation(roomType.name) &&
+          isJoySharedAccommodation(hostelType.name),
+      );
       if (
         !room ||
         !hostel ||
-        room.vendorId !== hostel.vendorId ||
-        room.accommodationTypeId !== hostel.accommodationTypeId
+        ((room.vendorId !== hostel.vendorId ||
+          room.accommodationTypeId !== hostel.accommodationTypeId) &&
+          !sharedJoyMapping)
       )
         throw new RequestError(
           "Room and hostel must use the same accommodation type",
@@ -6026,7 +6153,6 @@ export async function POST(request: Request) {
           "Approve the payroll run before downloading a bank upload batch",
           409,
         );
-      const batchId = textValue(payload.batchId, "Payment batch");
       const exportFormat = textValue(payload.exportFormat, "Bank export format");
       const allowedFormats = new Set([
         "bank_csv",
@@ -6036,6 +6162,119 @@ export async function POST(request: Request) {
       ]);
       if (!allowedFormats.has(exportFormat))
         throw new RequestError("Unsupported bank export format");
+      const requestedItemIds = Array.isArray(payload.itemIds)
+        ? requiredStringArray(payload.itemIds, "employee batch")
+        : [];
+      let batchId = optionalValue(payload.batchId);
+      if (requestedItemIds.length) {
+        const selectedRows = await db
+          .select({
+            id: payrollItems.id,
+            employeeId: payrollItems.employeeId,
+            employeeCode: employees.employeeCode,
+            paymentMode: employees.paymentMode,
+            bankAccountMasked: employees.bankAccountMasked,
+            ifscMasked: employees.ifscMasked,
+            netPayable: payrollItems.netPayable,
+          })
+          .from(payrollItems)
+          .innerJoin(employees, eq(payrollItems.employeeId, employees.id))
+          .where(
+            and(
+              eq(payrollItems.runId, run.id),
+              inArray(payrollItems.id, requestedItemIds),
+            ),
+          );
+        if (selectedRows.length !== requestedItemIds.length)
+          throw new RequestError(
+            "One or more selected employees do not belong to this payroll run",
+            409,
+          );
+        const invalidRows = selectedRows.filter(
+          (row) =>
+            row.paymentMode !== "bank" ||
+            !row.bankAccountMasked ||
+            !row.ifscMasked ||
+            !Number.isFinite(row.netPayable) ||
+            row.netPayable < 0,
+        );
+        if (invalidRows.length)
+          throw new RequestError(
+            `Complete bank account number and IFSC before downloading: ${invalidRows
+              .map((row) => row.employeeCode)
+              .join(", ")}`,
+            409,
+          );
+        const existingRows = await db
+          .select({
+            payrollItemId: paymentExportBatchItems.payrollItemId,
+            status: paymentExportBatches.status,
+          })
+          .from(paymentExportBatchItems)
+          .innerJoin(
+            paymentExportBatches,
+            eq(paymentExportBatchItems.batchId, paymentExportBatches.id),
+          )
+          .where(
+            and(
+              eq(paymentExportBatchItems.runId, run.id),
+              inArray(
+                paymentExportBatchItems.payrollItemId,
+                requestedItemIds,
+              ),
+            ),
+          );
+        if (existingRows.length) {
+          const existingCodes = selectedRows
+            .filter((row) =>
+              existingRows.some((entry) => entry.payrollItemId === row.id),
+            )
+            .map((row) => row.employeeCode)
+            .join(", ");
+          throw new RequestError(
+            `A bank file was already prepared or downloaded for: ${existingCodes}`,
+            409,
+          );
+        }
+        const now = new Date().toISOString();
+        batchId = `PAYMENT-${crypto.randomUUID()}`;
+        await db.insert(paymentExportBatches).values({
+          id: batchId,
+          runId: run.id,
+          status: "locked",
+          exportFormat: null,
+          employeeCount: selectedRows.length,
+          totalPayable: roundMoney(
+            selectedRows.reduce((sum, row) => sum + row.netPayable, 0),
+          ),
+          lockedBy: actorEmail,
+          lockedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+        try {
+          await db.insert(paymentExportBatchItems).values(
+            selectedRows.map((row) => ({
+              id: `PAYMENT-ITEM-${crypto.randomUUID()}`,
+              batchId: batchId!,
+              runId: run.id,
+              payrollItemId: row.id,
+              employeeId: row.employeeId,
+              amount: row.netPayable,
+              createdAt: now,
+            })),
+          );
+        } catch {
+          await db
+            .delete(paymentExportBatches)
+            .where(eq(paymentExportBatches.id, batchId));
+          throw new RequestError(
+            "Another session already prepared one of these employees; duplicate bank processing was blocked",
+            409,
+          );
+        }
+      }
+      if (!batchId) throw new RequestError("Payment batch is required");
       const [batch] = await db
         .select()
         .from(paymentExportBatches)
@@ -6088,7 +6327,7 @@ export async function POST(request: Request) {
         "payment_batch_downloaded",
         "payment_export_batch",
         batch.id,
-        `Downloaded ${exportFormat} for ${batch.employeeCount} individually locked employee${batch.employeeCount === 1 ? "" : "s"}; duplicate export blocked`,
+        `Downloaded ${exportFormat} for ${batch.employeeCount} individually selected employee${batch.employeeCount === 1 ? "" : "s"}; the one-click reservation blocked duplicate processing`,
         actorEmail,
       );
     } else if (action === "resolve-issues" || action === "recalculate") {
