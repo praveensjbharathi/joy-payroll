@@ -1699,6 +1699,36 @@ function mutationChangedRows(result: unknown): number | null {
   return null;
 }
 
+async function downloadedPayrollItemIds(db: Db, runId: string) {
+  const rows = await db
+    .select({ payrollItemId: paymentExportBatchItems.payrollItemId })
+    .from(paymentExportBatchItems)
+    .innerJoin(
+      paymentExportBatches,
+      eq(paymentExportBatchItems.batchId, paymentExportBatches.id),
+    )
+    .where(
+      and(
+        eq(paymentExportBatchItems.runId, runId),
+        eq(paymentExportBatches.status, "downloaded"),
+      ),
+    );
+  return new Set(rows.map((row) => row.payrollItemId));
+}
+
+async function requirePayrollItemPaymentUnlocked(
+  db: Db,
+  runId: string,
+  payrollItemId: string,
+) {
+  const downloadedIds = await downloadedPayrollItemIds(db, runId);
+  if (downloadedIds.has(payrollItemId))
+    throw new RequestError(
+      "This employee is locked because their bank file was already downloaded. Edit only the newly added employee salary record.",
+      409,
+    );
+}
+
 function positiveValue(value: unknown, label: string, maximum = 100000000) {
   const result = numberValue(value);
   if (result < 0 || result > maximum)
@@ -1959,17 +1989,24 @@ async function recalculateRun(
           : 0;
     }
     const totals = payrollTotals(next);
-    Object.assign(
-      next,
-      {
-        grossEarnings: totals.grossEarnings,
-        totalDeductions: totals.totalDeductions,
-        netPayable: totals.netPayable,
-        accommodationDeduction: totals.accommodationDeduction,
-        returnAmount: totals.returnAmount,
-      },
-      validationForEmployee(employee, effectiveRules),
-    );
+    const employeeValidation = validationForEmployee(employee, effectiveRules);
+    const salaryValuesPending =
+      run.processingMode === "salary_import" && totals.grossEarnings <= 0;
+    Object.assign(next, {
+      grossEarnings: totals.grossEarnings,
+      totalDeductions: totals.totalDeductions,
+      netPayable: totals.netPayable,
+      accommodationDeduction: totals.accommodationDeduction,
+      returnAmount: totals.returnAmount,
+      validationStatus: salaryValuesPending
+        ? "review"
+        : employeeValidation.validationStatus,
+      validationMessage: salaryValuesPending
+        ? [employeeValidation.validationMessage, "salary values pending"]
+            .filter(Boolean)
+            .join("; ")
+        : employeeValidation.validationMessage,
+    });
     const {
       id,
       runId: ignoredRunId,
@@ -2076,7 +2113,7 @@ async function addEmployeesToRun(
   run: PayrollRunRow,
   employeeRows: EmployeeRow[],
 ) {
-  if (!employeeRows.length) return;
+  if (!employeeRows.length) return 0;
   const existing = await db
     .select({ employeeId: payrollItems.employeeId })
     .from(payrollItems)
@@ -2096,6 +2133,7 @@ async function addEmployeesToRun(
     }));
   for (let index = 0; index < values.length; index += 2)
     await db.insert(payrollItems).values(values.slice(index, index + 2));
+  return values.length;
 }
 
 async function createRun(
@@ -2622,6 +2660,16 @@ async function importWorkbook(
     assigned.map((employee) => [employee.employeeCode.toUpperCase(), employee]),
   );
   await addEmployeesToRun(db, run, assigned);
+  const runItemIdentityRows = await db
+    .select({ id: payrollItems.id, employeeId: payrollItems.employeeId })
+    .from(payrollItems)
+    .where(eq(payrollItems.runId, run.id));
+  const downloadedItemIds = await downloadedPayrollItemIds(db, run.id);
+  const downloadedEmployeeIds = new Set(
+    runItemIdentityRows
+      .filter((item) => downloadedItemIds.has(item.id))
+      .map((item) => item.employeeId),
+  );
 
   if (importedAttendance.length) {
     const { start, end } = periodRange(period, run.periodStart, run.periodEnd);
@@ -2652,6 +2700,7 @@ async function importWorkbook(
       const status = String(entry.statusCode ?? "").toUpperCase();
       if (
         !employee ||
+        downloadedEmployeeIds.has(employee.id) ||
         date < start ||
         date >= end ||
         !ATTENDANCE_CODES.includes(status as (typeof ATTENDANCE_CODES)[number])
@@ -2713,7 +2762,7 @@ async function importWorkbook(
           .toUpperCase(),
       );
       const item = employee ? itemByEmployee.get(employee.id) : null;
-      if (!employee || !item) continue;
+      if (!employee || !item || downloadedItemIds.has(item.id)) continue;
       const update: Record<string, number> = {};
       for (const field of [...earningFields, ...deductionFields])
         if (Object.hasOwn(imported, field))
@@ -2759,7 +2808,11 @@ async function importWorkbook(
   }
 
   await updateUnitCount(db, unitId);
-  await recalculateRun(db, run.id, importedAttendance.length > 0);
+  await recalculateRun(
+    db,
+    run.id,
+    importedAttendance.length > 0 && downloadedItemIds.size === 0,
+  );
   await writeAudit(
     db,
     "workbook_imported",
@@ -3086,6 +3139,29 @@ export async function POST(request: Request) {
     const user = access.identity;
     const actorEmail = user.email;
     let runId = typeof payload.runId === "string" ? payload.runId : RUN_ID;
+    const paymentProtectedActions = new Set([
+      "update-run-period",
+      "save-attendance",
+      "delete-attendance",
+      "save-accommodation",
+      "delete-accommodation",
+      "save-recovery-entry",
+      "delete-recovery-entry",
+      "finalize-employee-recovery",
+      "reopen-employee-recovery",
+      "save-room-expense",
+      "finalize-room-expense",
+      "reopen-room-expense",
+      "delete-payroll-run",
+    ]);
+    if (
+      paymentProtectedActions.has(action) &&
+      (await downloadedPayrollItemIds(db, runId)).size
+    )
+      throw new RequestError(
+        "A bank file was already downloaded for this payroll. Paid attendance and recovery records remain locked; update only the newly added employee salary row.",
+        409,
+      );
 
     if (action === "save-app-user") {
       await saveAppUser(db, payload, access);
@@ -4811,6 +4887,7 @@ export async function POST(request: Request) {
         .where(and(eq(payrollItems.id, itemId), eq(payrollItems.runId, runId)))
         .limit(1);
       if (!item) throw new RequestError("Salary record not found", 404);
+      await requirePayrollItemPaymentUnlocked(db, runId, item.id);
       const fields =
         typeof payload.fields === "object" && payload.fields !== null
           ? (payload.fields as Record<string, unknown>)
@@ -6178,7 +6255,28 @@ export async function POST(request: Request) {
         actorEmail,
       );
     } else if (action === "reopen" || action === "reset-demo") {
-      await requireRun(db, runId);
+      const run = await requireRun(db, runId);
+      if (run.status !== "approved")
+        throw new RequestError("Only an approved payroll can be reopened", 409);
+      const activeEmployees = await db
+        .select()
+        .from(employees)
+        .where(
+          and(
+            eq(employees.clientUnitId, run.clientUnitId),
+            eq(employees.status, "active"),
+          ),
+        );
+      const existingItems = await db
+        .select({ employeeId: payrollItems.employeeId })
+        .from(payrollItems)
+        .where(eq(payrollItems.runId, runId));
+      const existingEmployeeIds = new Set(
+        existingItems.map((item) => item.employeeId),
+      );
+      const missingEmployees = activeEmployees.filter(
+        (employee) => !existingEmployeeIds.has(employee.id),
+      );
       const clearedBatches = await db
         .select({ id: payrollBatches.id })
         .from(payrollBatches)
@@ -6187,30 +6285,73 @@ export async function POST(request: Request) {
             eq(payrollBatches.runId, runId),
             eq(payrollBatches.status, "cleared"),
           ),
-        )
-        .limit(1);
-      if (clearedBatches.length)
-        throw new RequestError(
-          "Reopen all cleared accommodation payment batches before reopening payroll",
-          409,
         );
       const paymentBatches = await db
         .select()
         .from(paymentExportBatches)
         .where(eq(paymentExportBatches.runId, runId));
-      if (paymentBatches.some((batch) => batch.status === "downloaded"))
+      const downloadedPaymentBatches = paymentBatches.filter(
+        (batch) => batch.status === "downloaded",
+      );
+      if (downloadedPaymentBatches.length && !missingEmployees.length)
         throw new RequestError(
           "This payroll already has a downloaded bank file. Duplicate-safe corrections require a new payroll run or an authorised payment reversal first",
           409,
         );
-      if (paymentBatches.length) {
+      if (
+        (downloadedPaymentBatches.length || clearedBatches.length) &&
+        !access.profile.canApprovePayroll
+      )
+        throw new RequestError(
+          "Only a Super Admin or authorised payroll approver can reopen a payment-protected payroll",
+          403,
+        );
+      const lockedPaymentBatches = paymentBatches.filter(
+        (batch) => batch.status === "locked",
+      );
+      if (lockedPaymentBatches.length) {
         await db
           .delete(paymentExportBatchItems)
-          .where(eq(paymentExportBatchItems.runId, runId));
+          .where(
+            inArray(
+              paymentExportBatchItems.batchId,
+              lockedPaymentBatches.map((batch) => batch.id),
+            ),
+          );
         await db
           .delete(paymentExportBatches)
-          .where(eq(paymentExportBatches.runId, runId));
+          .where(
+            inArray(
+              paymentExportBatches.id,
+              lockedPaymentBatches.map((batch) => batch.id),
+            ),
+          );
       }
+      const reopeningClearedBatches =
+        !downloadedPaymentBatches.length && clearedBatches.length > 0;
+      if (reopeningClearedBatches) {
+        requireModule(access, "payments", "manage");
+        await db
+          .update(payrollBatches)
+          .set({
+            status: "prepared",
+            paymentReference: null,
+            clearedBy: null,
+            clearedAt: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(payrollBatches.runId, runId),
+              eq(payrollBatches.status, "cleared"),
+            ),
+          );
+      }
+      const addedEmployeeCount = await addEmployeesToRun(
+        db,
+        run,
+        missingEmployees,
+      );
       await db
         .update(payrollRuns)
         .set({
@@ -6226,7 +6367,9 @@ export async function POST(request: Request) {
         "reopened",
         "payroll_run",
         runId,
-        "Reopened payroll for corrections; payment exports locked",
+        downloadedPaymentBatches.length
+          ? `Reopened payroll in supplementary mode and added ${addedEmployeeCount} missed employee(s); ${downloadedPaymentBatches.length} downloaded bank batch(es) and paid employee records remain locked`
+          : `Reopened payroll for corrections, added ${addedEmployeeCount} missed employee(s), reopened ${clearedBatches.length} cleared accommodation batch(es), and removed ${lockedPaymentBatches.length} undownloaded bank batch(es)`,
         actorEmail,
       );
     } else if (action === "delete-payroll-run") {
