@@ -115,6 +115,24 @@ test("approved payroll can safely reopen cleared batches for recovery correction
   assert.match(api, /status: "prepared"/);
 });
 
+test("missed employees can join a payment-protected payroll without reopening paid rows", async () => {
+  const api = await source("app/api/app-data/route.ts");
+  const payroll = await source("app/payroll-app.tsx");
+  const start = api.indexOf('    } else if (action === "reopen" || action === "reset-demo") {');
+  const end = api.indexOf('    } else if (action === "delete-payroll-run") {', start);
+  assert.ok(start >= 0 && end > start, "general payroll reopen action must exist");
+  const reopen = api.slice(start, end);
+  assert.match(reopen, /const missingEmployees = activeEmployees\.filter/);
+  assert.match(reopen, /const downloadedPaymentBatches = paymentBatches\.filter/);
+  assert.match(reopen, /await addEmployeesToRun/);
+  assert.match(reopen, /downloaded bank batch\(es\) and paid employee records remain locked/);
+  assert.match(api, /requirePayrollItemPaymentUnlocked/);
+  assert.match(api, /downloadedItemIds\.has\(item\.id\)/);
+  assert.match(payroll, /Add \$\{missingEmployeeCount\} missed employee/);
+  assert.match(payroll, /downloadedPayrollItemIds\.has\(selectedItem\.id\)/);
+  assert.match(payroll, /paymentExportBatches\.find\(\(batch\) => batch\.status === "locked"\) \?\? null/);
+});
+
 test("room recovery is an append-only dated ledger and finalization aggregates the month", async () => {
   const api = await source("app/api/app-data/route.ts");
   const schema = await source("db/schema.ts");
@@ -196,6 +214,10 @@ test("recovery printing isolates the requested pages and bulk salary slips can e
   assert.ok(roomPrintStart >= 0 && roomPrintEnd > roomPrintStart, "room recovery print block must exist");
   const roomPrint = recovery.slice(roomPrintStart, roomPrintEnd);
   assert.match(roomPrint, /printIsolatedElement\(layer, "room"\)/);
+  assert.match(roomPrint, /optionalRecoveryPrintHeaders/);
+  assert.match(roomPrint, /label === "Room"/);
+  assert.match(roomPrint, /label === "Voucher"/);
+  assert.match(roomPrint, /matchedRows\.every/);
   assert.doesNotMatch(roomPrint, /document\.body\.appendChild\(layer\)|window\.print\(\)/);
   assert.match(enhancements, /printIsolatedElement\(source, "room"\)/);
   assert.match(payroll, /printIsolatedElement\(source, "payslips"\)/);
@@ -205,6 +227,8 @@ test("recovery printing isolates the requested pages and bulk salary slips can e
   assert.match(printDocument, /\.room-report-page:not\(:last-child\)/);
   assert.match(printDocument, /\.room-recovery-print-sheet:not\(:last-child\)/);
   assert.match(printDocument, /\.room-recovery-print-sheet tr/);
+  assert.match(printDocument, /font-size: 9pt !important/);
+  assert.match(printDocument, /min-width: 36mm !important/);
   assert.match(printDocument, /\.advance-voucher:not\(:last-child\)/);
   assert.match(printDocument, /\.payslip-sheet:not\(:last-child\)/);
   assert.match(printDocument, /min-height: 0 !important/);
