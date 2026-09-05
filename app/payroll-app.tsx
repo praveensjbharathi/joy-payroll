@@ -5533,6 +5533,9 @@ function PayslipSheet({
   const range = run
     ? payrollPeriodRange(run.payPeriod, run.periodStart, run.periodEnd)
     : null;
+  const dateOfJoining = employee?.dateOfJoining
+    ? employee.dateOfJoining.slice(0, 10).split("-").reverse().join("/")
+    : "";
   const employerTitle = unit.payslipTitle ?? unit.clientName;
   return (
     <article className="payslip-sheet payslip-half-a4">
@@ -5576,6 +5579,12 @@ function PayslipSheet({
           <span>Department</span>
           <strong>{item.department}</strong>
         </div>
+        {dateOfJoining ? (
+          <div>
+            <span>Date of joining (DOJ)</span>
+            <strong>{dateOfJoining}</strong>
+          </div>
+        ) : null}
         <div>
           <span>Employer / unit</span>
           <strong>
