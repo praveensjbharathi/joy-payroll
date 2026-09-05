@@ -14,7 +14,12 @@ const checks = [
   [route.includes("bank payable") && route.includes("final net payable"), "bank/net reconciliation"],
   [route.includes("This payroll run is approved. Reopen it before making changes."), "approved-run edit lock"],
   [route.includes("Approve the payroll run before clearing an accommodation payment batch"), "payment-batch approval lock"],
-  [route.includes("Reopen all cleared accommodation payment batches before reopening payroll"), "reopen protection after payment clearance"],
+  [
+    route.includes("downloadedPaymentBatches.length && !missingEmployees.length") &&
+      route.includes("requirePayrollItemPaymentUnlocked") &&
+      route.includes("paid employee records remain locked"),
+    "supplementary reopen protection after payment clearance",
+  ],
   [calculations.includes("validationForEmployee"), "employee payroll readiness validation"],
   [calculations.includes("accommodationDeduction") && calculations.includes("returnAmount"), "recovery-aware final payable calculation"],
   [access.includes('super_admin: true') && access.includes('payroll_team: false'), "separate payroll approval permission defaults"],
