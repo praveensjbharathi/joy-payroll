@@ -49,7 +49,15 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(payroll, /const prepared = resolveBankExport\("indian_bank_xlsx"\)/);
   assert.match(payroll, /all .* eligible employee\(s\) will be included automatically/);
   assert.match(payroll, /window\.confirm/);
-  assert.match(payroll, /-COPY/);
+  assert.match(payroll, /-RECONCILED-COPY/);
+  assert.match(payroll, /JOY_RECONCILED_BANK_COPY_V3/);
+  assert.match(payroll, /const downloadedBankItems = bankItems\.filter/);
+  assert.match(payroll, /Reconciled bank-file totals/);
+  assert.match(payroll, /CUB Any Bank \+ CUB-to-CUB equals the Indian Bank Excel/);
+  assert.doesNotMatch(
+    payroll,
+    /batch\.status === "downloaded" && batch\.exportFormat === format/,
+  );
   const formatsStart = payroll.indexOf('<span className="eyebrow">Bank bulk-upload formats</span>');
   const formatsEnd = payroll.indexOf('<section className="panel payroll-bank-flow">', formatsStart);
   const formats = payroll.slice(formatsStart, formatsEnd);

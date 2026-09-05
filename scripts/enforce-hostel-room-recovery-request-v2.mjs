@@ -1054,6 +1054,16 @@ if (!payrollApp.includes("const bankDownloadBlockReason"))
   throw new Error("Bank output prerequisites are still hidden from the user");
 if (!payrollApp.includes("JOY_ALWAYS_AVAILABLE_BANK_DOWNLOAD_V2"))
   throw new Error("Bank format buttons still depend on manual employee selection");
+if (!payrollApp.includes("JOY_RECONCILED_BANK_COPY_V3"))
+  throw new Error("Downloaded bank batches are not reconciled across formats");
+if (!payrollApp.includes("const downloadedBankItems = bankItems.filter"))
+  throw new Error("Reconciled bank copies do not use every downloaded employee");
+if (
+  payrollApp.includes(
+    'batch.status === "downloaded" && batch.exportFormat === format',
+  )
+)
+  throw new Error("Bank copy reconstruction still splits employees by format");
 if (!payrollApp.includes("includes all eligible employees automatically"))
   throw new Error("Automatic all-eligible bank download guidance is missing");
 if (payrollApp.includes("lock the batch before downloading a bank file"))
