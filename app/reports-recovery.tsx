@@ -351,8 +351,28 @@ export function RecoveryCenter({
       (cell) => cell.textContent?.trim() ?? "",
     );
     const employeeRoomIndex = employeeHeaders.findIndex((label) => label === "Room");
-    const voucherIndex = employeeHeaders.findIndex((label) => label === "Voucher");
     const employeeSourceRows = Array.from(employeeTable?.tBodies[0]?.rows ?? []);
+    const optionalRecoveryPrintHeaders = new Set([
+      "Rent",
+      "Bus",
+      "Food",
+      "Advance",
+      "ID",
+      "Medical",
+      "Ticket",
+      "Shoe",
+      "Aadhaar",
+      "Bank A/c",
+      "T-shirt",
+      "Old pending",
+      "Gas",
+      "Ration",
+      "Provision",
+    ]);
+    const printedAmount = (value: string) => {
+      const parsed = Number(value.replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
 
     document.querySelector(".room-recovery-print-layer")?.remove();
     const layer = document.createElement("div");
@@ -412,10 +432,30 @@ export function RecoveryCenter({
         Array.from(clone.tBodies[0]?.rows ?? []).forEach((row) => {
           const room = row.cells[employeeRoomIndex]?.textContent?.trim() || "—";
           if (room !== roomName) row.remove();
-          else if (voucherIndex >= 0 && row.cells[voucherIndex]) row.deleteCell(voucherIndex);
         });
         const header = clone.tHead?.rows[0];
-        if (header && voucherIndex >= 0 && header.cells[voucherIndex]) header.deleteCell(voucherIndex);
+        const removedColumnIndices = employeeHeaders
+          .map((label, index) => ({ label, index }))
+          .filter(
+            ({ label, index }) =>
+              label === "Room" ||
+              label === "Voucher" ||
+              (optionalRecoveryPrintHeaders.has(label) &&
+                matchedRows.every(
+                  (row) =>
+                    Math.abs(
+                      printedAmount(row.cells[index]?.textContent?.trim() ?? ""),
+                    ) < 0.005,
+                )),
+          )
+          .map(({ index }) => index)
+          .sort((left, right) => right - left);
+        for (const index of removedColumnIndices) {
+          if (header?.cells[index]) header.deleteCell(index);
+          Array.from(clone.tBodies[0]?.rows ?? []).forEach((row) => {
+            if (row.cells[index]) row.deleteCell(index);
+          });
+        }
         const printableHeaders = Array.from(header?.cells ?? []).map(
           (cell) => cell.textContent?.trim() ?? "",
         );
