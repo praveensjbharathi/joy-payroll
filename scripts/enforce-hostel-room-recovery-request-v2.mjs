@@ -1052,20 +1052,14 @@ if (!payrollApp.includes("JOY_ONE_CLICK_BANK_EXPORT_V1"))
   throw new Error("One-click bank output reservation was not added");
 if (!payrollApp.includes("const bankDownloadBlockReason"))
   throw new Error("Bank output prerequisites are still hidden from the user");
-if (!payrollApp.includes("JOY_ALWAYS_AVAILABLE_BANK_DOWNLOAD_V2"))
-  throw new Error("Bank format buttons still depend on manual employee selection");
-if (!payrollApp.includes("JOY_RECONCILED_BANK_COPY_V3"))
-  throw new Error("Downloaded bank batches are not reconciled across formats");
-if (!payrollApp.includes("const downloadedBankItems = bankItems.filter"))
-  throw new Error("Reconciled bank copies do not use every downloaded employee");
-if (
-  payrollApp.includes(
-    'batch.status === "downloaded" && batch.exportFormat === format',
-  )
-)
-  throw new Error("Bank copy reconstruction still splits employees by format");
-if (!payrollApp.includes("includes all eligible employees automatically"))
-  throw new Error("Automatic all-eligible bank download guidance is missing");
+if (!payrollApp.includes("JOY_FUND_LIMITED_BANK_BATCH_V4"))
+  throw new Error("Fund-limited employee-wise bank batching is missing");
+if (!payrollApp.includes("No employee is selected automatically"))
+  throw new Error("Bank downloads still risk silently selecting every employee");
+if (!payrollApp.includes("Download selected batch"))
+  throw new Error("Selected employee bank batch does not have a clear download action");
+if (!payrollApp.includes("isDownloaded || isLocked || !formatEligible"))
+  throw new Error("Downloaded employee selection is not visibly disabled");
 if (payrollApp.includes("lock the batch before downloading a bank file"))
   throw new Error("Obsolete manual bank batch lock guidance is still visible");
 const hasPersistentPaymentBatchGuard =

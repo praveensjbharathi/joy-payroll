@@ -44,20 +44,15 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(payroll, /Download check:/);
   assert.match(payroll, /zero-pay employee\(s\) omitted from bank files/);
   assert.doesNotMatch(payroll, /lock the batch before downloading a bank file/);
-  assert.match(payroll, /JOY_ALWAYS_AVAILABLE_BANK_DOWNLOAD_V2/);
+  assert.match(payroll, /JOY_FUND_LIMITED_BANK_BATCH_V4/);
   assert.match(payroll, /const availableBankItems = bankItems\.filter/);
   assert.match(payroll, /const prepared = resolveBankExport\("indian_bank_xlsx"\)/);
-  assert.match(payroll, /all .* eligible employee\(s\) will be included automatically/);
-  assert.match(payroll, /window\.confirm/);
-  assert.match(payroll, /-RECONCILED-COPY/);
-  assert.match(payroll, /JOY_RECONCILED_BANK_COPY_V3/);
-  assert.match(payroll, /const downloadedBankItems = bankItems\.filter/);
-  assert.match(payroll, /Reconciled bank-file totals/);
-  assert.match(payroll, /CUB Any Bank \+ CUB-to-CUB equals the Indian Bank Excel/);
-  assert.doesNotMatch(
-    payroll,
-    /batch\.status === "downloaded" && batch\.exportFormat === format/,
-  );
+  assert.match(payroll, /No employee is selected automatically/);
+  assert.match(payroll, /available bank balance/);
+  assert.match(payroll, /Download selected batch/);
+  assert.match(payroll, /isDownloaded \|\| isLocked \|\| !formatEligible/);
+  assert.match(payroll, /Only downloaded employees are locked/);
+  assert.doesNotMatch(payroll, /-RECONCILED-COPY/);
   const formatsStart = payroll.indexOf('<span className="eyebrow">Bank bulk-upload formats</span>');
   const formatsEnd = payroll.indexOf('<section className="panel payroll-bank-flow">', formatsStart);
   const formats = payroll.slice(formatsStart, formatsEnd);
