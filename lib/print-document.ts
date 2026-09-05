@@ -49,6 +49,7 @@ function runtimePrintCss(target: PayrollPrintTarget) {
         print-color-adjust: exact !important;
       }
       #joy-print-root,
+      #joy-print-root .room-recovery-print-layer,
       #joy-print-root .room-report-pages,
       #joy-print-root .report-print-area,
       #joy-print-root .bulk-recovery-vouchers,
@@ -102,6 +103,7 @@ function runtimePrintCss(target: PayrollPrintTarget) {
         page-break-after: always !important;
       }
       body.joy-print-target-room #joy-print-root .room-report-page table,
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet table,
       body.joy-print-target-report #joy-print-root .room-report-page table {
         width: 100% !important;
         table-layout: fixed !important;
@@ -110,11 +112,49 @@ function runtimePrintCss(target: PayrollPrintTarget) {
       }
       body.joy-print-target-room #joy-print-root .room-report-page th,
       body.joy-print-target-room #joy-print-root .room-report-page td,
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet th,
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet td,
       body.joy-print-target-report #joy-print-root .room-report-page th,
       body.joy-print-target-report #joy-print-root .room-report-page td {
         padding: 1mm .7mm !important;
         line-height: 1.18 !important;
         overflow-wrap: anywhere !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet {
+        page: auto !important;
+        display: block !important;
+        position: relative !important;
+        inset: auto !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin: 0 !important;
+        padding: 3mm !important;
+        overflow: visible !important;
+        box-sizing: border-box !important;
+        break-before: auto !important;
+        page-break-before: auto !important;
+        break-after: auto !important;
+        page-break-after: auto !important;
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet:not(:last-child) {
+        break-after: page !important;
+        page-break-after: always !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet thead {
+        display: table-header-group !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet tfoot {
+        display: table-row-group !important;
+      }
+      body.joy-print-target-room #joy-print-root .room-recovery-print-sheet tr {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
       }
 
       body.joy-print-target-voucher #joy-print-root .advance-voucher,
