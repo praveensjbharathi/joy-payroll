@@ -393,24 +393,6 @@ export function RecoveryCenter({
         ? roomEmployees.reduce((sum, row) => sum + row.provisionShare, 0)
         : finalizedRoomRow?.expense.provisionAmount ?? 0;
       const roomTotalRecovery = roomEmployees.reduce((sum, row) => sum + row.total, 0);
-      const roomReturnTotal = roomEmployees.reduce(
-        (sum, row) => sum + (row.charge?.returnAmount ?? 0),
-        0,
-      );
-      const roomFinalPayableTotal = roomEmployees.reduce(
-        (sum, row) =>
-          sum + Math.max(0, (row.item?.netPayable ?? 0) - row.pendingShared),
-        0,
-      );
-      const roomPreRecoveryTotal = roomEmployees.reduce(
-        (sum, row) =>
-          sum +
-          ((row.item?.netPayable ?? 0) +
-            (row.item?.accommodationDeduction ?? 0) -
-            (row.item?.returnAmount ?? 0)),
-        0,
-      );
-
       const matchedRows = employeeRoomIndex >= 0
         ? employeeSourceRows.filter((row) => (row.cells[employeeRoomIndex]?.textContent?.trim() || "—") === roomName)
         : [];
@@ -459,6 +441,16 @@ export function RecoveryCenter({
         const printableHeaders = Array.from(header?.cells ?? []).map(
           (cell) => cell.textContent?.trim() ?? "",
         );
+        const sourceHeaderIndex = new Map(
+          employeeHeaders.map((label, index) => [label, index]),
+        );
+        const financialHeaders = new Set([
+          "Net before recovery",
+          ...optionalRecoveryPrintHeaders,
+          "Total recovery",
+          "Return",
+          "Final payable",
+        ]);
         const printableEmployeeIndex = printableHeaders.findIndex((label) => label === "Employee");
         if (header && printableEmployeeIndex >= 0)
           header.cells[printableEmployeeIndex].textContent = "Employee / Punching No.";
@@ -469,13 +461,17 @@ export function RecoveryCenter({
           if (label === "#") cell.textContent = "TOTAL";
           else if (label === "Employee") cell.textContent = `ROOM ${roomName} TOTAL`;
           else if (label === "Room") cell.textContent = roomName;
-          else if (label === "Net before recovery") cell.textContent = `₹${roomPreRecoveryTotal.toFixed(2)}`;
-          else if (label === "Gas") cell.textContent = `₹${gas.toFixed(2)}`;
-          else if (label === "Ration") cell.textContent = `₹${ration.toFixed(2)}`;
-          else if (label === "Provision") cell.textContent = `₹${provision.toFixed(2)}`;
-          else if (label === "Total recovery") cell.textContent = `₹${roomTotalRecovery.toFixed(2)}`;
-          else if (label === "Return") cell.textContent = `₹${roomReturnTotal.toFixed(2)}`;
-          else if (label === "Final payable") cell.textContent = `₹${roomFinalPayableTotal.toFixed(2)}`;
+          else if (financialHeaders.has(label)) {
+            const sourceIndex = sourceHeaderIndex.get(label);
+            const total = sourceIndex === undefined
+              ? 0
+              : matchedRows.reduce(
+                  (sum, row) =>
+                    sum + printedAmount(row.cells[sourceIndex]?.textContent?.trim() ?? ""),
+                  0,
+                );
+            cell.textContent = `₹${total.toFixed(2)}`;
+          }
         });
         sheet.appendChild(clone);
       } else if (sharedTable) {
