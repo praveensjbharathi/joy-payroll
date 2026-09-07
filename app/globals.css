@@ -165,6 +165,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .mix-legend span { display: grid; gap: 2px; }
 .mix-legend strong { color: #253249; font-size: 10px; }
 .mix-legend small { color: var(--muted); font-size: 8px; }
+.mix-legend .mix-total { padding-top: 10px; border-top: 1px solid var(--line); }
 .exception-list { display: grid; }
 .exception-row { padding: 11px 3px; display: grid; grid-template-columns: 34px minmax(140px, 1fr) minmax(220px, 1.7fr) 80px; align-items: center; gap: 10px; border-top: 1px solid #edf0f4; }
 .exception-row:first-child { border-top: 0; }

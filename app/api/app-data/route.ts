@@ -114,6 +114,25 @@ function isCashFallbackOnlyValidation(input: {
   return unresolved.length === 0;
 }
 
+// JOY_CASH_APPROVAL_AND_DASHBOARD_SPLIT_V1
+// The employee master continues to report missing bank fields, but a payroll
+// row with no other issue is ready for the audited cash-payment route.
+function payrollValidationForCashFallback(
+  employee: {
+    paymentMode: string;
+    bankAccountMasked: string | null;
+    ifscMasked: string | null;
+  },
+  validation: { validationStatus: string; validationMessage: string | null },
+) {
+  return isCashFallbackOnlyValidation({
+    ...employee,
+    validationMessage: validation.validationMessage,
+  })
+    ? { ...validation, validationStatus: "ready" }
+    : validation;
+}
+
 const RUN_ID = "RUN-AUG26-JMS-WAT1";
 
 function isAutomatedSiteIdentity(email: string) {
@@ -2013,6 +2032,10 @@ async function recalculateRun(
     }
     const totals = payrollTotals(next);
     const employeeValidation = validationForEmployee(employee, effectiveRules);
+    const payrollValidation = payrollValidationForCashFallback(
+      employee,
+      employeeValidation,
+    );
     const salaryValuesPending =
       run.processingMode === "salary_import" && totals.grossEarnings <= 0;
     Object.assign(next, {
@@ -2023,12 +2046,12 @@ async function recalculateRun(
       returnAmount: totals.returnAmount,
       validationStatus: salaryValuesPending
         ? "review"
-        : employeeValidation.validationStatus,
+        : payrollValidation.validationStatus,
       validationMessage: salaryValuesPending
         ? [employeeValidation.validationMessage, "salary values pending"]
             .filter(Boolean)
             .join("; ")
-        : employeeValidation.validationMessage,
+        : payrollValidation.validationMessage,
     });
     const {
       id,
@@ -2039,10 +2062,12 @@ async function recalculateRun(
     void ignoredRunId;
     void ignoredEmployeeId;
     await db.update(payrollItems).set(values).where(eq(payrollItems.id, id));
-    if (employee.complianceStatus !== next.validationStatus) {
+    // Bank readiness remains visible in Employee Master. Only the payroll row
+    // becomes ready because its payment is explicitly routed through cash.
+    if (employee.complianceStatus !== employeeValidation.validationStatus) {
       await db
         .update(employees)
-        .set({ complianceStatus: next.validationStatus })
+        .set({ complianceStatus: employeeValidation.validationStatus })
         .where(eq(employees.id, employee.id));
     }
     updatedRows.push({ ...next, paymentMode: employee.paymentMode });
@@ -2164,12 +2189,18 @@ async function addEmployeesToRun(
       (employee) =>
         employee.status === "active" && !existingIds.has(employee.id),
     )
-    .map((employee) => ({
-      id: `ITEM-${crypto.randomUUID()}`,
-      runId: run.id,
-      employeeId: employee.id,
-      ...validationForEmployee(employee, rules),
-    }));
+    .map((employee) => {
+      const validation = payrollValidationForCashFallback(
+        employee,
+        validationForEmployee(employee, rules),
+      );
+      return {
+        id: `ITEM-${crypto.randomUUID()}`,
+        runId: run.id,
+        employeeId: employee.id,
+        ...validation,
+      };
+    });
   for (let index = 0; index < values.length; index += 2)
     await db.insert(payrollItems).values(values.slice(index, index + 2));
   return values.length;

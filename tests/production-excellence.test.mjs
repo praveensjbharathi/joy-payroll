@@ -53,6 +53,13 @@ test("payment exports support bank-ready and missing-bank-detail cash batches", 
   assert.match(payroll, /cash-payment-\$\{run\.payPeriod\}\.xlsx/);
   assert.match(api, /"cash_xlsx"/);
   assert.match(api, /isCashFallbackOnlyValidation/);
+  assert.match(api, /JOY_CASH_APPROVAL_AND_DASHBOARD_SPLIT_V1/);
+  assert.match(api, /payrollValidationForCashFallback/);
+  assert.match(payroll, /isPayrollReadyForApproval/);
+  assert.match(payroll, /Account and cash payment/);
+  assert.match(payroll, /Bank \/ account payment/);
+  assert.match(payroll, /Cash payment/);
+  assert.match(payroll, /aria-label=\{`\$\{money\(accountPayable\)\} through account/);
   assert.match(api, /run\.netPayable - run\.bankPayable - run\.cashPayable/);
   assert.doesNotMatch(api, /Joy Payroll is bank-payment only/);
   assert.match(payroll, /No employee is selected automatically/);

@@ -560,6 +560,10 @@ function isCashFallbackOnlyIssue(item: PayrollItem) {
   return unresolved.length === 0;
 }
 
+function isPayrollReadyForApproval(item: PayrollItem) {
+  return item.validationStatus === "ready" || isCashFallbackOnlyIssue(item);
+}
+
 type AuditEvent = {
   id: number;
   action: string;
@@ -960,6 +964,9 @@ export default function PayrollApp({
   const currentItems = currentRun
     ? (data?.payrollItems.filter((item) => item.runId === currentRun.id) ?? [])
     : [];
+  const currentBlockingIssueCount = currentItems.filter(
+    (item) => !isPayrollReadyForApproval(item),
+  ).length;
   const currentEmployees =
     data?.employees.filter(
       (employee) => employee.clientUnitId === activeUnitId,
@@ -1279,8 +1286,8 @@ export default function PayrollApp({
             >
               <Icon name={item.icon} size={19} />
               <span>{item.label}</span>
-              {item.id === "payroll" && currentRun?.issueCount ? (
-                <b>{currentRun.issueCount}</b>
+              {item.id === "payroll" && currentBlockingIssueCount ? (
+                <b>{currentBlockingIssueCount}</b>
               ) : null}
             </button>
           ))}
@@ -1378,7 +1385,7 @@ export default function PayrollApp({
                 onClick={() => setActiveSection("payroll")}
               >
                 <Icon name="alert" />
-                <i>{currentRun?.issueCount ?? 0}</i>
+                <i>{currentBlockingIssueCount}</i>
               </button>
             ) : null}
             <button
@@ -1492,7 +1499,6 @@ export default function PayrollApp({
                 <Dashboard
                   run={currentRun}
                   items={currentItems}
-                  employees={operationalEmployees}
                   data={data}
                   onNavigate={(section) =>
                     mayView(section)
@@ -2015,19 +2021,32 @@ export default function PayrollApp({
 function Dashboard({
   run,
   items,
-  employees,
   data,
   onNavigate,
 }: {
   run: PayrollRun;
   items: PayrollItem[];
-  employees: Employee[];
   data: AppData;
   onNavigate: (section: Section) => void;
 }) {
-  const issueItems = items.filter((item) => item.validationStatus !== "ready");
-  const paymentBankPercent = run.netPayable
-    ? Math.round((run.bankPayable / run.netPayable) * 100)
+  // JOY_CASH_APPROVAL_AND_DASHBOARD_SPLIT_V1: derive the live payment split
+  // from payroll rows so a stale pre-recheck run cannot hide cash payables.
+  const issueItems = items.filter((item) => !isPayrollReadyForApproval(item));
+  const accountItems = items.filter(
+    (item) =>
+      item.paymentMode === "bank" &&
+      Boolean(item.bankAccountMasked && item.ifscMasked),
+  );
+  const cashItems = items.filter((item) => !accountItems.includes(item));
+  const finalPayable = Math.round(
+    items.reduce((sum, item) => sum + item.netPayable, 0) * 100,
+  ) / 100;
+  const accountPayable = Math.round(
+    accountItems.reduce((sum, item) => sum + item.netPayable, 0) * 100,
+  ) / 100;
+  const cashPayable = Math.round((finalPayable - accountPayable) * 100) / 100;
+  const paymentAccountPercent = finalPayable
+    ? Math.round((accountPayable / finalPayable) * 100)
     : 0;
   const departmentCounts = Array.from(
     new Set(items.map((item) => item.department)),
@@ -2052,8 +2071,10 @@ function Dashboard({
     },
     {
       label: "Validation",
-      detail: run.issueCount ? `${run.issueCount} issues` : "All checks passed",
-      state: run.issueCount ? "attention" : "complete",
+      detail: issueItems.length
+        ? `${issueItems.length} issues`
+        : "All checks passed",
+      state: issueItems.length ? "attention" : "complete",
     },
     {
       label: "Approval",
@@ -2073,7 +2094,7 @@ function Dashboard({
         <MetricCard
           label="Employees in run"
           value={String(run.employeeCount)}
-          note={`${employees.filter((employee) => employee.paymentMode === "bank").length} bank · ${employees.filter((employee) => employee.paymentMode === "cash").length} cash`}
+          note={`${accountItems.length} account · ${cashItems.length} cash`}
           tone="blue"
           icon="users"
         />
@@ -2096,21 +2117,21 @@ function Dashboard({
           icon="file"
         />
         <MetricCard
-          label="Net payable"
-          value={compactMoney(run.netPayable)}
-          note={`${paymentBankPercent}% through bank`}
+          label="Final payable"
+          value={compactMoney(finalPayable)}
+          note={`${paymentAccountPercent}% through account`}
           tone="green"
           icon="bank"
         />
         <MetricCard
           label="Exceptions"
-          value={String(run.issueCount)}
+          value={String(issueItems.length)}
           note={
-            run.issueCount
+            issueItems.length
               ? "Resolve before approval"
               : "Payroll is validation-ready"
           }
-          tone={run.issueCount ? "red" : "green"}
+          tone={issueItems.length ? "red" : "green"}
           icon="alert"
         />
       </section>
@@ -2155,7 +2176,7 @@ function Dashboard({
               <span className="eyebrow">Net payroll mix</span>
               <h2>Department view</h2>
             </div>
-            <span className="muted-label">{money(run.netPayable)} total</span>
+            <span className="muted-label">{money(finalPayable)} total</span>
           </div>
           <div className="bar-list">
             {departmentCounts.map((row) => (
@@ -2182,35 +2203,43 @@ function Dashboard({
         <section className="panel payment-mix-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">Payment mode</span>
-              <h2>Bank transfer readiness</h2>
+              <span className="eyebrow">Final payable split</span>
+              <h2>Account and cash payment</h2>
             </div>
           </div>
           <div className="payment-mix">
             <div
               className="donut"
+              role="img"
+              aria-label={`${money(accountPayable)} through account and ${money(cashPayable)} through cash`}
               style={{
-                background: `conic-gradient(#2677f2 0 ${paymentBankPercent}%, #f2a94b ${paymentBankPercent}% 100%)`,
+                background: `conic-gradient(#2677f2 0 ${paymentAccountPercent}%, #f2a94b ${paymentAccountPercent}% 100%)`,
               }}
             >
               <span>
-                <strong>{paymentBankPercent}%</strong>
-                <small>bank pay</small>
+                <strong>{paymentAccountPercent}%</strong>
+                <small>account pay</small>
               </span>
             </div>
             <div className="mix-legend">
               <div>
                 <i className="legend-bank" />
                 <span>
-                  <strong>{money(run.bankPayable)}</strong>
-                  <small>Bank transfer</small>
+                  <strong>{money(accountPayable)}</strong>
+                  <small>Bank / account payment</small>
                 </span>
               </div>
               <div>
                 <i className="legend-cash" />
                 <span>
-                  <strong>{money(run.cashPayable)}</strong>
-                  <small>Bank details pending</small>
+                  <strong>{money(cashPayable)}</strong>
+                  <small>Cash payment</small>
+                </span>
+              </div>
+              <div className="mix-total">
+                <span>
+                  <strong>{money(finalPayable)}</strong>
+                  <small>Final payable</small>
                 </span>
               </div>
             </div>
@@ -2349,6 +2378,9 @@ function PayrollRunView({
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const blockingIssueCount = items.filter(
+    (item) => !isPayrollReadyForApproval(item),
+  ).length;
   const visible = items.filter((item) => {
     const matchesQuery =
       `${item.employeeCode} ${item.employeeName} ${item.department}`
@@ -2357,8 +2389,8 @@ function PayrollRunView({
     const matchesFilter =
       filter === "all" ||
       (filter === "review"
-        ? item.validationStatus !== "ready"
-        : item.validationStatus === "ready");
+        ? !isPayrollReadyForApproval(item)
+        : isPayrollReadyForApproval(item));
     return matchesQuery && matchesFilter;
   });
   function exportPayroll() {
@@ -2454,13 +2486,13 @@ function PayrollRunView({
   return (
     <div className="section-stack">
       <section
-        className={`run-command ${run.status === "approved" ? "command-approved" : run.issueCount ? "command-attention" : "command-ready"}`}
+        className={`run-command ${run.status === "approved" ? "command-approved" : blockingIssueCount ? "command-attention" : "command-ready"}`}
       >
         <div className="command-icon">
           {run.status === "approved" ? (
             <Icon name="check" />
           ) : (
-            <Icon name={run.issueCount ? "alert" : "calculator"} />
+            <Icon name={blockingIssueCount ? "alert" : "calculator"} />
           )}
         </div>
         <div>
@@ -2475,8 +2507,8 @@ function PayrollRunView({
               ? "Payroll approved"
               : !items.length
                 ? "Add employees to start payroll"
-                : run.issueCount
-                  ? `${run.issueCount} employee records need review`
+                : blockingIssueCount
+                  ? `${blockingIssueCount} employee records need review`
                   : run.grossEarnings <= 0
                     ? "Add attendance or salary amounts"
                     : "Payroll passed all validation checks"}
@@ -2486,7 +2518,7 @@ function PayrollRunView({
               ? `Approved by ${run.approvedBy ?? "Payroll approver"}. Payment exports are unlocked.`
               : !items.length
                 ? "Add or import employees, then record their attendance and salary."
-                : run.issueCount
+                : blockingIssueCount
                   ? "Update employee bank or statutory details, then recheck the run."
                   : run.grossEarnings <= 0
                     ? "Record attendance or open an employee salary row to enter earnings."
@@ -2555,7 +2587,7 @@ function PayrollRunView({
                     HR must add employees
                   </span>
                 )
-              ) : run.issueCount ? (
+              ) : blockingIssueCount ? (
                 <>
                   <button
                     className="secondary-button"
@@ -2647,8 +2679,7 @@ function PayrollRunView({
               Ready{" "}
               <span>
                 {
-                  items.filter((item) => item.validationStatus === "ready")
-                    .length
+                  items.filter(isPayrollReadyForApproval).length
                 }
               </span>
             </button>
@@ -2659,7 +2690,7 @@ function PayrollRunView({
               Review{" "}
               <span>
                 {
-                  items.filter((item) => item.validationStatus !== "ready")
+                  items.filter((item) => !isPayrollReadyForApproval(item))
                     .length
                 }
               </span>
@@ -2712,7 +2743,11 @@ function PayrollRunView({
                   <td>
                     <StatusPill
                       status={
-                        item.validationStatus === "ready" ? "Ready" : "Review"
+                        isCashFallbackOnlyIssue(item)
+                          ? "Cash ready"
+                          : item.validationStatus === "ready"
+                            ? "Ready"
+                            : "Review"
                       }
                     />
                   </td>
