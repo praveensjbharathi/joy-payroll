@@ -91,6 +91,29 @@ function errorMessages(error: unknown) {
   return messages;
 }
 
+// Missing account number and/or IFSC can be handled by the audited Cash
+// Payment Excel route. Any salary, UAN, ESI or other validation issue must
+// still block payroll approval.
+function isCashFallbackOnlyValidation(input: {
+  paymentMode: string;
+  bankAccountMasked: string | null;
+  ifscMasked: string | null;
+  validationMessage: string | null;
+}) {
+  if (
+    input.paymentMode !== "bank" ||
+    (input.bankAccountMasked && input.ifscMasked)
+  )
+    return false;
+  const unresolved = String(input.validationMessage ?? "")
+    .toLowerCase()
+    .replaceAll("bank account", "")
+    .replaceAll("ifsc", "")
+    .replaceAll("pending", "")
+    .replace(/[\s,;]+/g, "");
+  return unresolved.length === 0;
+}
+
 const RUN_ID = "RUN-AUG26-JMS-WAT1";
 
 function isAutomatedSiteIdentity(email: string) {
@@ -2054,12 +2077,28 @@ async function recalculateRun(
   );
   const bankPayable = roundMoney(
     updatedRows
-      .filter((row) => row.paymentMode === "bank")
+      .filter((row) => {
+        const employee = employeeMap.get(row.employeeId);
+        return Boolean(
+          employee?.paymentMode === "bank" &&
+            employee.bankAccountMasked &&
+            employee.ifscMasked,
+        );
+      })
       .reduce((sum, row) => sum + row.netPayable, 0),
   );
   const cashPayable = roundMoney(netPayable - bankPayable);
   const issueCount = updatedRows.filter(
-    (row) => row.validationStatus !== "ready",
+    (row) => {
+      if (row.validationStatus === "ready") return false;
+      const employee = employeeMap.get(row.employeeId);
+      return !employee || !isCashFallbackOnlyValidation({
+        paymentMode: employee.paymentMode,
+        bankAccountMasked: employee.bankAccountMasked,
+        ifscMasked: employee.ifscMasked,
+        validationMessage: row.validationMessage,
+      });
+    },
   ).length;
   await db
     .update(payrollRuns)
@@ -6150,18 +6189,19 @@ export async function POST(request: Request) {
       const run = await requireRun(db, runId);
       if (run.status !== "approved")
         throw new RequestError(
-          "Approve the payroll run before downloading a bank upload batch",
+          "Approve the payroll run before downloading a payment batch",
           409,
         );
-      const exportFormat = textValue(payload.exportFormat, "Bank export format");
+      const exportFormat = textValue(payload.exportFormat, "Payment export format");
       const allowedFormats = new Set([
         "bank_csv",
         "indian_bank_xlsx",
         "cub_any_bank_txt",
         "cub_to_cub_txt",
+        "cash_xlsx",
       ]);
       if (!allowedFormats.has(exportFormat))
-        throw new RequestError("Unsupported bank export format");
+        throw new RequestError("Unsupported payment export format");
       const requestedItemIds = Array.isArray(payload.itemIds)
         ? requiredStringArray(payload.itemIds, "employee batch")
         : [];
@@ -6190,19 +6230,25 @@ export async function POST(request: Request) {
             "One or more selected employees do not belong to this payroll run",
             409,
           );
-        const invalidRows = selectedRows.filter(
-          (row) =>
-            row.paymentMode !== "bank" ||
-            !row.bankAccountMasked ||
-            !row.ifscMasked ||
-            !Number.isFinite(row.netPayable) ||
-            row.netPayable < 0,
-        );
+        const isCashExport = exportFormat === "cash_xlsx";
+        const invalidRows = selectedRows.filter((row) => {
+          const invalidPayable =
+            !Number.isFinite(row.netPayable) || row.netPayable <= 0;
+          if (invalidPayable || row.paymentMode !== "bank") return true;
+          const hasBankDetails = Boolean(
+            row.bankAccountMasked && row.ifscMasked,
+          );
+          return isCashExport ? hasBankDetails : !hasBankDetails;
+        });
         if (invalidRows.length)
           throw new RequestError(
-            `Complete bank account number and IFSC before downloading: ${invalidRows
-              .map((row) => row.employeeCode)
-              .join(", ")}`,
+            isCashExport
+              ? `Cash Payment Excel is only for positive-pay employees missing account number or IFSC: ${invalidRows
+                  .map((row) => row.employeeCode)
+                  .join(", ")}`
+              : `Complete bank account number and IFSC before downloading: ${invalidRows
+                  .map((row) => row.employeeCode)
+                  .join(", ")}`,
             409,
           );
         const existingRows = await db
@@ -6232,7 +6278,7 @@ export async function POST(request: Request) {
             .map((row) => row.employeeCode)
             .join(", ");
           throw new RequestError(
-            `A bank file was already prepared or downloaded for: ${existingCodes}`,
+            `A payment file was already prepared or downloaded for: ${existingCodes}`,
             409,
           );
         }
@@ -6269,7 +6315,7 @@ export async function POST(request: Request) {
             .delete(paymentExportBatches)
             .where(eq(paymentExportBatches.id, batchId));
           throw new RequestError(
-            "Another session already prepared one of these employees; duplicate bank processing was blocked",
+            "Another session already prepared one of these employees; duplicate payment processing was blocked",
             409,
           );
         }
@@ -6288,7 +6334,7 @@ export async function POST(request: Request) {
       if (!batch) throw new RequestError("Payment batch not found", 404);
       if (batch.status === "downloaded")
         throw new RequestError(
-          "This bank upload batch was already downloaded and is protected from duplicate processing",
+          "This payment batch was already downloaded and is protected from duplicate processing",
           409,
         );
       const batchItems = await db
@@ -6319,7 +6365,7 @@ export async function POST(request: Request) {
       const changedRows = mutationChangedRows(downloadResult);
       if (changedRows !== null && changedRows < 1)
         throw new RequestError(
-          "This bank upload batch was already downloaded by another session; duplicate processing was blocked",
+          "This payment batch was already downloaded by another session; duplicate processing was blocked",
           409,
         );
       await writeAudit(
@@ -6327,7 +6373,7 @@ export async function POST(request: Request) {
         "payment_batch_downloaded",
         "payment_export_batch",
         batch.id,
-        `Downloaded ${exportFormat} for ${batch.employeeCount} individually selected employee${batch.employeeCount === 1 ? "" : "s"}; the one-click reservation blocked duplicate processing`,
+        `Downloaded ${exportFormat} for ${batch.employeeCount} individually selected employee${batch.employeeCount === 1 ? "" : "s"}; the reservation blocked duplicate processing`,
         actorEmail,
       );
     } else if (action === "resolve-issues" || action === "recalculate") {
@@ -6354,26 +6400,29 @@ export async function POST(request: Request) {
         .select({
           id: payrollItems.id,
           employeeId: payrollItems.employeeId,
+          employeeCode: employees.employeeCode,
+          paymentMode: employees.paymentMode,
+          bankAccountMasked: employees.bankAccountMasked,
+          ifscMasked: employees.ifscMasked,
           validationStatus: payrollItems.validationStatus,
+          validationMessage: payrollItems.validationMessage,
           netPayable: payrollItems.netPayable,
         })
         .from(payrollItems)
+        .innerJoin(employees, eq(payrollItems.employeeId, employees.id))
         .where(eq(payrollItems.runId, runId));
       if (!run.employeeCount || !approvalItems.length)
         throw new RequestError("Add employees before approving payroll", 409);
       const reviewItems = approvalItems.filter(
-        (item) => item.validationStatus !== "ready",
+        (item) =>
+          item.validationStatus !== "ready" &&
+          !isCashFallbackOnlyValidation(item),
       );
-      if (run.issueCount > 0 || reviewItems.length)
+      if (reviewItems.length)
         throw new RequestError(
           "Payroll approval blocked: " +
-            Math.max(run.issueCount, reviewItems.length) +
-            " employee record(s) still require review. Recheck employee, bank, PF/ESI and salary readiness first.",
-          409,
-        );
-      if (run.cashPayable > 0)
-        throw new RequestError(
-          "Payroll approval blocked: Joy Payroll is bank-payment only. Correct any non-bank payment mode before approval.",
+            reviewItems.length +
+            " employee record(s) still require salary or statutory review. Recheck PF/ESI and salary readiness first.",
           409,
         );
       if (run.grossEarnings <= 0)
@@ -6383,10 +6432,12 @@ export async function POST(request: Request) {
         );
       if (run.netPayable < 0)
         throw new RequestError("Payroll net payable cannot be negative", 409);
-      if (Math.abs(run.netPayable - run.bankPayable) > 0.01)
+      if (Math.abs(run.netPayable - run.bankPayable - run.cashPayable) > 0.01)
         throw new RequestError(
           "Payroll approval blocked: bank payable (₹" +
             run.bankPayable.toFixed(2) +
+            ") plus cash payable (₹" +
+            run.cashPayable.toFixed(2) +
             ") does not match final net payable (₹" +
             run.netPayable.toFixed(2) +
             "). Recalculate before approval.",

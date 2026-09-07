@@ -10,8 +10,8 @@ const access = await readFile(join(root, "lib/access-control.ts"), "utf8");
 const checks = [
   [route.includes("JOY_PAYROLL_APPROVAL_QUALITY_GATE_V1"), "approval quality gate"],
   [route.includes("await recalculateRun(db, runId, false);"), "pre-approval recalculation"],
-  [route.includes("Joy Payroll is bank-payment only"), "bank-only approval enforcement"],
-  [route.includes("bank payable") && route.includes("final net payable"), "bank/net reconciliation"],
+  [route.includes("isCashFallbackOnlyValidation"), "cash fallback approval isolation"],
+  [route.includes("bank payable") && route.includes("cash payable") && route.includes("final net payable"), "bank/cash/net reconciliation"],
   [route.includes("This payroll run is approved. Reopen it before making changes."), "approved-run edit lock"],
   [route.includes("Approve the payroll run before clearing an accommodation payment batch"), "payment-batch approval lock"],
   [

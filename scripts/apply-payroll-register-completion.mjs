@@ -101,7 +101,10 @@ await patch("app/payroll-app.tsx", (source) => {
       "payslip imported totals audit");
   }
 
-  if (!source.includes("No calculated bank rows are available")) {
+  if (
+    !source.includes("No calculated bank rows are available") &&
+    !source.includes("JOY_CASH_FALLBACK_EXPORT_V1")
+  ) {
     source = once(source,
       `        <div className="record-actions">\n          <button\n            className="secondary-button"\n            onClick={exportIndianBank}`,
       `        {!bankItems.length ? <p className="form-note"><strong>No calculated bank rows are available.</strong> Open Payroll Run and recalculate/refresh totals. Bank files are enabled automatically once salary rows exist and your Payments permission is Full access.</p> : null}\n        <div className="record-actions">\n          <button\n            className="secondary-button"\n            onClick={exportIndianBank}`,

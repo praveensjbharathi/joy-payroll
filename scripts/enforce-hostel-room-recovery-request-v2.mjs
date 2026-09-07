@@ -1054,6 +1054,10 @@ if (!payrollApp.includes("const bankDownloadBlockReason"))
   throw new Error("Bank output prerequisites are still hidden from the user");
 if (!payrollApp.includes("JOY_FUND_LIMITED_BANK_BATCH_V4"))
   throw new Error("Fund-limited employee-wise bank batching is missing");
+if (!payrollApp.includes("JOY_CASH_FALLBACK_EXPORT_V1"))
+  throw new Error("Missing-bank-detail employees do not have a cash Excel payment route");
+if (!payrollApp.includes('resolvePaymentExport("cash_xlsx")'))
+  throw new Error("Cash payment Excel does not use the persistent employee batch lock");
 if (!payrollApp.includes("No employee is selected automatically"))
   throw new Error("Bank downloads still risk silently selecting every employee");
 if (!payrollApp.includes("Download selected batch"))

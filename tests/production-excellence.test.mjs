@@ -22,18 +22,19 @@ test("employee master includes highest qualification", async () => {
   assert.match(payroll, /Highest qualification/);
 });
 
-test("payroll is bank-transfer only and all three bank formats remain available", async () => {
+test("payment exports support bank-ready and missing-bank-detail cash batches", async () => {
   const payroll = await source("app/payroll-app.tsx");
   const api = await source("app/api/app-data/route.ts");
   assert.doesNotMatch(payroll, /<option value="cash">Cash<\/option>/);
-  assert.match(payroll, /item\.paymentMode !== "cash" && item\.netPayable > 0/);
+  assert.match(payroll, /const paymentItems = items\.filter\(\(item\) => item\.netPayable > 0\)/);
   assert.match(payroll, /bankValidationIssues/);
   assert.match(api, /const paymentMode = "bank";/);
   assert.doesNotMatch(api, /paymentMode: "cash"/);
   assert.match(payroll, /Indian Bank Excel/);
   assert.match(payroll, /CUB Any Bank TXT/);
   assert.match(payroll, /CUB-to-CUB TXT/);
-  assert.match(payroll, /selectedBankItems/);
+  assert.match(payroll, /Cash Payment Excel/);
+  assert.match(payroll, /selectedPaymentItems/);
   assert.doesNotMatch(payroll, />Lock selected batch</);
   assert.match(payroll, /JOY_ONE_CLICK_BANK_EXPORT_V1/);
   assert.match(payroll, /download-payment-batch/);
@@ -42,22 +43,29 @@ test("payroll is bank-transfer only and all three bank formats remain available"
   assert.match(api, /duplicate processing was blocked/);
   assert.match(payroll, /const bankDownloadBlockReason/);
   assert.match(payroll, /Download check:/);
-  assert.match(payroll, /zero-pay employee\(s\) omitted from bank files/);
+  assert.match(payroll, /zero-pay employee\(s\) omitted from payment files/);
   assert.doesNotMatch(payroll, /lock the batch before downloading a bank file/);
   assert.match(payroll, /JOY_FUND_LIMITED_BANK_BATCH_V4/);
-  assert.match(payroll, /const availableBankItems = bankItems\.filter/);
-  assert.match(payroll, /const prepared = resolveBankExport\("indian_bank_xlsx"\)/);
+  assert.match(payroll, /JOY_CASH_FALLBACK_EXPORT_V1/);
+  assert.match(payroll, /const availablePaymentItems = paymentItems\.filter/);
+  assert.match(payroll, /const prepared = resolvePaymentExport\("indian_bank_xlsx"\)/);
+  assert.match(payroll, /const prepared = resolvePaymentExport\("cash_xlsx"\)/);
+  assert.match(payroll, /cash-payment-\$\{run\.payPeriod\}\.xlsx/);
+  assert.match(api, /"cash_xlsx"/);
+  assert.match(api, /isCashFallbackOnlyValidation/);
+  assert.match(api, /run\.netPayable - run\.bankPayable - run\.cashPayable/);
+  assert.doesNotMatch(api, /Joy Payroll is bank-payment only/);
   assert.match(payroll, /No employee is selected automatically/);
-  assert.match(payroll, /available bank balance/);
+  assert.match(payroll, /available fund/);
   assert.match(payroll, /Download selected batch/);
   assert.match(payroll, /isDownloaded \|\| isLocked \|\| !formatEligible/);
   assert.match(payroll, /Only downloaded employees are locked/);
   assert.doesNotMatch(payroll, /-RECONCILED-COPY/);
-  const formatsStart = payroll.indexOf('<span className="eyebrow">Bank bulk-upload formats</span>');
+  const formatsStart = payroll.indexOf('<span className="eyebrow">Payment download formats</span>');
   const formatsEnd = payroll.indexOf('<section className="panel payroll-bank-flow">', formatsStart);
   const formats = payroll.slice(formatsStart, formatsEnd);
   assert.ok(formatsStart >= 0 && formatsEnd > formatsStart);
-  assert.doesNotMatch(formats, /disabled=\{run\.status|!selectedBankItems/);
+  assert.doesNotMatch(formats, /disabled=\{run\.status|!selectedPaymentItems/);
   assert.match(formats, /disabled=\{paymentSelectionBusy\}/);
 });
 
