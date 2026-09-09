@@ -1,4 +1,5 @@
 export type PayrollPrintTarget =
+  | "application"
   | "payslips"
   | "room"
   | "report"

@@ -26,6 +26,8 @@ import {
 } from "./payroll-enhancements";
 import { OperationsView } from "./operations-view";
 import EnhancedEmployeeIdCard from "./employee-id-card";
+import EmployeeApplicationPreview, { EmployeeApplicationFields } from "./employee-application";
+import { readApplication } from "../lib/employee-application";
 import { HostelMaster } from "./hostel-master";
 import { RecoveryCenter, ReportsCenter } from "./reports-recovery";
 import {
@@ -147,6 +149,7 @@ export type Employee = {
   spouseName: string | null;
   maritalStatus: string | null;
   highestQualification: string | null;
+  applicationJson?: string | null;
   pfApplicable: number;
   pfWageAmount: number;
   esiApplicable: number;
@@ -3149,6 +3152,7 @@ function EmployeesView({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [cardEmployee, setCardEmployee] = useState<Employee | null>(null);
+  const [applicationEmployee, setApplicationEmployee] = useState<Employee | "blank" | null>(null);
   const activeEmployees = employees.filter(
     (employee) => employee.status === "active",
   );
@@ -3308,6 +3312,7 @@ function EmployeesView({
               <button className="primary-button" onClick={onAdd}>
                 + Add employee
               </button>
+              <button className="secondary-button" onClick={onAdd}>Create company application</button>
             </>
           ) : null}
         </div>
@@ -3393,6 +3398,7 @@ function EmployeesView({
                       >
                         ID card + QR
                       </button>
+                      <button className="record-action" onClick={() => setApplicationEmployee(employee)}>Application / PDF</button>
                       {canManage ? (
                         <>
                           <button
@@ -3434,6 +3440,8 @@ function EmployeesView({
           onClose={() => setCardEmployee(null)}
         />
       ) : null}
+      <button className="secondary-button" onClick={() => setApplicationEmployee("blank")}>Blank application / PDF</button>
+      {applicationEmployee && <EmployeeApplicationPreview employee={applicationEmployee === "blank" ? undefined : applicationEmployee} vendor={applicationEmployee === "blank" ? vendors[0] : vendors.find(v => v.id === applicationEmployee.vendorId)} onClose={() => setApplicationEmployee(null)} />}
     </div>
   );
 }
@@ -6548,6 +6556,7 @@ function PayrollActionModal({
   const [employeePhoto, setEmployeePhoto] = useState(
     employee?.photoDataUrl ?? "",
   );
+  const [employeeApplication, setEmployeeApplication] = useState(() => readApplication(employee?.applicationJson));
   const activeAccommodationTypes = accommodationTypes.filter(
     (type) =>
       type.vendorId === vendorId &&
@@ -6744,6 +6753,7 @@ function PayrollActionModal({
           employee: {
             ...fields,
             photoDataUrl: employeePhoto,
+            applicationJson: JSON.stringify(employeeApplication),
             shiftPattern: employeeShiftPattern,
             defaultShift: applicable[0],
             applicableShiftsJson: JSON.stringify(applicable),
@@ -7800,6 +7810,7 @@ function PayrollActionModal({
             </div>
           ) : null}
 
+          {modal.kind === "employee" ? <EmployeeApplicationFields value={employeeApplication} onChange={setEmployeeApplication} /> : null}
           {modal.kind === "accommodation-type" ? (
             <div className="form-grid">
               <label className="form-span">

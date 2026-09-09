@@ -2297,6 +2297,19 @@ function employeeValues(
     payload.accommodationType,
   );
   const dateOfJoining = textValue(payload.dateOfJoining, "Date of joining");
+  // Preserve stored applications when older clients/imports omit this field.
+  let applicationJson: string | undefined;
+  if (payload.applicationJson !== undefined) {
+    if (typeof payload.applicationJson !== "string" || payload.applicationJson.length > 250000)
+      throw new RequestError("Application details exceed the 250 KB limit");
+    let application: unknown;
+    try { application = JSON.parse(payload.applicationJson); }
+    catch { throw new RequestError("Invalid application details"); }
+    if (!application || typeof application !== "object" || Array.isArray(application) ||
+        Object.entries(application).some(([key, value]) => key.length > 200 || typeof value !== "string" || (key !== "Signature image" && value.length > 2000)))
+      throw new RequestError("Invalid application fields");
+    applicationJson = JSON.stringify(application);
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfJoining))
     throw new RequestError("Date of joining must be YYYY-MM-DD");
   return {
@@ -2333,6 +2346,7 @@ function employeeValues(
     maritalStatus: optionalValue(payload.maritalStatus),
     dateOfBirth: optionalValue(payload.dateOfBirth),
     highestQualification: optionalValue(payload.highestQualification),
+    ...(applicationJson !== undefined ? { applicationJson } : {}),
     pfApplicable: payload.pfApplicable === "no" ? 0 : 1,
     pfWageAmount: positiveValue(payload.pfWageAmount ?? 0, "PF wage"),
     esiApplicable: payload.esiApplicable === "no" ? 0 : 1,
