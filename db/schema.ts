@@ -199,6 +199,14 @@ export const clientUnits = sqliteTable("client_units", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const applicationDocuments = sqliteTable("application_documents", {
+  id: text("id").primaryKey(),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  category: text("category").notNull(),
+  filename: text("filename").notNull(),
+  dataUrl: text("data_url").notNull(),
+}, table => [uniqueIndex("application_documents_employee_category").on(table.employeeId, table.category)]);
+
 export const employees = sqliteTable("employees", {
   id: text("id").primaryKey(),
   vendorId: text("vendor_id")

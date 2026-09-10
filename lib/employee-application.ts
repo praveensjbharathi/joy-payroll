@@ -13,6 +13,8 @@ export const applicationSections = [
 ];
 
 export type ApplicationData = Record<string, string>;
+export type ApplicationDocument = { category: string; filename: string; dataUrl: string };
+export type ApplicationRequest = (employeeId: string) => Promise<ApplicationDocument[]>;
 export function readApplication(value?: string | null): ApplicationData {
   try {
     const parsed: unknown = JSON.parse(value || "{}");

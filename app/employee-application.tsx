@@ -1,26 +1,53 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { applicationSections, readApplication, safeApplicationImage, type ApplicationData } from "../lib/employee-application";
+import { useEffect, useRef, useState } from "react";
+import { applicationSections, readApplication, safeApplicationImage, type ApplicationData, type ApplicationDocument, type ApplicationRequest } from "../lib/employee-application";
 import { printIsolatedElement } from "../lib/print-document";
 import type { Employee, Vendor } from "./payroll-app";
 
-export function EmployeeApplicationFields({ value, onChange }: { value: ApplicationData; onChange: (data: ApplicationData) => void }) {
+export function EmployeeApplicationFields({ value, onChange, employeeId, loadDocuments, uploads, onUploadsChange }: { value: ApplicationData; onChange: (data: ApplicationData) => void; employeeId?: string; loadDocuments: ApplicationRequest; uploads: ApplicationDocument[]; onUploadsChange: (docs: ApplicationDocument[]) => void }) {
+  const [saved, setSaved] = useState<ApplicationDocument[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => { let active = true; if (employeeId) loadDocuments(employeeId).then(d => { if (active) setSaved(d); }).catch(e => { if(active) setError(e.message); }); return () => { active=false; }; }, [employeeId]);
   const update = (key: string, next: string) => onChange({ ...value, [key]: next });
   return <details className="form-span" style={{ margin: "16px 0" }}>
     <summary style={{ fontWeight: 700, cursor: "pointer" }}>Company e-Job Application - additional details</summary>
     <p>Personal, joining, banking and photo details entered above are reused in the application. Additional details are optional. Enter only information supplied by the applicant.</p>
-    {applicationSections.map(section => <fieldset key={section.title} style={{ margin: "12px 0", padding: 16, border: "1px solid #cbd5e1" }}>
+    {applicationSections.filter(s => s.title !== "Supporting document links").map(section => <fieldset key={section.title} style={{ margin: "12px 0", padding: 16, border: "1px solid #cbd5e1" }}>
       <legend>{section.title}</legend>
       {section.title === "Language proficiency" && <p>Enter Read / Write / Speak for each applicable language.</p>}
-      {section.title === "Supporting document links" && <p>Use your existing restricted-access document links. Do not make identity documents publicly accessible. Links are listed in the PDF; their contents are not imported.</p>}
-      <div className="form-grid">{section.fields.map(key => <label key={key}>
+      <div className="form-grid">{section.fields.filter(key => key !== "Digital Signature (Type your full name)").map(key => <label key={key}>
         <span>{key}</span>
         {key === "Date" ? <input type="date" value={value[key] || ""} onChange={e => update(key, e.target.value)} /> :
           <textarea rows={2} maxLength={2000} value={value[key] || ""} onChange={e => update(key, e.target.value)} />}
       </label>)}</div>
     </fieldset>)}
-    <label><span>Employee signature image (PNG / JPEG / WebP, maximum 150 KB)</span>
+    <fieldset style={{ padding:16, border:"1px solid #cbd5e1" }}><legend>Upload supporting documents</legend>
+      <p>PDF, PNG or JPEG. Up to 4 MB per document and 18 MB per save. Files are saved when you click Save changes.</p>
+      {error && <p role="alert">{error}</p>}
+      <div style={{overflowX:"auto"}}><table style={{width:"100%", borderCollapse:"collapse"}}><thead><tr><th>Document</th><th>File / upload</th></tr></thead><tbody>
+        {applicationSections.find(s => s.title === "Supporting document links")!.fields.map(category => {
+          const file = uploads.find(d => d.category === category) || saved.find(d => d.category === category);
+          return <tr key={category}><td style={{padding:10, borderBottom:"1px solid #ddd"}}>{category}</td><td style={{padding:10, borderBottom:"1px solid #ddd"}}>
+            <small>{file?.filename || "No file uploaded"}{uploads.some(d => d.category === category) ? " (ready to save)" : ""}</small>
+            <input aria-label={`Upload ${category}`} type="file" accept="application/pdf,image/png,image/jpeg" onChange={async event => {
+              const next=event.target.files?.[0]; if(!next) return;
+              setError("");
+              try {
+                if(!["application/pdf","image/png","image/jpeg"].includes(next.type) || next.size>4*1024*1024) throw new Error("Choose a PDF, PNG or JPEG up to 4 MB.");
+                if(next.type === "application/pdf") { const {PDFDocument}=await import("pdf-lib"); await PDFDocument.load(await next.arrayBuffer()); }
+                else { const bitmap=await createImageBitmap(next); bitmap.close(); }
+                const dataUrl=await new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result)); reader.onerror=()=>reject(new Error("Unable to read file")); reader.readAsDataURL(next);});
+                const updated=[...uploads.filter(d=>d.category!==category), {category, filename:next.name, dataUrl}];
+                if(JSON.stringify(updated).length>25000000) throw new Error("Please save these files before uploading more (18 MB per save).");
+                onUploadsChange(updated);
+              } catch(e) { setError(e instanceof Error ? e.message : "Unable to load file. Password-protected PDFs are not supported."); }
+            }} />
+          </td></tr>;
+        })}
+      </tbody></table></div>
+    </fieldset>
+    <label><span>Upload employee signature photo (PNG / JPEG / WebP, maximum 150 KB)</span>
       <input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -93,7 +120,7 @@ export function EmployeeApplicationDocument({ employee, vendor }: { employee?: E
     {rows([["ESI Number", employee?.esiMasked], ["PF / UAN Number", employee?.uanMasked]])}
     <h2>6. Banking details</h2>{rows([["Bank Name", employee?.bankName], ["Account Number", employee?.bankAccountMasked], ["IFSC Code", employee?.ifscMasked], ["Branch Name", employee?.bankBranch], ["Own House?", data["Do you own House?"]], ["City / Town", data["If Yes, in which City / Town?"]]])}
     <h2>7. References (non-relatives)</h2>{applicationSections.filter(s => s.title.startsWith("Non-relative reference")).map(s => <section key={s.title}><h2>{s.title}</h2>{rows(s.fields.map(key => [key,data[key]]))}</section>)}
-    <section className="application-declaration"><h2>8. Declaration &amp; signature</h2><p>{data.Declaration || "Declaration: __________________________________________________"}</p><p>Declaration date: {data.Date || "________________"}</p><p>Digital signature (typed name): {data["Digital Signature (Type your full name)"] || "________________"}</p><p>Employee signature:</p>{signature ? <img className="application-signature" src={signature} alt="Declaration signature" /> : <p>____________________________</p>}</section>
+    <section className="application-declaration"><h2>8. Declaration &amp; signature</h2><p>{data.Declaration || "Declaration: __________________________________________________"}</p><p>Declaration date: {data.Date || "________________"}</p><p>Employee signature:</p>{signature ? <img className="application-signature" src={signature} alt="Declaration signature" /> : <p>____________________________</p>}</section>
     {applicationSections.filter(s => s.title === "Supporting document links").map(s => {
       const links = s.fields.filter(key => data[key]);
       return links.length ? <section key={s.title}><h2>Supporting document links</h2><p>Documents retain their existing access permissions.</p>{rows(links.map(key => [key, data[key]]))}</section> : null;
@@ -101,12 +128,21 @@ export function EmployeeApplicationDocument({ employee, vendor }: { employee?: E
   </article>;
 }
 
-export default function EmployeeApplicationPreview({ employee, vendor, onClose }: { employee?: Employee; vendor?: Vendor; onClose: () => void }) {
+export default function EmployeeApplicationPreview({ employee, vendor, onClose, loadDocuments }: { employee?: Employee; vendor?: Vendor; onClose: () => void; loadDocuments: ApplicationRequest }) {
   const source = useRef<HTMLDivElement>(null);
   const [printing, setPrinting] = useState(false);
+  const [documents,setDocuments]=useState<ApplicationDocument[]>([]);
+  const [loading,setLoading]=useState(Boolean(employee));
+  const [error,setError]=useState("");
+  useEffect(()=>{let active=true; if(employee) loadDocuments(employee.id).then(d=>{if(active)setDocuments(d);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);}); return ()=>{active=false;};},[employee?.id]);
   return <div role="dialog" aria-modal="true" aria-label="Company application preview" style={{ position:"fixed", inset:0, zIndex:10000, background:"rgba(15,23,42,.65)", padding:16, overflowY:"auto" }}>
     <div style={{ maxWidth:900, margin:"0 auto", background:"#fff", borderRadius:12 }}>
       <div style={{ position:"sticky", top:-16, background:"#fff", padding:16, display:"flex", gap:12, flexWrap:"wrap", zIndex:1 }}>
+        <button className="primary-button" disabled={printing || loading || Boolean(error)} onClick={async()=>{
+          if(!source.current)return; setPrinting(true);
+          try{const {downloadApplicationPdf}=await import("../lib/application-pdf"); await downloadApplicationPdf(source.current,documents,employee?.employeeCode || "blank");}
+          catch(e){setError(e instanceof Error ? e.message : "Unable to create PDF");}finally{setPrinting(false);}
+        }}>Download application + documents PDF</button>
         <button className="primary-button" disabled={printing} onClick={async () => {
           if (!source.current) return;
           setPrinting(true);
@@ -115,6 +151,7 @@ export default function EmployeeApplicationPreview({ employee, vendor, onClose }
         <button className="secondary-button" onClick={onClose}>Close</button>
         <small>Choose “Save as PDF” in the print dialog to download.</small>
       </div>
+      <p role="status" style={{padding:"0 16px"}}>{loading ? "Loading attachments…" : error || `${documents.length} uploaded documents will follow the application in the downloaded PDF.`}</p>
       <div style={{ overflowX:"auto" }}><div ref={source}><EmployeeApplicationDocument employee={employee} vendor={vendor} /></div></div>
     </div>
   </div>;

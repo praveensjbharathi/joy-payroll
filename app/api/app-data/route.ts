@@ -12,6 +12,7 @@ import {
   auditEvents,
   clientUnits,
   employees,
+  applicationDocuments,
   vehicles,
   vehicleRecords,
   utilityMeters,
@@ -3320,6 +3321,14 @@ export async function POST(request: Request) {
     )
       requireSuperAdmin(access);
     await enforceActionScope(db, access, action, payload);
+    if (action === "get-application-documents") {
+      requireModule(access, "employees", "view");
+      const [employee] = await db.select().from(employees).where(eq(employees.id, textValue(payload.employeeId, "Employee"))).limit(1);
+      if (!employee) throw new RequestError("Employee not found", 404);
+      requireUnitScope(access, employee.clientUnitId, employee.vendorId);
+      const documents = await db.select().from(applicationDocuments).where(eq(applicationDocuments.employeeId, employee.id)).orderBy(asc(applicationDocuments.category));
+      return Response.json({ documents });
+    }
     const user = access.identity;
     const actorEmail = user.email;
     let runId = typeof payload.runId === "string" ? payload.runId : RUN_ID;
@@ -3549,6 +3558,17 @@ export async function POST(request: Request) {
         employeeValues(form, vendorId, unitId),
         optionalValue(form.id),
       );
+      const documents = form.applicationDocuments;
+      if (documents !== undefined) {
+        if (!Array.isArray(documents) || documents.length > 13 || JSON.stringify(documents).length > 26000000)
+          throw new RequestError("Application attachments exceed the upload limit");
+        const categories = new Set<string>();
+        for (const doc of documents) {
+          if (!doc || typeof doc.category !== "string" || !/^(Aadhar (Front|Back) side|Bank Proofs|Education Qualification certificates [1-5]|Previous Employment proofs [1-3]|Other proofs [1-2])$/.test(doc.category) || categories.has(doc.category) || typeof doc.filename !== "string" || doc.filename.length > 200 || typeof doc.dataUrl !== "string" || doc.dataUrl.length > 5600000 || !/^data:(application\/pdf|image\/(png|jpeg));base64,[A-Za-z0-9+/=]+$/.test(doc.dataUrl))
+            throw new RequestError("Choose PDF, PNG or JPEG files up to 4 MB each");
+          categories.add(doc.category);
+        }
+      }
       const rules = await activeRules(db, vendorId);
       const complianceStatus = validationForEmployee(
         { ...values, salaryAmount: values.salaryAmount },
@@ -3595,6 +3615,12 @@ export async function POST(request: Request) {
         .from(employees)
         .where(eq(employees.id, id))
         .limit(1);
+      if (Array.isArray(documents)) {
+        for (const doc of documents) {
+          await db.insert(applicationDocuments).values({ id: crypto.randomUUID(), employeeId: id, category: doc.category, filename: doc.filename, dataUrl: doc.dataUrl })
+            .onConflictDoUpdate({ target: [applicationDocuments.employeeId, applicationDocuments.category], set: { filename: doc.filename, dataUrl: doc.dataUrl } });
+        }
+      }
       const openRuns = await db
         .select()
         .from(payrollRuns)

@@ -27,7 +27,7 @@ import {
 import { OperationsView } from "./operations-view";
 import EnhancedEmployeeIdCard from "./employee-id-card";
 import EmployeeApplicationPreview, { EmployeeApplicationFields } from "./employee-application";
-import { readApplication } from "../lib/employee-application";
+import { readApplication, type ApplicationDocument, type ApplicationRequest } from "../lib/employee-application";
 import { HostelMaster } from "./hostel-master";
 import { RecoveryCenter, ReportsCenter } from "./reports-recovery";
 import {
@@ -1144,6 +1144,13 @@ export default function PayrollApp({
     }
   }
 
+  async function loadApplicationDocuments(employeeId: string): Promise<ApplicationDocument[]> {
+    const response = await fetch(apiEndpoint, { method: "POST", headers: { "content-type": "application/json", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}), ...(publishableKey ? { apikey: publishableKey } : {}) }, body: JSON.stringify({ action: "get-application-documents", employeeId }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Unable to load application documents");
+    return result.documents;
+  }
+
   function selectVendor(vendorId: string) {
     setActiveVendorId(vendorId);
     const firstUnit = data?.units.find(
@@ -1584,6 +1591,7 @@ export default function PayrollApp({
           ) : null}
           {activeSection === "employees" && currentUnit ? (
             <EmployeesView
+              loadApplicationDocuments={loadApplicationDocuments}
               employees={currentEmployees}
               vendors={data.vendors}
               units={data.units}
@@ -1989,6 +1997,7 @@ export default function PayrollApp({
       ) : null}
       {modal ? (
         <PayrollActionModal
+          loadApplicationDocuments={loadApplicationDocuments}
           modal={modal}
           vendors={data.vendors}
           units={data.units}
@@ -3127,6 +3136,7 @@ function AttendanceView({
 }
 
 function EmployeesView({
+  loadApplicationDocuments,
   employees,
   vendors,
   units,
@@ -3138,6 +3148,7 @@ function EmployeesView({
   onReactivate,
   onWorkflow,
 }: {
+  loadApplicationDocuments: ApplicationRequest;
   employees: Employee[];
   vendors: Vendor[];
   units: ClientUnit[];
@@ -3441,7 +3452,7 @@ function EmployeesView({
         />
       ) : null}
       <button className="secondary-button" onClick={() => setApplicationEmployee("blank")}>Blank application / PDF</button>
-      {applicationEmployee && <EmployeeApplicationPreview employee={applicationEmployee === "blank" ? undefined : applicationEmployee} vendor={applicationEmployee === "blank" ? vendors[0] : vendors.find(v => v.id === applicationEmployee.vendorId)} onClose={() => setApplicationEmployee(null)} />}
+      {applicationEmployee && <EmployeeApplicationPreview loadDocuments={loadApplicationDocuments} employee={applicationEmployee === "blank" ? undefined : applicationEmployee} vendor={applicationEmployee === "blank" ? vendors[0] : vendors.find(v => v.id === applicationEmployee.vendorId)} onClose={() => setApplicationEmployee(null)} />}
     </div>
   );
 }
@@ -5981,9 +5992,17 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
-    setEmailSending(true);
+    if (emailSending) return;
     setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
@@ -6436,6 +6455,7 @@ function configuredFields(
 }
 
 function PayrollActionModal({
+  loadApplicationDocuments,
   modal,
   vendors,
   units,
@@ -6453,6 +6473,7 @@ function PayrollActionModal({
   onClose,
   onAction,
 }: {
+  loadApplicationDocuments: ApplicationRequest;
   modal: ActiveModal;
   vendors: Vendor[];
   units: ClientUnit[];
@@ -6557,6 +6578,7 @@ function PayrollActionModal({
     employee?.photoDataUrl ?? "",
   );
   const [employeeApplication, setEmployeeApplication] = useState(() => readApplication(employee?.applicationJson));
+  const [applicationUploads, setApplicationUploads] = useState<ApplicationDocument[]>([]);
   const activeAccommodationTypes = accommodationTypes.filter(
     (type) =>
       type.vendorId === vendorId &&
@@ -6754,6 +6776,7 @@ function PayrollActionModal({
             ...fields,
             photoDataUrl: employeePhoto,
             applicationJson: JSON.stringify(employeeApplication),
+            applicationDocuments: applicationUploads,
             shiftPattern: employeeShiftPattern,
             defaultShift: applicable[0],
             applicableShiftsJson: JSON.stringify(applicable),
@@ -7810,7 +7833,7 @@ function PayrollActionModal({
             </div>
           ) : null}
 
-          {modal.kind === "employee" ? <EmployeeApplicationFields value={employeeApplication} onChange={setEmployeeApplication} /> : null}
+          {modal.kind === "employee" ? <EmployeeApplicationFields employeeId={employee?.id} loadDocuments={loadApplicationDocuments} uploads={applicationUploads} onUploadsChange={setApplicationUploads} value={employeeApplication} onChange={setEmployeeApplication} /> : null}
           {modal.kind === "accommodation-type" ? (
             <div className="form-grid">
               <label className="form-span">

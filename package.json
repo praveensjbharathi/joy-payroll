@@ -2,7 +2,9 @@
   "name": "joy-vendor-payroll",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "fix:production": "node scripts/apply-production-fixes.mjs && node scripts/apply-payroll-register-completion.mjs && node scripts/apply-pending-workflow-completion-v2.mjs && node scripts/apply-room-recovery-summary.mjs && node scripts/apply-current-user-fixes.mjs && node scripts/fix-generated-payroll-export.mjs && node scripts/apply-id-toolbar-cleanup.mjs && node scripts/repair-room-recovery-toolbar.mjs && node scripts/fix-undefined-appusers.mjs && node scripts/restore-room-print-controls.mjs && node scripts/finalize-recovery-room-ui.mjs && node scripts/style-branded-id-cards.mjs && node scripts/fix-live-enhancement-helpers.mjs && node scripts/style-premium-app-ui.mjs && node scripts/sync-id-download-canvas.mjs && node scripts/lock-recovery-room-controls.mjs && node scripts/fix-accommodation-vouchers-payslip-print.mjs && node scripts/fix-bulk-payslip-performance.mjs && node scripts/fix-payslip-blank-print.mjs && node scripts/apply-shared-joy-hostels.mjs && node scripts/harden-payroll-quality-gates.mjs && node scripts/verify-payroll-safety.mjs && node scripts/expand-employee-master-report.mjs && node scripts/fix-bank-enhancement-script.mjs && node scripts/apply-bank-payment-batch-enhancements.mjs && node scripts/apply-employee-email-and-compact-payslip.mjs && node scripts/fix-salary-slip-email-button.mjs && node scripts/finalize-salary-slip-smtp-route.mjs && node scripts/unify-payslip-output-format.mjs && node scripts/apply-recovery-concept-v6.mjs && node scripts/fix-recovery-v6-collisions.mjs && node scripts/apply-dynamic-accommodation-subcategory.mjs && node scripts/fix-hostel-master-and-room-recovery-date.mjs && node scripts/finalize-requested-hostel-recovery-flow.mjs && node scripts/apply-production-excellence-v1.mjs && node scripts/fix-legacy-salary-register-import.mjs && node scripts/fix-master-action-context.mjs && node scripts/run-recovery-ledger-hotfix.mjs && node scripts/finalize-recovery-ledger-ui-label.mjs && node scripts/enable-recovery-reopen-flow.mjs && node scripts/enforce-hostel-room-recovery-request-v2.mjs",
     "install:ci": "bash scripts/install-ci.sh",
@@ -24,10 +26,12 @@
     "deploy:self-hosted": "npm run build:self-hosted && wrangler deploy"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "1.1.1",
     "@supabase/supabase-js": "2.112.3",
     "drizzle-orm": "0.45.2",
     "fflate": "0.7.4",
     "next": "16.2.6",
+    "pdf-lib": "1.17.1",
     "qrcode": "1.5.4",
     "react": "19.2.6",
     "react-dom": "19.2.6"
