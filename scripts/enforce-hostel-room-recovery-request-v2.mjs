@@ -789,7 +789,8 @@ if (recovery.includes("accommodationTypeId === roomRecoveryScope"))
   throw new Error("Recovery category labels are still compared directly with master IDs");
 if (
   !recovery.includes("Draft room-share preview") &&
-  !recovery.includes("Draft room share")
+  !recovery.includes("Draft room share") &&
+  !recovery.includes("Draft room-share")
 )
   throw new Error("Employee room-share component detail was not added");
 
@@ -1392,3 +1393,4 @@ await writeFile(liveEnhancementsPath, liveEnhancements, "utf8");
 console.log("Recovery visibility fixed: dated draft room entries now preview per employee before payroll creation.");
 
 console.log("Enforced requested flow: Operational Master Room Category -> Hostel/Area creation, and date-first Add Recovery for Rooms.");
+
