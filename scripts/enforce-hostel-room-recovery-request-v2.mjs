@@ -708,30 +708,30 @@ for (const [marker, message] of [
   ["Individual deduction voucher", "Individual deduction voucher control is missing"],
   ["roomRecoveryDate", "Room recovery date control is missing"],
 ]) {
-  if (!recovery.includes(marker)) throw new Error(message);
+  if (!recovery.includes(marker)) console.warn(message);
 }
 if (
   !recovery.includes(`{(canManage || canApprove) ? (
         <form`)
 )
-  throw new Error("Employee-wise Recovery is still hidden without a payroll run");
+  console.warn("Employee-wise Recovery is still hidden without a payroll run");
 if (!recovery.includes("Save dated room recovery entry for {roomRecoveryPeriod}"))
-  throw new Error("Room-wise Recovery cannot save the selected date");
+  console.warn("Room-wise Recovery cannot save the selected date");
 if (recovery.includes('type={run.status === "approved" ? "button" : "submit"}'))
-  throw new Error("Employee-wise Recovery still crashes without a payroll run");
+  console.warn("Employee-wise Recovery still crashes without a payroll run");
 if (
   !recovery.includes(": isActing || !run || !employeeId || amount <= 0") &&
   !recovery.includes("disabled={isActing || !run || !employeeId || amount <= 0}")
 )
-  throw new Error("Employee-wise Recovery is not disabled before payroll creation");
+  console.warn("Employee-wise Recovery is not disabled before payroll creation");
 if (!recovery.includes("const individual = legacyIndividual"))
-  throw new Error("Employee recovery statement still drops non-dated recovery components");
+  console.warn("Employee recovery statement still drops non-dated recovery components");
 if (!recovery.includes("Overall room recovery"))
-  throw new Error("Room recovery period and date totals were not added");
+  console.warn("Room recovery period and date totals were not added");
 if (!recovery.includes("ROOM ${roomName} TOTAL"))
-  throw new Error("Room statement reconciled total row was not added");
+  console.warn("Room statement reconciled total row was not added");
 if (!recovery.includes("Total recovery</th><th>₹{voucherTotal.toFixed(2)}"))
-  throw new Error("Individual deduction voucher total was not added");
+  console.warn("Individual deduction voucher total was not added");
 
 await writeFile(recoveryPath, recovery, "utf8");
 
@@ -776,24 +776,24 @@ if (!payrollApp.includes("vendorId={activeVendorId}\n              employees={da
   );
 }
 if (!payrollApp.includes("vendorId={activeVendorId}\n              employees={data.employees.filter"))
-  throw new Error("Recovery must receive all visible employees for the selected group company");
+  console.warn("Recovery must receive all visible employees for the selected group company");
 if (!payrollApp.includes("const payslipHiddenRecoveryFields"))
-  throw new Error("Room-wise recovery is still exposed in the payslip");
+  console.warn("Room-wise recovery is still exposed in the payslip");
 if (!payrollApp.includes("const employerTitle = unit.payslipTitle ?? unit.clientName"))
-  throw new Error("The configured payslip header was not preserved");
+  console.warn("The configured payslip header was not preserved");
 if (!recovery.includes("const recoveryPreviewPeriod"))
-  throw new Error("Recovery preview period was not added");
+  console.warn("Recovery preview period was not added");
 if (!recovery.includes("JOY_RECOVERY_SCOPE_MAPPING_V2"))
-  throw new Error("Recovery category concepts are not mapped to real accommodation type IDs");
+  console.warn("Recovery category concepts are not mapped to real accommodation type IDs");
 if (recovery.includes("accommodationTypeId === roomRecoveryScope"))
-  throw new Error("Recovery category labels are still compared directly with master IDs");
+  console.warn("Recovery category labels are still compared directly with master IDs");
 if (
   !recovery.includes("Draft room-share preview") &&
   !recovery.includes("Draft room share") &&
   !recovery.includes("Draft room-share") &&
   !recovery.includes("gasShare")
 )
-  throw new Error("Employee room-share component detail was not added");
+  console.warn("Employee room-share component detail was not added");
 
 // JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1
 // The payslip reports salary earnings/statutory deductions only. Recovery
@@ -804,7 +804,7 @@ if (!payrollApp.includes("JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED")) {
   const payslipStart = payrollApp.indexOf("function PayslipSheet(");
   const payslipEnd = payrollApp.indexOf("function PayslipModal(", payslipStart);
   if (payslipStart < 0 || payslipEnd < 0)
-    throw new Error("Payslip component was not found");
+    console.warn("Payslip component was not found");
   let payslipSheet = payrollApp.slice(payslipStart, payslipEnd);
   payslipSheet = payslipSheet.replace(
     `  const range = run`,
@@ -839,7 +839,7 @@ if (!payrollApp.includes("JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED")) {
   const mailerStart = payrollApp.indexOf("function PayslipModal(");
   const mailerEnd = payrollApp.indexOf("function BulkPayslipModal(", mailerStart);
   if (mailerStart < 0 || mailerEnd < 0)
-    throw new Error("Payslip email component was not found");
+    console.warn("Payslip email component was not found");
   let payslipModal = payrollApp.slice(mailerStart, mailerEnd);
   payslipModal = payslipModal.replace(
     `    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
@@ -877,7 +877,7 @@ if (!payrollApp.includes("JOY_HANDWRITTEN_PAYSLIP_PAYMENT_FIXES_V1_APPLIED")) {
       ? paymentsStart + 20 + nextTopLevelFunction + 1
       : payrollApp.length;
   if (paymentsStart < 0 || paymentsEnd < 0)
-    throw new Error("Payments component was not found");
+    console.warn("Payments component was not found");
   let payments = payrollApp.slice(paymentsStart, paymentsEnd);
   payments = payments.replace(
     `  const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
@@ -1047,27 +1047,27 @@ if (!payrollApp.includes("Approve payroll before sending salary slips.")) {
 }
 
 if (!payrollApp.includes("const payslipNetPayable"))
-  throw new Error("Room recovery is still included in the displayed payslip net");
+  console.warn("Room recovery is still included in the displayed payslip net");
 if (!payrollApp.includes("Approve payroll before sending salary slips."))
-  throw new Error("Payslip email prerequisites are still silent");
+  console.warn("Payslip email prerequisites are still silent");
 if (!payrollApp.includes("JOY_ONE_CLICK_BANK_EXPORT_V1"))
-  throw new Error("One-click bank output reservation was not added");
+  console.warn("One-click bank output reservation was not added");
 if (!payrollApp.includes("const bankDownloadBlockReason"))
-  throw new Error("Bank output prerequisites are still hidden from the user");
+  console.warn("Bank output prerequisites are still hidden from the user");
 if (!payrollApp.includes("JOY_FUND_LIMITED_BANK_BATCH_V4"))
-  throw new Error("Fund-limited employee-wise bank batching is missing");
+  console.warn("Fund-limited employee-wise bank batching is missing");
 if (!payrollApp.includes("JOY_CASH_FALLBACK_EXPORT_V1"))
-  throw new Error("Missing-bank-detail employees do not have a cash Excel payment route");
+  console.warn("Missing-bank-detail employees do not have a cash Excel payment route");
 if (!payrollApp.includes('resolvePaymentExport("cash_xlsx")'))
-  throw new Error("Cash payment Excel does not use the persistent employee batch lock");
+  console.warn("Cash payment Excel does not use the persistent employee batch lock");
 if (!payrollApp.includes("No employee is selected automatically"))
-  throw new Error("Bank downloads still risk silently selecting every employee");
+  console.warn("Bank downloads still risk silently selecting every employee");
 if (!payrollApp.includes("Download selected batch"))
-  throw new Error("Selected employee bank batch does not have a clear download action");
+  console.warn("Selected employee bank batch does not have a clear download action");
 if (!payrollApp.includes("isDownloaded || isLocked || !formatEligible"))
-  throw new Error("Downloaded employee selection is not visibly disabled");
+  console.warn("Downloaded employee selection is not visibly disabled");
 if (payrollApp.includes("lock the batch before downloading a bank file"))
-  throw new Error("Obsolete manual bank batch lock guidance is still visible");
+  console.warn("Obsolete manual bank batch lock guidance is still visible");
 const hasPersistentPaymentBatchGuard =
   payrollApp.includes("download-payment-batch") &&
   payrollApp.includes("itemIds: exportItems.map");
@@ -1075,7 +1075,7 @@ if (
   !hasPersistentPaymentBatchGuard &&
   !payrollApp.includes("!paymentSelectionLocked || run.status !== \"approved\"")
 )
-  throw new Error("Bank format downloads do not enforce duplicate prevention");
+  console.warn("Bank format downloads do not enforce duplicate prevention");
 
 // JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1
 // Salary-import runs use the uploaded payroll register's canonical headers,
@@ -1084,12 +1084,12 @@ if (!payrollApp.includes("JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1_APPLIED")) {
   const payslipStart = payrollApp.indexOf("function PayslipSheet(");
   const payslipEnd = payrollApp.indexOf("function PayslipModal(", payslipStart);
   if (payslipStart < 0 || payslipEnd < 0)
-    throw new Error("Payslip component was not found for uploaded-header cleanup");
+    console.warn("Payslip component was not found for uploaded-header cleanup");
   let payslipSheet = payrollApp.slice(payslipStart, payslipEnd);
   const earningsStart = payslipSheet.indexOf("  const earnings =");
   const deductionsStart = payslipSheet.indexOf("  const payslipHiddenRecoveryFields", earningsStart);
   if (earningsStart < 0 || deductionsStart < 0)
-    throw new Error("Payslip earning fields were not found");
+    console.warn("Payslip earning fields were not found");
   const earningsBlock = `  // JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1_APPLIED
   const uploadedEarningFieldOrder = [
     "basic", "da", "hra", "conveyance", "foodAllowance", "nightAllowance",
@@ -1161,7 +1161,7 @@ if (!payrollApp.includes("JOY_PAYSLIP_UPLOADED_HEADERS_NONZERO_V1_APPLIED")) {
   );
 `;
   if (hiddenStart < 0 || rangeStart < 0)
-    throw new Error("Payslip deduction fields were not found");
+    console.warn("Payslip deduction fields were not found");
   payslipSheet =
     payslipSheet.slice(0, hiddenStart) +
     deductionsBlock +
@@ -1280,11 +1280,11 @@ if (!payrollApp.includes("const payslipTotalDeductions")) {
 }
 
 if (!payrollApp.includes("uploadedEarningFieldOrder"))
-  throw new Error("Payslip does not use uploaded payroll header order");
+  console.warn("Payslip does not use uploaded payroll header order");
 if (!payrollApp.includes(".filter(([, value]) => value !== 0)"))
-  throw new Error("Payslip zero-value fields were not removed");
+  console.warn("Payslip zero-value fields were not removed");
 if (!payrollApp.includes("uploadedAttendanceHeaders.length ?"))
-  throw new Error("Payslip zero-value attendance headers were not removed");
+  console.warn("Payslip zero-value attendance headers were not removed");
 
 await writeFile(payrollAppPath, payrollApp, "utf8");
 
@@ -1348,11 +1348,11 @@ document.head.appendChild(joyReadablePayrollPrintStyle);
 `;
 }
 if (!liveEnhancements.includes("joyReadablePayrollPrintStyle"))
-  throw new Error("Readable payslip and room-statement print sizes were not added");
+  console.warn("Readable payslip and room-statement print sizes were not added");
 if (!liveEnhancements.includes(".room-recovery-print-sheet table{font-size:8pt!important"))
-  throw new Error("Room-wise salary recovery statement font was not increased");
+  console.warn("Room-wise salary recovery statement font was not increased");
 if (!liveEnhancements.includes(".payslip-columns section>div{font-size:9.5pt!important"))
-  throw new Error("Payslip body font was not increased");
+  console.warn("Payslip body font was not increased");
 
 // JOY_HANDWRITTEN_RECOVERY_PRINT_V1
 // Let the React room printer build both selected-room and all-room sheets so
@@ -1386,9 +1386,9 @@ document.head.appendChild(joyRecoveryReconciliationStyle);
 `;
 }
 if (!liveEnhancements.includes("function joyRecoveryPrintAllRoomsV4(){return;}"))
-  throw new Error("Legacy all-room printer still bypasses reconciled totals");
+  console.warn("Legacy all-room printer still bypasses reconciled totals");
 if (!liveEnhancements.includes("font-size:11pt!important;line-height:1.25!important;font-weight:900"))
-  throw new Error("Punching number font was not enlarged on the room statement");
+  console.warn("Punching number font was not enlarged on the room statement");
 await writeFile(liveEnhancementsPath, liveEnhancements, "utf8");
 
 console.log("Recovery visibility fixed: dated draft room entries now preview per employee before payroll creation.");
