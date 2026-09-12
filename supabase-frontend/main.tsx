@@ -1,3 +1,4 @@
+import { EmployeeOnboardingForm } from "../app/employee-onboarding";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { StrictMode, useEffect, useMemo, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
@@ -124,6 +125,13 @@ function SupabasePayroll({ config }: { config: JoyPayrollConfig }) {
   return <PayrollApp accessToken={session.access_token} apiEndpoint={config.apiUrl?.trim() || `${config.supabaseUrl}/functions/v1/payroll-api`} displayName={displayName} onSignOut={async () => { await supabase.auth.signOut(); }} onChangePassword={async (password) => { const { error } = await supabase.auth.updateUser({ password, data: { must_change_password: false } }); if (error) throw error; }} publishableKey={config.supabasePublishableKey} />;
 }
 
-function App() { const config = window.JOY_PAYROLL_CONFIG; return validConfiguration(config) ? <SupabasePayroll config={config} /> : <SetupRequired />; }
+function App() {
+  const config = window.JOY_PAYROLL_CONFIG;
+  if (!validConfiguration(config)) return <SetupRequired />;
+  const invitation = new URLSearchParams(window.location.hash.slice(1)).get("onboarding");
+  if (invitation) return <EmployeeOnboardingForm endpoint={`${config.supabaseUrl}/functions/v1/employee-onboarding`} publishableKey={config.supabasePublishableKey} invitation={invitation} />;
+  if (new URLSearchParams(window.location.search).has("employeeOnboarding")) return <main className="joy-login-page"><section className="joy-login-card"><h1>New invitation required</h1><p>This older link is not a valid onboarding invitation. Please ask HR to send a new link from Employee Master.</p></section></main>;
+  return <SupabasePayroll config={config} />;
+}
 const root = document.getElementById("root"); if (!root) throw new Error("The Joy Payroll website root element is missing.");
 createRoot(root).render(<StrictMode><App /></StrictMode>);

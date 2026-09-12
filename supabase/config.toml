@@ -10,3 +10,9 @@ entrypoint = "./functions/payroll-api/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/salary-slip-mailer/index.ts"
+
+# Requests authenticate either HR via getUser + app_users scope, or a one-time invitation token.
+[functions.employee-onboarding]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/employee-onboarding/index.ts"

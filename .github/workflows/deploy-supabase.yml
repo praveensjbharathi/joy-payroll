@@ -36,3 +36,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy payroll-api --project-ref fsiinadrkhsfzuheckbp --use-api
+      - name: Deploy employee onboarding
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy employee-onboarding --project-ref fsiinadrkhsfzuheckbp --use-api

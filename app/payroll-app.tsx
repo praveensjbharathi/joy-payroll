@@ -1,4 +1,5 @@
 "use client";
+import { OnboardingInvite } from "./employee-onboarding";
 // JOY_PRODUCTION_EXCELLENCE_V1 · bank-only payroll + release quality gates
 // JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1
 /* eslint-disable react/no-unescaped-entities */
@@ -821,31 +822,6 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   );
 }
 
-function shareEmployeeOnboarding(employee: Employee) {
-  const base = typeof window !== "undefined" ? window.location.origin : "";
-  const link = `${base}/?employeeOnboarding=${encodeURIComponent(employee.employeeCode)}`;
-  const message = `Hello ${employee.name}, please complete your Joy Payroll employee onboarding form. Open this link: ${link}`;
-  const email = employee.emailAddress?.trim();
-  const mobile = (employee.mobileNumber || "").replace(/[^\d+]/g, "");
-  const choices = ["1 - Email", "2 - SMS", "3 - WhatsApp", "4 - Copy link", "5 - Share"].join("\n");
-  const choice = window.prompt(`Invite ${employee.name}\n\n${choices}`, "4");
-  if (choice === "1") {
-    if (!email) { window.alert("Add the employee email address in Employee Master first."); return; }
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Joy Payroll employee onboarding")}&body=${encodeURIComponent(message)}`;
-  } else if (choice === "2") {
-    if (!mobile) { window.alert("Add the employee mobile number in Employee Master first."); return; }
-    window.location.href = `sms:${mobile}?body=${encodeURIComponent(message)}`;
-  } else if (choice === "3") {
-    if (!mobile) { window.alert("Add the employee mobile number in Employee Master first."); return; }
-    window.open(`https://wa.me/${mobile.replace(/^\+/, "")}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
-  } else if (choice === "4") {
-    void navigator.clipboard?.writeText(link).then(() => window.alert("Onboarding link copied. Share it with the employee."));
-  } else if (choice === "5" && navigator.share) {
-    void navigator.share({ title: "Joy Payroll employee onboarding", text: message, url: link }).catch(() => undefined);
-  } else if (choice === "5") {
-    void navigator.clipboard?.writeText(link).then(() => window.alert("Onboarding link copied. Share it with the employee."));
-  }
-}
 
 function money(value: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -895,6 +871,7 @@ export default function PayrollApp({
   onSignOut?: () => void | Promise<void>;
   onChangePassword?: (password: string) => Promise<void>;
 }) {
+  const [inviteEmployee, setInviteEmployee] = useState<Employee | "select" | null>(null);
   const [data, setData] = useState<AppData | null>(null);
   const [activeSection, setActiveSection] = useState<Section>("dashboard");
   const [activeVendorId, setActiveVendorId] = useState("");
@@ -1616,7 +1593,9 @@ export default function PayrollApp({
             />
           ) : null}
           {activeSection === "employees" && currentUnit ? (
-            <EmployeesView
+            <>
+              {inviteEmployee && <OnboardingInvite employees={currentEmployees} initialEmployee={inviteEmployee === "select" ? undefined : inviteEmployee} endpoint={apiEndpoint.replace(/\/payroll-api\/?$/, "/employee-onboarding")} accessToken={accessToken} publishableKey={publishableKey} onClose={() => setInviteEmployee(null)} />}
+              <EmployeesView
               loadApplicationDocuments={loadApplicationDocuments}
               employees={currentEmployees}
               vendors={data.vendors}
@@ -1624,7 +1603,7 @@ export default function PayrollApp({
               canManage={mayManage("employees")}
               onAdd={() => setModal({ kind: "employee" })}
               onEdit={(employee) => setModal({ kind: "employee", employee })}
-              onInvite={(employee) => shareEmployeeOnboarding(employee)}
+              onInvite={(employee) => setInviteEmployee(employee || "select")}
               onImport={() => setModal({ kind: "import" })}
               onLeft={(employee) =>
                 setModal({ kind: "employee-left", employee })
@@ -1644,6 +1623,7 @@ export default function PayrollApp({
                 )
               }
             />
+              </>
           ) : null}
           {activeSection === "employees" && !currentUnit ? (
             <EmptyPayroll
@@ -3177,7 +3157,7 @@ function EmployeesView({
   onWorkflow,
 }: {
   loadApplicationDocuments: ApplicationRequest;
-  onInvite: (employee: Employee) => void;
+  onInvite: (employee?: Employee) => void;
   employees: Employee[];
   vendors: Vendor[];
   units: ClientUnit[];
@@ -3353,6 +3333,7 @@ function EmployeesView({
                 + Add employee
               </button>
               <button className="secondary-button" onClick={onAdd}>Create company application</button>
+              <button className="primary-button" onClick={() => onInvite()}>Invite onboarding</button>
             </>
           ) : null}
         </div>
