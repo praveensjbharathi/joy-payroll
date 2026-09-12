@@ -1,5 +1,6 @@
 // Application-only fields. Payroll values remain in the employee master.
 export const applicationSections = [
+  { title: "Applicant identity", fields: ["Full name", "Mobile number", "Date of birth", "Gender", "Highest qualification"] },
   { title: "Application details", fields: ["Position Applied For", "Date"] },
   { title: "Personal information", fields: ["Contact person name", "Contact person relationship", "Permanent Address", "Age", "Place of Birth", "Religion", "Caste", "Category", "Height (cm)", "Weight (kg)", "Do you smoke?", "Identification Marks", "Have you had any major surgery / illness recently, or suffer from chronic disease?", "Mother Tongue"] },
   { title: "Language proficiency", fields: ["Tamil", "English", "Hindi", "Malayalam", "Kannada", "Telugu", "Bengali", "Marathi", "Arabi", "Assame"].map(language => `Other Languages Proficiency [${language}]`) },

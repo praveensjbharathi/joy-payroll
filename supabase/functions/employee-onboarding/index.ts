@@ -3,6 +3,8 @@ import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import nodemailer from "npm:nodemailer@6.9.16";
 import { canInvite, parseObject, tokenHash, validInvite, validatedFields } from "./validation.ts";
 
+import { handleFresh } from "./fresh.ts";
+
 const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false } });
 const origins = new Set(["https://joy-payroll.praveen-red-07.workers.dev", "https://payroll.joycorporatesolutions.com", ...(Deno.env.get("APP_ORIGIN") || "").split(",").map(s => s.trim()).filter(Boolean)]);
 const META = "_joyOnboarding";
@@ -18,9 +20,9 @@ Deno.serve(async (req: Request) => {
     if (text.length > 250000) return json({ error: "Application is too large" }, 413);
     let body: Record<string, any>;
     try { body = JSON.parse(text); } catch { return json({ error: "Invalid request" }, 400); }
-    if (!body || typeof body !== "object" || !["create", "read", "submit"].includes(body.action) || typeof body.employeeId !== "string" || body.employeeId.length > 100) return json({ error: "Invalid request" }, 400);
+    if (!body || typeof body !== "object" || !["create", "read", "submit", "list"].includes(body.action) || (body.employeeId !== undefined && (typeof body.employeeId !== "string" || body.employeeId.length > 100))) return json({ error: "Invalid request" }, 400);
     let actor: Record<string, any> | null = null;
-    if (body.action === "create") {
+    if (body.action === "create" || body.action === "list") {
       const jwt = (req.headers.get("authorization") || "").replace(/^Bearer /, "");
       if (!jwt) return json({ error: "Sign in to invite employees" }, 401);
       const { data, error } = await admin.auth.getUser(jwt);
@@ -29,6 +31,7 @@ Deno.serve(async (req: Request) => {
       if (profile.error || !profile.data) return json({ error: "Employee management access required" }, 403);
       actor = profile.data;
     } else if (typeof body.token !== "string" || !/^[a-f0-9]{64}$/.test(body.token)) return json({ error: "Invalid or expired invitation. Ask HR for a new link." }, 403);
+    if (body.newEmployee === true || body.action === "list" || String(body.employeeId || "").startsWith("INV-")) return await handleFresh({ admin, body, actor, origin, origins, json, nodemailer });
     const result = await admin.from("employees").select("id,name,status,vendor_id,client_unit_id,email_address,application_json").eq("id", body.employeeId).maybeSingle();
     if (result.error) throw new Error("Employee lookup failed");
     const employee = result.data;

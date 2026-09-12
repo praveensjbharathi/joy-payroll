@@ -13,6 +13,7 @@ import {
   auditEvents,
   clientUnits,
   employees,
+  applicationDocuments,
   vehicles,
   vehicleRecords,
   utilityMeters,
@@ -90,6 +91,48 @@ function errorMessages(error: unknown) {
     current = "cause" in current ? current.cause : null;
   }
   return messages;
+}
+
+// Missing account number and/or IFSC can be handled by the audited Cash
+// Payment Excel route. Any salary, UAN, ESI or other validation issue must
+// still block payroll approval.
+function isCashFallbackOnlyValidation(input: {
+  paymentMode: string;
+  bankAccountMasked: string | null;
+  ifscMasked: string | null;
+  validationMessage: string | null;
+}) {
+  if (
+    input.paymentMode !== "bank" ||
+    (input.bankAccountMasked && input.ifscMasked)
+  )
+    return false;
+  const unresolved = String(input.validationMessage ?? "")
+    .toLowerCase()
+    .replaceAll("bank account", "")
+    .replaceAll("ifsc", "")
+    .replaceAll("pending", "")
+    .replace(/[\s,;]+/g, "");
+  return unresolved.length === 0;
+}
+
+// JOY_CASH_APPROVAL_AND_DASHBOARD_SPLIT_V1
+// The employee master continues to report missing bank fields, but a payroll
+// row with no other issue is ready for the audited cash-payment route.
+function payrollValidationForCashFallback(
+  employee: {
+    paymentMode: string;
+    bankAccountMasked: string | null;
+    ifscMasked: string | null;
+  },
+  validation: { validationStatus: string; validationMessage: string | null },
+) {
+  return isCashFallbackOnlyValidation({
+    ...employee,
+    validationMessage: validation.validationMessage,
+  })
+    ? { ...validation, validationStatus: "ready" }
+    : validation;
 }
 
 const RUN_ID = "RUN-AUG26-JMS-WAT1";
@@ -1990,6 +2033,10 @@ async function recalculateRun(
     }
     const totals = payrollTotals(next);
     const employeeValidation = validationForEmployee(employee, effectiveRules);
+    const payrollValidation = payrollValidationForCashFallback(
+      employee,
+      employeeValidation,
+    );
     const salaryValuesPending =
       run.processingMode === "salary_import" && totals.grossEarnings <= 0;
     Object.assign(next, {
@@ -2000,12 +2047,12 @@ async function recalculateRun(
       returnAmount: totals.returnAmount,
       validationStatus: salaryValuesPending
         ? "review"
-        : employeeValidation.validationStatus,
+        : payrollValidation.validationStatus,
       validationMessage: salaryValuesPending
         ? [employeeValidation.validationMessage, "salary values pending"]
             .filter(Boolean)
             .join("; ")
-        : employeeValidation.validationMessage,
+        : payrollValidation.validationMessage,
     });
     const {
       id,
@@ -2016,10 +2063,12 @@ async function recalculateRun(
     void ignoredRunId;
     void ignoredEmployeeId;
     await db.update(payrollItems).set(values).where(eq(payrollItems.id, id));
-    if (employee.complianceStatus !== next.validationStatus) {
+    // Bank readiness remains visible in Employee Master. Only the payroll row
+    // becomes ready because its payment is explicitly routed through cash.
+    if (employee.complianceStatus !== employeeValidation.validationStatus) {
       await db
         .update(employees)
-        .set({ complianceStatus: next.validationStatus })
+        .set({ complianceStatus: employeeValidation.validationStatus })
         .where(eq(employees.id, employee.id));
     }
     updatedRows.push({ ...next, paymentMode: employee.paymentMode });
@@ -2054,12 +2103,28 @@ async function recalculateRun(
   );
   const bankPayable = roundMoney(
     updatedRows
-      .filter((row) => row.paymentMode === "bank")
+      .filter((row) => {
+        const employee = employeeMap.get(row.employeeId);
+        return Boolean(
+          employee?.paymentMode === "bank" &&
+            employee.bankAccountMasked &&
+            employee.ifscMasked,
+        );
+      })
       .reduce((sum, row) => sum + row.netPayable, 0),
   );
   const cashPayable = roundMoney(netPayable - bankPayable);
   const issueCount = updatedRows.filter(
-    (row) => row.validationStatus !== "ready",
+    (row) => {
+      if (row.validationStatus === "ready") return false;
+      const employee = employeeMap.get(row.employeeId);
+      return !employee || !isCashFallbackOnlyValidation({
+        paymentMode: employee.paymentMode,
+        bankAccountMasked: employee.bankAccountMasked,
+        ifscMasked: employee.ifscMasked,
+        validationMessage: row.validationMessage,
+      });
+    },
   ).length;
   await db
     .update(payrollRuns)
@@ -2125,12 +2190,18 @@ async function addEmployeesToRun(
       (employee) =>
         employee.status === "active" && !existingIds.has(employee.id),
     )
-    .map((employee) => ({
-      id: `ITEM-${crypto.randomUUID()}`,
-      runId: run.id,
-      employeeId: employee.id,
-      ...validationForEmployee(employee, rules),
-    }));
+    .map((employee) => {
+      const validation = payrollValidationForCashFallback(
+        employee,
+        validationForEmployee(employee, rules),
+      );
+      return {
+        id: `ITEM-${crypto.randomUUID()}`,
+        runId: run.id,
+        employeeId: employee.id,
+        ...validation,
+      };
+    });
   for (let index = 0; index < values.length; index += 2)
     await db.insert(payrollItems).values(values.slice(index, index + 2));
   return values.length;
@@ -2227,6 +2298,19 @@ function employeeValues(
     payload.accommodationType,
   );
   const dateOfJoining = textValue(payload.dateOfJoining, "Date of joining");
+  // Preserve stored applications when older clients/imports omit this field.
+  let applicationJson: string | undefined;
+  if (payload.applicationJson !== undefined) {
+    if (typeof payload.applicationJson !== "string" || payload.applicationJson.length > 250000)
+      throw new RequestError("Application details exceed the 250 KB limit");
+    let application: unknown;
+    try { application = JSON.parse(payload.applicationJson); }
+    catch { throw new RequestError("Invalid application details"); }
+    if (!application || typeof application !== "object" || Array.isArray(application) ||
+        Object.entries(application).some(([key, value]) => key.length > 200 || typeof value !== "string" || (key !== "Signature image" && value.length > 2000)))
+      throw new RequestError("Invalid application fields");
+    applicationJson = JSON.stringify(application);
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfJoining))
     throw new RequestError("Date of joining must be YYYY-MM-DD");
   return {
@@ -2263,6 +2347,7 @@ function employeeValues(
     maritalStatus: optionalValue(payload.maritalStatus),
     dateOfBirth: optionalValue(payload.dateOfBirth),
     highestQualification: optionalValue(payload.highestQualification),
+    ...(applicationJson !== undefined ? { applicationJson } : {}),
     pfApplicable: payload.pfApplicable === "no" ? 0 : 1,
     pfWageAmount: positiveValue(payload.pfWageAmount ?? 0, "PF wage"),
     esiApplicable: payload.esiApplicable === "no" ? 0 : 1,
@@ -3236,6 +3321,14 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
     )
       requireSuperAdmin(access);
     await enforceActionScope(db, access, action, payload);
+    if (action === "get-application-documents") {
+      requireModule(access, "employees", "view");
+      const [employee] = await db.select().from(employees).where(eq(employees.id, textValue(payload.employeeId, "Employee"))).limit(1);
+      if (!employee) throw new RequestError("Employee not found", 404);
+      requireUnitScope(access, employee.clientUnitId, employee.vendorId);
+      const documents = await db.select().from(applicationDocuments).where(eq(applicationDocuments.employeeId, employee.id)).orderBy(asc(applicationDocuments.category));
+      return Response.json({ documents });
+    }
     const user = access.identity;
     const actorEmail = user.email;
     let runId = typeof payload.runId === "string" ? payload.runId : RUN_ID;
@@ -3465,6 +3558,17 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         employeeValues(form, vendorId, unitId),
         optionalValue(form.id),
       );
+      const documents = form.applicationDocuments;
+      if (documents !== undefined) {
+        if (!Array.isArray(documents) || documents.length > 13 || JSON.stringify(documents).length > 26000000)
+          throw new RequestError("Application attachments exceed the upload limit");
+        const categories = new Set<string>();
+        for (const doc of documents) {
+          if (!doc || typeof doc.category !== "string" || !/^(Aadhar (Front|Back) side|Bank Proofs|Education Qualification certificates [1-5]|Previous Employment proofs [1-3]|Other proofs [1-2])$/.test(doc.category) || categories.has(doc.category) || typeof doc.filename !== "string" || doc.filename.length > 200 || typeof doc.dataUrl !== "string" || doc.dataUrl.length > 5600000 || !/^data:(application\/pdf|image\/(png|jpeg));base64,[A-Za-z0-9+/=]+$/.test(doc.dataUrl))
+            throw new RequestError("Choose PDF, PNG or JPEG files up to 4 MB each");
+          categories.add(doc.category);
+        }
+      }
       const rules = await activeRules(db, vendorId);
       const complianceStatus = validationForEmployee(
         { ...values, salaryAmount: values.salaryAmount },
@@ -3511,6 +3615,12 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         .from(employees)
         .where(eq(employees.id, id))
         .limit(1);
+      if (Array.isArray(documents)) {
+        for (const doc of documents) {
+          await db.insert(applicationDocuments).values({ id: crypto.randomUUID(), employeeId: id, category: doc.category, filename: doc.filename, dataUrl: doc.dataUrl })
+            .onConflictDoUpdate({ target: [applicationDocuments.employeeId, applicationDocuments.category], set: { filename: doc.filename, dataUrl: doc.dataUrl } });
+        }
+      }
       const openRuns = await db
         .select()
         .from(payrollRuns)
@@ -6150,18 +6260,19 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       const run = await requireRun(db, runId);
       if (run.status !== "approved")
         throw new RequestError(
-          "Approve the payroll run before downloading a bank upload batch",
+          "Approve the payroll run before downloading a payment batch",
           409,
         );
-      const exportFormat = textValue(payload.exportFormat, "Bank export format");
+      const exportFormat = textValue(payload.exportFormat, "Payment export format");
       const allowedFormats = new Set([
         "bank_csv",
         "indian_bank_xlsx",
         "cub_any_bank_txt",
         "cub_to_cub_txt",
+        "cash_xlsx",
       ]);
       if (!allowedFormats.has(exportFormat))
-        throw new RequestError("Unsupported bank export format");
+        throw new RequestError("Unsupported payment export format");
       const requestedItemIds = Array.isArray(payload.itemIds)
         ? requiredStringArray(payload.itemIds, "employee batch")
         : [];
@@ -6190,19 +6301,25 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
             "One or more selected employees do not belong to this payroll run",
             409,
           );
-        const invalidRows = selectedRows.filter(
-          (row) =>
-            row.paymentMode !== "bank" ||
-            !row.bankAccountMasked ||
-            !row.ifscMasked ||
-            !Number.isFinite(row.netPayable) ||
-            row.netPayable < 0,
-        );
+        const isCashExport = exportFormat === "cash_xlsx";
+        const invalidRows = selectedRows.filter((row) => {
+          const invalidPayable =
+            !Number.isFinite(row.netPayable) || row.netPayable <= 0;
+          if (invalidPayable || row.paymentMode !== "bank") return true;
+          const hasBankDetails = Boolean(
+            row.bankAccountMasked && row.ifscMasked,
+          );
+          return isCashExport ? hasBankDetails : !hasBankDetails;
+        });
         if (invalidRows.length)
           throw new RequestError(
-            `Complete bank account number and IFSC before downloading: ${invalidRows
-              .map((row) => row.employeeCode)
-              .join(", ")}`,
+            isCashExport
+              ? `Cash Payment Excel is only for positive-pay employees missing account number or IFSC: ${invalidRows
+                  .map((row) => row.employeeCode)
+                  .join(", ")}`
+              : `Complete bank account number and IFSC before downloading: ${invalidRows
+                  .map((row) => row.employeeCode)
+                  .join(", ")}`,
             409,
           );
         const existingRows = await db
@@ -6232,7 +6349,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
             .map((row) => row.employeeCode)
             .join(", ");
           throw new RequestError(
-            `A bank file was already prepared or downloaded for: ${existingCodes}`,
+            `A payment file was already prepared or downloaded for: ${existingCodes}`,
             409,
           );
         }
@@ -6269,7 +6386,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
             .delete(paymentExportBatches)
             .where(eq(paymentExportBatches.id, batchId));
           throw new RequestError(
-            "Another session already prepared one of these employees; duplicate bank processing was blocked",
+            "Another session already prepared one of these employees; duplicate payment processing was blocked",
             409,
           );
         }
@@ -6288,7 +6405,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       if (!batch) throw new RequestError("Payment batch not found", 404);
       if (batch.status === "downloaded")
         throw new RequestError(
-          "This bank upload batch was already downloaded and is protected from duplicate processing",
+          "This payment batch was already downloaded and is protected from duplicate processing",
           409,
         );
       const batchItems = await db
@@ -6319,7 +6436,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
       const changedRows = mutationChangedRows(downloadResult);
       if (changedRows !== null && changedRows < 1)
         throw new RequestError(
-          "This bank upload batch was already downloaded by another session; duplicate processing was blocked",
+          "This payment batch was already downloaded by another session; duplicate processing was blocked",
           409,
         );
       await writeAudit(
@@ -6327,7 +6444,7 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         "payment_batch_downloaded",
         "payment_export_batch",
         batch.id,
-        `Downloaded ${exportFormat} for ${batch.employeeCount} individually selected employee${batch.employeeCount === 1 ? "" : "s"}; the one-click reservation blocked duplicate processing`,
+        `Downloaded ${exportFormat} for ${batch.employeeCount} individually selected employee${batch.employeeCount === 1 ? "" : "s"}; the reservation blocked duplicate processing`,
         actorEmail,
       );
     } else if (action === "resolve-issues" || action === "recalculate") {
@@ -6354,26 +6471,29 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         .select({
           id: payrollItems.id,
           employeeId: payrollItems.employeeId,
+          employeeCode: employees.employeeCode,
+          paymentMode: employees.paymentMode,
+          bankAccountMasked: employees.bankAccountMasked,
+          ifscMasked: employees.ifscMasked,
           validationStatus: payrollItems.validationStatus,
+          validationMessage: payrollItems.validationMessage,
           netPayable: payrollItems.netPayable,
         })
         .from(payrollItems)
+        .innerJoin(employees, eq(payrollItems.employeeId, employees.id))
         .where(eq(payrollItems.runId, runId));
       if (!run.employeeCount || !approvalItems.length)
         throw new RequestError("Add employees before approving payroll", 409);
       const reviewItems = approvalItems.filter(
-        (item) => item.validationStatus !== "ready",
+        (item) =>
+          item.validationStatus !== "ready" &&
+          !isCashFallbackOnlyValidation(item),
       );
-      if (run.issueCount > 0 || reviewItems.length)
+      if (reviewItems.length)
         throw new RequestError(
           "Payroll approval blocked: " +
-            Math.max(run.issueCount, reviewItems.length) +
-            " employee record(s) still require review. Recheck employee, bank, PF/ESI and salary readiness first.",
-          409,
-        );
-      if (run.cashPayable > 0)
-        throw new RequestError(
-          "Payroll approval blocked: Joy Payroll is bank-payment only. Correct any non-bank payment mode before approval.",
+            reviewItems.length +
+            " employee record(s) still require salary or statutory review. Recheck PF/ESI and salary readiness first.",
           409,
         );
       if (run.grossEarnings <= 0)
@@ -6383,10 +6503,12 @@ export async function POST(request: Request, identity: AuthenticatedUser | null)
         );
       if (run.netPayable < 0)
         throw new RequestError("Payroll net payable cannot be negative", 409);
-      if (Math.abs(run.netPayable - run.bankPayable) > 0.01)
+      if (Math.abs(run.netPayable - run.bankPayable - run.cashPayable) > 0.01)
         throw new RequestError(
           "Payroll approval blocked: bank payable (₹" +
             run.bankPayable.toFixed(2) +
+            ") plus cash payable (₹" +
+            run.cashPayable.toFixed(2) +
             ") does not match final net payable (₹" +
             run.netPayable.toFixed(2) +
             "). Recalculate before approval.",

@@ -25,8 +25,8 @@ const admin = {
 const source = (await readFile(new URL('../supabase/functions/employee-onboarding/index.ts', import.meta.url), 'utf8')).split('\n').filter(line => !line.startsWith('import ')).join('\n');
 const { canInvite, parseObject, tokenHash, validInvite, validatedFields } = validation;
 const fakeDeno = { env: { get: key => ({ SUPABASE_URL: 'https://test.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test', JOY_SMTP_PASSWORD: 'test' })[key] }, serve: callback => {handler=callback;} };
-new Function('Deno', 'createClient', 'nodemailer', 'canInvite', 'parseObject', 'tokenHash', 'validInvite', 'validatedFields', stripTypeScriptTypes(source))(
-  fakeDeno, () => admin, { createTransport: () => ({ sendMail: async mail => { if(rejectMail)throw Error('SMTP offline');mails.push(mail);return {accepted:[mail.to]}; }, close() {} }) }, canInvite, parseObject, tokenHash, validInvite, validatedFields
+new Function('Deno', 'createClient', 'nodemailer', 'canInvite', 'parseObject', 'tokenHash', 'validInvite', 'validatedFields', 'handleFresh', stripTypeScriptTypes(source))(
+  fakeDeno, () => admin, { createTransport: () => ({ sendMail: async mail => { if(rejectMail)throw Error('SMTP offline');mails.push(mail);return {accepted:[mail.to]}; }, close() {} }) }, canInvite, parseObject, tokenHash, validInvite, validatedFields, () => { throw new Error("Unexpected fresh route"); }
 );
 async function request(body, jwt = 'test-jwt') { return handler(new Request('https://test.invalid', { method: 'POST', headers: { origin: 'https://joy-payroll.praveen-red-07.workers.dev', authorization: jwt ? `Bearer ${jwt}` : '', 'content-type': 'application/json' }, body: JSON.stringify({ employeeId: original.id, ...body }) })); }
 async function invite(sendEmail=false) { const r = await request({action:'create',sendEmail});assert.equal(r.status,200);const body=await r.json();return {...body,token:body.link.split('.').at(-1)}; }

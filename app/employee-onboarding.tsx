@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { applicationSections } from "../lib/employee-application";
-import type { Employee } from "./payroll-app";
+import { FreshOnboarding, type NewApplicant } from "./fresh-onboarding";
+import type { ClientUnit, Vendor, Employee } from "./payroll-app";
 
 export async function onboardingRequest(endpoint: string, key: string | undefined, payload: Record<string, unknown>, accessToken?: string) {
   const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", ...(key ? { apikey: key } : {}), ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) }, body: JSON.stringify(payload) });
@@ -11,7 +12,12 @@ export async function onboardingRequest(endpoint: string, key: string | undefine
 }
 const overlay = { position: "fixed" as const, inset: 0, zIndex: 10000, overflowY: "auto" as const, background: "rgba(15,23,42,.65)", padding: 16 };
 const card = { maxWidth: 720, margin: "20px auto", background: "white", color: "#172b4d", borderRadius: 16, padding: 24, fontSize: 16 };
-export function OnboardingInvite({ employees, initialEmployee, endpoint, publishableKey, accessToken, onClose }: { employees: Employee[]; initialEmployee?: Employee; endpoint: string; publishableKey?: string; accessToken?: string; onClose: () => void }) {
+export function OnboardingInvite(props: { employees: Employee[]; initialEmployee?: Employee; endpoint: string; publishableKey?: string; accessToken?: string; onClose: () => void; vendors: Vendor[]; units: ClientUnit[]; vendorId: string; unitId: string; onReview: (applicant: NewApplicant) => void }) {
+  const [mode, setMode] = useState(props.initialEmployee ? "existing" : "new");
+  if (mode === "existing") return <ExistingOnboardingInvite {...props} />;
+  return <div style={overlay} role="dialog" aria-modal="true" aria-labelledby="fresh-title"><section style={card}><h2 id="fresh-title">New employee onboarding</h2><button className="secondary-button" onClick={() => setMode("existing")}>Existing employee invitation</button><FreshOnboarding {...props} /><button className="secondary-button" onClick={props.onClose}>Close</button></section></div>;
+}
+function ExistingOnboardingInvite({ employees, initialEmployee, endpoint, publishableKey, accessToken, onClose }: { employees: Employee[]; initialEmployee?: Employee; endpoint: string; publishableKey?: string; accessToken?: string; onClose: () => void }) {
   const [employeeId, setEmployeeId] = useState(initialEmployee?.id || "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -65,9 +71,9 @@ export function EmployeeOnboardingForm({ endpoint, publishableKey, invitation }:
   }
   return <main style={{ minHeight: "100vh", background: "#eef3f8", padding: 16 }}><section style={card}>
     <h1>Joy Payroll · Employee application</h1>
-    {done ? <p role="status">Your application has been submitted. HR can now review it in Employee Master. Thank you.</p> : <>
+    {done ? <p role="status">Your application has been submitted. HR can now review it and complete your Employee Master record. Thank you.</p> : <>
       {name ? <form onSubmit={submit}><h2>Welcome, {name}</h2><p>Complete your application details below. Give supporting documents to HR for upload. Existing salary and banking details are managed by HR.</p>
-        {applicationSections.filter(s => s.title !== "Supporting document links" && s.title !== "Declaration").map(section => <details key={section.title} open={section.title === "Application details"} style={{ margin: "18px 0", borderBottom: "1px solid #cad5e2", paddingBottom: 12 }}><summary style={{ cursor: "pointer", fontWeight: 700, padding: "8px 0" }}>{section.title}</summary>{section.fields.map(key => <label key={key} style={{ display: "block", margin: "12px 0" }}>{key}<textarea rows={2} maxLength={2000} value={fields[key] || ""} disabled={busy} onChange={e => setFields({ ...fields, [key]: e.target.value })} style={{ display: "block", width: "100%", padding: 10, fontSize: 16 }} /></label>)}</details>)}
+        {applicationSections.filter(s => s.title !== "Supporting document links" && s.title !== "Declaration").map(section => <details key={section.title} open={section.title === "Application details" || section.title === "Applicant identity"} style={{ margin: "18px 0", borderBottom: "1px solid #cad5e2", paddingBottom: 12 }}><summary style={{ cursor: "pointer", fontWeight: 700, padding: "8px 0" }}>{section.title}</summary>{section.fields.map(key => <label key={key} style={{ display: "block", margin: "12px 0" }}>{key}<textarea rows={2} maxLength={2000} value={fields[key] || ""} disabled={busy} onChange={e => setFields({ ...fields, [key]: e.target.value })} style={{ display: "block", width: "100%", padding: 10, fontSize: 16 }} /></label>)}</details>)}
         <label style={{ display: "block", margin: "16px 0" }}><input type="checkbox" required disabled={busy} checked={Boolean(fields.Declaration)} onChange={e => setFields({ ...fields, Declaration: e.target.checked ? "I confirm that the information I supplied is correct to the best of my knowledge." : "" })} /> I confirm that the information I supplied is correct to the best of my knowledge.</label>
         <label>Type your full name as your declaration signature<input required maxLength={200} disabled={busy} value={fields["Digital Signature (Type your full name)"] || ""} onChange={e => setFields({ ...fields, ["Digital Signature (Type your full name)"]: e.target.value })} style={{ display: "block", width: "100%", padding: 12, fontSize: 16, margin: "12px 0" }} /></label>
         <button className="primary-button" disabled={busy}>{busy ? "Submitting…" : "Submit application"}</button>

@@ -237,6 +237,12 @@ document.head.appendChild(joyRecoveryReconciliationStyle);
 
 
 
+
+
+
+
+
+
 // JOY_RECOVERY_FINALIZER_V4
 function joyRecoveryPanelV4(){return Array.from(document.querySelectorAll<HTMLElement>(".panel")).find((p)=>p.querySelector("h2")?.textContent?.includes("final payable"))??null;}
 function joyRecoveryToolbarV4(panel:HTMLElement){return panel.querySelector<HTMLElement>(".recovery-left-room-toolbar")??panel.querySelector<HTMLElement>(".room-print-toolbar");}

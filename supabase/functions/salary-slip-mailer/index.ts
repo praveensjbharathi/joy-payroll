@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
+import { canSendPayslips, recipientAddress } from "./access.ts";
 import nodemailer from "npm:nodemailer@6.9.16";
 const SUPABASE_URL=Deno.env.get("SUPABASE_URL")!;const SUPABASE_SERVICE_ROLE_KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;const SMTP_HOST=Deno.env.get("JOY_SMTP_HOST")??"mail.joycorporatesolutions.com";const SMTP_PORT=Number(Deno.env.get("JOY_SMTP_PORT")??"465");const SMTP_USER=Deno.env.get("JOY_SMTP_USER")??"noreply@joycorporatesolutions.com";const SMTP_PASSWORD=Deno.env.get("JOY_SMTP_PASSWORD")??"";const ALLOWED_ORIGINS=new Set(["https://joy-payroll.praveen-red-07.workers.dev","https://payroll.joycorporatesolutions.com"]);const admin=createClient(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
 function cors(o:string|null){const a=o&&ALLOWED_ORIGINS.has(o)?o:[...ALLOWED_ORIGINS][0];return{"access-control-allow-origin":a,"access-control-allow-methods":"POST, OPTIONS","access-control-allow-headers":"authorization, apikey, content-type, x-client-info","cache-control":"no-store","content-type":"application/json",vary:"Origin"}}function json(b:unknown,s:number,o:string|null){return new Response(JSON.stringify(b),{status:s,headers:cors(o)})}function n(v:unknown){return Number(v??0)||0}function money(v:unknown){return `Rs. ${n(v).toLocaleString("en-IN",{maximumFractionDigits:2})}`}function monthLabel(p:string){const[y,m]=p.split("-").map(Number);return new Intl.DateTimeFormat("en-IN",{month:"long",year:"numeric"}).format(new Date(Date.UTC(y,m-1,1)))}
@@ -17,18 +18,23 @@ Deno.serve(async(req:Request)=>{
   if(origin&&!ALLOWED_ORIGINS.has(origin))return json({error:"Origin not allowed"},403,null);
   if(req.method==="OPTIONS")return new Response(null,{status:204,headers:cors(origin)});
   if(req.method!=="POST")return json({error:"POST required"},405,origin);
+  let transport: any;
   try{
     if(!SMTP_PASSWORD)return json({error:"SMTP password is not configured"},503,origin);
     const auth=req.headers.get("authorization")??"",token=auth.startsWith("Bearer ")?auth.slice(7):"",userResult=await admin.auth.getUser(token);
     if(userResult.error||!userResult.data.user?.email)return json({error:"Verified Joy Payroll login required"},401,origin);
     const actorEmail=userResult.data.user.email.toLowerCase();
+    const {data:actor,error:actorError}=await admin.from("app_users").select("*").eq("email",actorEmail).maybeSingle();
+    if(actorError||!actor||actor.status!=="active")return json({error:"Active payroll access required"},403,origin);
     const body=await req.json().catch(()=>({}));
+    let recipient;
+    try { recipient=recipientAddress(body.recipientEmail); } catch { return json({error:"Enter one valid recipient email address"},400,origin); }
     const runId=String(body?.runId??"").trim();
     const sendAll=body?.sendAll===true;
     const requestedIds=Array.isArray(body?.itemIds)
       ? [...new Set(body.itemIds.map((value:unknown)=>String(value??"").trim()).filter(Boolean))]
       : [];
-    const transport=nodemailer.createTransport({host:SMTP_HOST,port:SMTP_PORT,secure:true,auth:{user:SMTP_USER,pass:SMTP_PASSWORD},tls:{servername:SMTP_HOST}});
+    transport=nodemailer.createTransport({host:SMTP_HOST,port:SMTP_PORT,secure:SMTP_PORT===465,requireTLS:SMTP_PORT!==465,connectionTimeout:15000,socketTimeout:30000,auth:{user:SMTP_USER,pass:SMTP_PASSWORD},tls:{servername:SMTP_HOST}});
     const sendOne=async(item:any,employee:any,run:any,vendor:any,unit:any)=>{
       if(!employee)return {status:"skipped",employeeCode:safe(item.employee_code),reason:"Employee record not found"};
       if(!employee.email_address)return {status:"skipped",employeeCode:safe(employee.employee_code),reason:"Employee email ID is missing in Employee Master"};
@@ -52,9 +58,16 @@ Deno.serve(async(req:Request)=>{
       if(!runId)return json({error:"Payroll run is required for bulk salary-slip sending"},400,origin);
       const{data:bulkRun,error:bulkRunError}=await admin.from("payroll_runs").select("*").eq("id",runId).single();
       if(bulkRunError||!bulkRun)return json({error:"Payroll run not found"},404,origin);
+      if(!canSendPayslips(actor,bulkRun))return json({error:"No permission to send salary slips for this company or location"},403,origin);
       if(String(bulkRun.status).toLowerCase()!=="approved")return json({error:"Approve payroll before sending salary slips"},409,origin);
-      const{data:allItems,error:bulkItemsError}=await admin.from("payroll_items").select("*").eq("run_id",runId);
-      if(bulkItemsError)return json({error:bulkItemsError.message},500,origin);
+      const allItems:any[]=[];
+      for(let offset=0;;offset+=500){
+        const{data:page,error:bulkItemsError}=await admin.from("payroll_items").select("*").eq("run_id",runId).order("id").range(offset,offset+499);
+        if(bulkItemsError)return json({error:"Unable to load salary slips"},500,origin);
+        allItems.push(...(page??[]));
+        if(!page||page.length<500)break;
+      }
+      if(requestedIds.some(id=>!allItems.some(item=>item.id===id)))return json({error:"Some selected slips no longer belong to this payroll run. Refresh and retry."},409,origin);
       const selected=requestedIds.length?(allItems??[]).filter((item:any)=>requestedIds.includes(item.id)):(allItems??[]);
       if(!selected.length)return json({error:"No payroll items found for this run"},404,origin);
       const[{data:vendor,error:vendorError},{data:unit,error:unitError}]=await Promise.all([
@@ -70,6 +83,21 @@ Deno.serve(async(req:Request)=>{
         const leftEmployee:any=employeeById.get(left.employee_id),rightEmployee:any=employeeById.get(right.employee_id);
         return safe(leftEmployee?.name,"").localeCompare(safe(rightEmployee?.name,""),"en",{sensitivity:"base",numeric:true})||safe(leftEmployee?.employee_code,"").localeCompare(safe(rightEmployee?.employee_code,""),"en",{sensitivity:"base",numeric:true});
       });
+      if(recipient){
+        const combined=await PDFDocument.create();
+        for(const item of orderedSelected){
+          const employee=employeeById.get(item.employee_id);
+          if(!employee)return json({error:"An employee record is missing. No combined email was sent."},409,origin);
+          const slip=await PDFDocument.load(await buildPdf({item,employee,run:bulkRun,vendor,unit}));
+          for(const page of await combined.copyPages(slip,slip.getPageIndices()))combined.addPage(page);
+        }
+        const bytes=await combined.save();
+        if(bytes.length>15*1024*1024)return json({error:"Combined PDF exceeds the email attachment limit. Send a smaller payroll batch."},413,origin);
+        const receipt=await transport.sendMail({from:`Joy Payroll <${SMTP_USER}>`,to:recipient,subject:`Salary slips - ${monthLabel(bulkRun.pay_period)} - ${safe(unit.unit_name)}`,text:`Please find ${orderedSelected.length} salary slips attached for ${safe(vendor.legal_name,vendor.name)}, ${safe(unit.client_name)} - ${safe(unit.unit_name)}, ${monthLabel(bulkRun.pay_period)}.\n\nJoy Payroll`,attachments:[{filename:`Salary_Slips_${bulkRun.pay_period}.pdf`,content:bytes,contentType:"application/pdf"}]});
+        if(!receipt.accepted?.length)return json({error:"Email service did not accept the recipient"},502,origin);
+        await admin.from("audit_events").insert({action:"salary-slips-combined-email-sent",entity_type:"payroll_run",entity_id:runId,actor_email:actorEmail,summary:`${orderedSelected.length} salary slips sent as one PDF to ${recipient}`});
+        return json({sent:true,bulk:true,combined:true,recipient,total:orderedSelected.length,sentCount:orderedSelected.length,skippedCount:0,failedCount:0},200,origin);
+      }
       const details=[];
       for(const item of orderedSelected)details.push(await sendOne(item,employeeById.get(item.employee_id),bulkRun,vendor,unit));
       const sentCount=details.filter((detail:any)=>detail.status==="sent").length;
@@ -86,6 +114,8 @@ Deno.serve(async(req:Request)=>{
       admin.from("payroll_runs").select("*").eq("id",item.run_id).single()
     ]);
     if(!employee||!run)return json({error:"Employee or payroll run not found"},404,origin);
+    if(!canSendPayslips(actor,run))return json({error:"No permission to send salary slips for this company or location"},403,origin);
+    if(recipient)return json({error:"Select a payroll batch for combined delivery"},400,origin);
     if(String(run.status).toLowerCase()!=="approved")return json({error:"Approve payroll before sending salary slips"},409,origin);
     const[{data:vendor},{data:unit}]=await Promise.all([
       admin.from("vendors").select("*").eq("id",run.vendor_id).single(),
@@ -98,5 +128,5 @@ Deno.serve(async(req:Request)=>{
   }catch(error){
     console.error("Salary slip email request failed",error);
     return json({error:error instanceof Error?error.message:"Unable to send salary slip email"},500,origin);
-  }
+  }finally{transport?.close();}
 });

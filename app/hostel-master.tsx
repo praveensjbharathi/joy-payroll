@@ -200,8 +200,8 @@ export function HostelMaster({
     const f = new FormData(e.currentTarget);
     await onAction("save-hostel", `${placeLabel} updated`, {
       id: selected.id,
-      vendorId: selected.vendorId,
-      accommodationTypeId: selected.accommodationTypeId ?? typeId,
+      vendorId,
+      accommodationTypeId: typeId,
       name: f.get("name"),
       address: f.get("address"),
       inchargeName: f.get("inchargeName"),

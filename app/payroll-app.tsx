@@ -1,4 +1,5 @@
 "use client";
+import type { NewApplicant } from "./fresh-onboarding";
 import { OnboardingInvite } from "./employee-onboarding";
 // JOY_PRODUCTION_EXCELLENCE_V1 · bank-only payroll + release quality gates
 // JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1
@@ -627,7 +628,7 @@ export type AppData = {
 type ActiveModal =
   | { kind: "vendor"; vendor?: Vendor }
   | { kind: "unit"; unit?: ClientUnit }
-  | { kind: "employee"; employee?: Employee }
+  | { kind: "employee"; employee?: Employee; applicant?: NewApplicant }
   | { kind: "employee-left"; employee: Employee }
   | { kind: "shift"; shift?: ShiftDefinition }
   | { kind: "accommodation-type"; accommodationType?: AccommodationType }
@@ -1594,7 +1595,7 @@ export default function PayrollApp({
           ) : null}
           {activeSection === "employees" && currentUnit ? (
             <>
-              {inviteEmployee && <OnboardingInvite employees={currentEmployees} initialEmployee={inviteEmployee === "select" ? undefined : inviteEmployee} endpoint={apiEndpoint.replace(/\/payroll-api\/?$/, "/employee-onboarding")} accessToken={accessToken} publishableKey={publishableKey} onClose={() => setInviteEmployee(null)} />}
+              {inviteEmployee && <OnboardingInvite vendors={data.vendors} units={data.units} vendorId={activeVendorId} unitId={activeUnitId} onReview={(applicant) => { setActiveVendorId(applicant.vendor_id); setActiveUnitId(applicant.client_unit_id); setInviteEmployee(null); setModal({ kind: "employee", applicant }); }} employees={currentEmployees} initialEmployee={inviteEmployee === "select" ? undefined : inviteEmployee} endpoint={apiEndpoint.replace(/\/payroll-api\/?$/, "/employee-onboarding")} accessToken={accessToken} publishableKey={publishableKey} onClose={() => setInviteEmployee(null)} />}
               <EmployeesView
               loadApplicationDocuments={loadApplicationDocuments}
               employees={currentEmployees}
@@ -6002,9 +6003,17 @@ function PayslipModal({
   const [emailSent, setEmailSent] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   async function sendSalarySlipEmail() {
-    if (!employee?.emailAddress || !run?.id || run.status !== "approved" || emailSending) return;
-    setEmailSending(true);
+    if (emailSending) return;
     setEmailSent(false);
+    if (!employee?.emailAddress) {
+      setEmailMessage("Add Employee Email ID in Employee Master before sending the salary slip.");
+      return;
+    }
+    if (!run?.id || run.status !== "approved") {
+      setEmailMessage("Approve payroll before sending salary slips.");
+      return;
+    }
+    setEmailSending(true);
     setEmailMessage("");
     try {
       const response = await fetch("https://fsiinadrkhsfzuheckbp.supabase.co/functions/v1/salary-slip-mailer", {
@@ -6107,8 +6116,11 @@ function BulkPayslipModal({
     void printIsolatedElement(source, "payslips");
   }
 
-  async function sendAllSalarySlips() {
+  const [combinedEmail, setCombinedEmail] = useState("");
+
+  async function sendAllSalarySlips(recipient?: string) {
     if (emailSending || !canEmail || run.status !== "approved" || !items.length) return;
+    if (recipient && !window.confirm(`Send ${items.length} salary slips for ${run.payPeriod} / ${unit.unitName} to ${recipient} as one combined PDF?`)) return;
     setEmailSending(true);
     setEmailSummary("");
     try {
@@ -6119,7 +6131,7 @@ function BulkPayslipModal({
           ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
           ...(publishableKey ? { apikey: publishableKey } : {}),
         },
-        body: JSON.stringify({ runId: run.id, sendAll: true }),
+        body: JSON.stringify({ runId: run.id, sendAll: true, itemIds: items.map(item => item.id), ...(recipient ? { recipientEmail: recipient } : {}) }),
       });
       const payload = await response.json().catch(() => ({})) as {
         sentCount?: number;
@@ -6134,7 +6146,7 @@ function BulkPayslipModal({
       const sent = payload.sentCount ?? 0;
       const skipped = payload.skippedCount ?? 0;
       const failed = payload.failedCount ?? 0;
-      setEmailSummary(`Sent ${sent} of ${total} salary slips${skipped ? ` · ${skipped} missing email` : ""}${failed ? ` · ${failed} failed` : ""}.`);
+      setEmailSummary(`Sent ${sent} of ${total} salary slips${recipient ? ` to ${recipient} in one combined PDF` : ""}${skipped ? ` · ${skipped} missing email` : ""}${failed ? ` · ${failed} failed` : ""}.`);
     } catch (error) {
       setEmailSummary(error instanceof Error ? error.message : "Unable to send salary slips");
     } finally {
@@ -6174,6 +6186,10 @@ function BulkPayslipModal({
             </button>
           </div>
         </div>
+        {canEmail && <form className="modal-toolbar" onSubmit={event => { event.preventDefault(); void sendAllSalarySlips(combinedEmail.trim()); }}>
+          <label>Send all salary slips to one email ID<input type="email" required maxLength={254} value={combinedEmail} onChange={event => setCombinedEmail(event.target.value)} placeholder="payroll-recipient@example.com" style={{ fontSize: 16, padding: 12, minWidth: 280 }} disabled={emailSending} /></label>
+          <button className="primary-button" disabled={emailSending || run.status !== "approved" || !items.length || !combinedEmail.trim()}>{emailSending ? "Sending…" : "Send combined PDF to this email"}</button>
+        </form>}
         <div className="bulk-payslip-pages">
           {items.map((item) => (
             <PayslipSheet
@@ -6520,6 +6536,7 @@ function PayrollActionModal({
   const [hostelScopeDraft, setHostelScopeDraft] = useState<string[]>(
     accessProfile?.hostelScope ?? [],
   );
+  const applicant = modal.kind === "employee" ? modal.applicant : undefined;
   const employee = modal.kind === "employee" ? modal.employee : undefined;
   const leftEmployee =
     modal.kind === "employee-left" ? modal.employee : undefined;
@@ -6579,7 +6596,7 @@ function PayrollActionModal({
   const [employeePhoto, setEmployeePhoto] = useState(
     employee?.photoDataUrl ?? "",
   );
-  const [employeeApplication, setEmployeeApplication] = useState(() => readApplication(employee?.applicationJson));
+  const [employeeApplication, setEmployeeApplication] = useState(() => readApplication(employee?.applicationJson ?? (applicant ? JSON.stringify(applicant.application_json) : undefined)));
   const [applicationUploads, setApplicationUploads] = useState<ApplicationDocument[]>([]);
   const activeAccommodationTypes = accommodationTypes.filter(
     (type) =>
@@ -6754,7 +6771,7 @@ function PayrollActionModal({
       );
     else if (modal.kind === "employee") {
       const employmentType =
-        employee?.employmentType ??
+        employee?.employmentType ?? applicant?.employment_type ??
         (window.confirm(
           "Is this a direct employee of Joy Manpower Service / Joy Corporate Solutions? Select OK for Direct, or Cancel for Client-assigned.",
         )
@@ -7295,7 +7312,7 @@ function PayrollActionModal({
                 <span>Employee mobile number</span>
                 <input
                   name="mobileNumber"
-                  defaultValue={employee?.mobileNumber ?? ""}
+                  defaultValue={employee?.mobileNumber ?? applicant?.application_json["Mobile number"] ?? ""}
                   inputMode="tel"
                 />
               </label>
@@ -7304,7 +7321,7 @@ function PayrollActionModal({
                 <input
                   name="emailAddress"
                   type="email"
-                  defaultValue={employee?.emailAddress ?? ""}
+                  defaultValue={employee?.emailAddress ?? applicant?.email_address ?? ""}
                   placeholder="employee@example.com"
                 />
                 <small>Used for direct SMTP salary-slip delivery.</small>
@@ -7321,7 +7338,7 @@ function PayrollActionModal({
                 <span>Residential address</span>
                 <textarea
                   name="addressLine"
-                  defaultValue={employee?.addressLine ?? ""}
+                  defaultValue={employee?.addressLine ?? applicant?.application_json["Permanent Address"] ?? ""}
                   rows={2}
                 />
               </label>
@@ -7491,7 +7508,7 @@ function PayrollActionModal({
                 <span>Employee name *</span>
                 <input
                   name="name"
-                  defaultValue={employee?.name}
+                  defaultValue={employee?.name ?? applicant?.name}
                   placeholder="Full name"
                   required
                 />
