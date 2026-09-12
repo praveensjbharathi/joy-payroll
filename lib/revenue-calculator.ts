@@ -1,0 +1,26 @@
+export type RevenueAssumptions = { serviceChargePercent: number; employerCost: number; otherBilling: number; operatingCost: number; referralBonus: number; gstPercent: number; feeBasis: "salary" | "salary_plus_employer_cost" };
+export function calculateRevenue(role: string, items: { employeeId: string; grossEarnings: number; payableDays: number; overtimeHours: number }[], values: RevenueAssumptions) {
+  if (role !== "super_admin") throw new Error("Only Super Admin can use the revenue calculator.");
+  if (!values || typeof values !== "object") throw new Error("Enter the billing and cost assumptions.");
+  for (const key of ["serviceChargePercent", "employerCost", "otherBilling", "operatingCost", "referralBonus", "gstPercent"] as const) {
+    if (typeof values[key] !== "number" || !Number.isFinite(values[key]) || values[key] < 0 || values[key] > (key.endsWith("Percent") ? 100 : 1e10)) throw new Error(`Enter a valid non-negative ${key}.`);
+  }
+  if (!["salary", "salary_plus_employer_cost"].includes(values.feeBasis)) throw new Error("Select a valid service-charge basis.");
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (seen.has(item.employeeId)) throw new Error("Duplicate employee in this payroll. Review the payroll before calculating revenue.");
+    seen.add(item.employeeId);
+    if (![item.grossEarnings, item.payableDays, item.overtimeHours].every(v => Number.isFinite(v) && v >= 0)) throw new Error("Payroll has invalid salary or working values.");
+  }
+  const money = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+  const earnedSalary = money(items.reduce((sum, item) => sum + item.grossEarnings, 0));
+  const payableDays = money(items.reduce((sum, item) => sum + item.payableDays, 0));
+  const overtimeHours = money(items.reduce((sum, item) => sum + item.overtimeHours, 0));
+  const feeBasisAmount = money(earnedSalary + (values.feeBasis === "salary_plus_employer_cost" ? values.employerCost : 0));
+  const serviceCharge = money(feeBasisAmount * values.serviceChargePercent / 100);
+  const revenueExcludingGst = money(earnedSalary + values.employerCost + serviceCharge + values.otherBilling);
+  const gst = money(revenueExcludingGst * values.gstPercent / 100);
+  const totalCost = money(earnedSalary + values.employerCost + values.operatingCost + values.referralBonus);
+  const contribution = money(revenueExcludingGst - totalCost);
+  return { employeeCount: items.length, payableDays, overtimeHours, earnedSalary, feeBasisAmount, serviceCharge, revenueExcludingGst, gst, invoiceTotal: money(revenueExcludingGst + gst), totalCost, contribution, marginPercent: revenueExcludingGst ? money(contribution / revenueExcludingGst * 100) : 0 };
+}

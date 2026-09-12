@@ -10,8 +10,8 @@ test('inviting requires active employee management access and assigned company a
   assert.equal(canInvite({ ...hr, role: 'payroll_team' }, employee), false);
 });
 test('application rejects payroll mutation, metadata overwrite and excessive input', () => {
-  const fields = { Declaration: 'Correct', 'Digital Signature (Type your full name)': 'Test Applicant', 'Position Applied For': 'Operator' };
-  assert.deepEqual(validatedFields(fields), fields);
+  const fields = {'Full name':'Test Applicant','Mobile number':'9999999999','Date of birth':'2000-01-01',Gender:'Male','Highest qualification':'10th / SSLC','Marital status':'Unmarried','Employment status':'Fresher','Reference 1 - Employee ID':'ref-1',Declaration:'Correct','Digital Signature (Type your full name)':'Test Applicant'};
+  assert.deepEqual(validatedFields(fields), {...fields, "Children count":"0"});
   for (const extra of [{ salary_amount: '999999' }, { bank_account_masked: '12345' }, { _joyOnboarding: '{}' }, { 'Position Applied For': 'x'.repeat(2001) }]) assert.throws(() => validatedFields({ ...fields, ...extra }));
   assert.throws(() => validatedFields({ Declaration: 'yes' }));
 });

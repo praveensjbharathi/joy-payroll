@@ -1,8 +1,14 @@
-import { canInvite, parseObject, tokenHash, validInvite, validatedFields } from "./validation.ts";
+import { canInvite, parseObject, tokenHash, validInvite, validatedFields, validatedDocuments, referenceOptions, applyReference } from "./validation.ts";
 
 // Applicant records stay separate from active employees and payroll until HR reviews them.
 export async function handleFresh({ admin, body, actor, origin, origins, json, nodemailer }: any) {
   const table = "employee_invitations";
+  if (body.action === "documents") {
+    const { data, error } = await admin.from(table).select("id,vendor_id,client_unit_id,documents_json,submitted_at").eq("id", body.employeeId).maybeSingle();
+    if (error) throw error;
+    if (!data || !actor || !canInvite(actor, data) || !data.submitted_at) return json({ error: "Application access required" }, 403);
+    return json({ documents: data.documents_json || [] });
+  }
   if (body.action === "list") {
     if (!actor) return json({ error: "Sign in required" }, 401);
     const scope = { vendor_id: body.vendorId, client_unit_id: body.unitId };
@@ -33,7 +39,7 @@ export async function handleFresh({ admin, body, actor, origin, origins, json, n
     const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), n => n.toString(16).padStart(2, "0")).join("");
     const id = previous?.id || `INV-${crypto.randomUUID()}`;
     const expires = Date.now() + 7 * 86400000;
-    const record = { id, email_address: email, name, ...scope, employment_type: body.employmentType, token_hash: await tokenHash(token), expires_at: new Date(expires).toISOString(), created_at: new Date().toISOString(), created_by: actor.email, application_json: {}, submitted_at: null };
+    const record = { id, email_address: email, name, ...scope, employment_type: body.employmentType, token_hash: await tokenHash(token), expires_at: new Date(expires).toISOString(), created_at: new Date().toISOString(), created_by: actor.email, application_json: {}, documents_json: [], submitted_at: null };
     const saved = previous
       ? await admin.from(table).update(record).eq("id", id).eq("created_at", previous.created_at).is("submitted_at", null).select("id")
       : await admin.from(table).insert(record).select("id");
@@ -54,16 +60,17 @@ export async function handleFresh({ admin, body, actor, origin, origins, json, n
     await admin.from("audit_events").insert({ action: "new-employee-invited", entity_type: "employee_invitation", entity_id: id, actor_email: actor.email, summary: body.sendEmail ? "New employee activation email sent" : "New employee activation link created" });
     return json({ link, expires, sent: Boolean(body.sendEmail), recipient: email });
   }
-  const { data: invitation, error } = await admin.from(table).select("*").eq("id", body.employeeId).maybeSingle();
+  const { data: invitation, error } = await admin.from(table).select("id,name,token_hash,expires_at,submitted_at,vendor_id,client_unit_id").eq("id", body.employeeId).maybeSingle();
   if (error) throw error;
   const hash = await tokenHash(body.token);
   if (!invitation || !validInvite({ hash: invitation.token_hash, expires: Date.parse(invitation.expires_at), submitted: invitation.submitted_at }, hash)) return json({ error: "Invalid, expired or already submitted invitation. Ask HR for a new link." }, 403);
-  if (body.action === "read") return json({ name: invitation.name || "new colleague", expires: Date.parse(invitation.expires_at), newEmployee: true });
+  if (body.action === "read") return json({ name: invitation.name || "new colleague", expires: Date.parse(invitation.expires_at), newEmployee: true, references: await referenceOptions(admin) });
   let fields;
-  try { fields = validatedFields(body.fields); } catch (e) { return json({ error: e instanceof Error ? e.message : "Invalid application" }, 400); }
+  let documents;
+  try { fields = await applyReference(admin, validatedFields(body.fields)); documents = validatedDocuments(body.documents).filter(d => fields["Employment status"] !== "Fresher" || !d.category.startsWith("Previous Employment proofs")); } catch (e) { return json({ error: e instanceof Error ? e.message : "Invalid application" }, 400); }
   const fullName = String(fields["Full name"] || "").trim();
   if (!fullName) return json({ error: "Enter your full name" }, 400);
-  const saved = await admin.from(table).update({ name: fullName, application_json: fields, submitted_at: new Date().toISOString(), token_hash: null }).eq("id", invitation.id).eq("token_hash", hash).is("submitted_at", null).select("id");
+  const saved = await admin.from(table).update({ name: fullName, application_json: fields, documents_json: documents, submitted_at: new Date().toISOString(), token_hash: null }).eq("id", invitation.id).eq("token_hash", hash).is("submitted_at", null).gt("expires_at", new Date().toISOString()).select("id");
   if (saved.error) throw saved.error;
   if (!saved.data?.length) return json({ error: "This application was already submitted or replaced" }, 409);
   await admin.from("audit_events").insert({ action: "new-employee-application-submitted", entity_type: "employee_invitation", entity_id: invitation.id, actor_email: "onboarding-applicant", summary: "New employee application ready for HR review" });

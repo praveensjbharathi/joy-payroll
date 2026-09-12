@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
-import { applicationSections } from "../lib/employee-application";
+import { applicableFields, type ApplicationDocument, type ReferenceOption } from "../lib/employee-application";
+import { ApplicationQuestionnaire, ApplicationUploads } from "./application-questionnaire";
 import { FreshOnboarding, type NewApplicant } from "./fresh-onboarding";
 import type { ClientUnit, Vendor, Employee } from "./payroll-app";
 
@@ -60,23 +61,27 @@ export function EmployeeOnboardingForm({ endpoint, publishableKey, invitation }:
   const separator = invitation.lastIndexOf(".");
   const employeeId = invitation.slice(0, separator), token = invitation.slice(separator + 1);
   const [name, setName] = useState("");
+  const [references, setReferences] = useState<ReferenceOption[]>([]);
+  const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({ Date: new Date().toISOString().slice(0, 10) });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  useEffect(() => { let active = true; onboardingRequest(endpoint, publishableKey, { action: "read", employeeId, token }).then(r => { if (active) setName(r.name); }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [endpoint, publishableKey, employeeId, token]);
+  useEffect(() => { let active = true; onboardingRequest(endpoint, publishableKey, { action: "read", employeeId, token }).then(r => { if (active) { setName(r.name); setReferences(r.references || []); } }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [endpoint, publishableKey, employeeId, token]);
   async function submit(event: FormEvent) {
-    event.preventDefault(); if (busy) return; setBusy(true); setError("");
-    try { await onboardingRequest(endpoint, publishableKey, { action: "submit", employeeId, token, fields }); setDone(true); setFields({}); history.replaceState(null, "", location.pathname); } catch (e) { setError(e instanceof Error ? e.message : "Unable to submit"); } finally { setBusy(false); }
+    event.preventDefault(); if (busy || uploading) return; setBusy(true); setError("");
+    try { await onboardingRequest(endpoint, publishableKey, { action: "submit", employeeId, token, fields: applicableFields(fields), documents: documents.filter(d => fields["Employment status"] !== "Fresher" || !d.category.startsWith("Previous Employment proofs")) }); setDone(true); setFields({}); setDocuments([]); history.replaceState(null, "", location.pathname); } catch (e) { setError(e instanceof Error ? e.message : "Unable to submit"); } finally { setBusy(false); }
   }
   return <main style={{ minHeight: "100vh", background: "#eef3f8", padding: 16 }}><section style={card}>
     <h1>Joy Payroll · Employee application</h1>
     {done ? <p role="status">Your application has been submitted. HR can now review it and complete your Employee Master record. Thank you.</p> : <>
-      {name ? <form onSubmit={submit}><h2>Welcome, {name}</h2><p>Complete your application details below. Give supporting documents to HR for upload. Existing salary and banking details are managed by HR.</p>
-        {applicationSections.filter(s => s.title !== "Supporting document links" && s.title !== "Declaration").map(section => <details key={section.title} open={section.title === "Application details" || section.title === "Applicant identity"} style={{ margin: "18px 0", borderBottom: "1px solid #cad5e2", paddingBottom: 12 }}><summary style={{ cursor: "pointer", fontWeight: 700, padding: "8px 0" }}>{section.title}</summary>{section.fields.map(key => <label key={key} style={{ display: "block", margin: "12px 0" }}>{key}<textarea rows={2} maxLength={2000} value={fields[key] || ""} disabled={busy} onChange={e => setFields({ ...fields, [key]: e.target.value })} style={{ display: "block", width: "100%", padding: 10, fontSize: 16 }} /></label>)}</details>)}
+      {name ? <form onSubmit={submit} className="joy-onboarding-form"><h2>Welcome, {name}</h2><p>Complete the required questions marked *. Add the other details and supporting documents that apply to you.</p>
+        <ApplicationQuestionnaire value={fields} onChange={setFields} references={references} disabled={busy} required />
+        <ApplicationUploads documents={documents} onChange={setDocuments} disabled={busy} onBusyChange={setUploading} fresher={fields["Employment status"] === "Fresher"} />
         <label style={{ display: "block", margin: "16px 0" }}><input type="checkbox" required disabled={busy} checked={Boolean(fields.Declaration)} onChange={e => setFields({ ...fields, Declaration: e.target.checked ? "I confirm that the information I supplied is correct to the best of my knowledge." : "" })} /> I confirm that the information I supplied is correct to the best of my knowledge.</label>
         <label>Type your full name as your declaration signature<input required maxLength={200} disabled={busy} value={fields["Digital Signature (Type your full name)"] || ""} onChange={e => setFields({ ...fields, ["Digital Signature (Type your full name)"]: e.target.value })} style={{ display: "block", width: "100%", padding: 12, fontSize: 16, margin: "12px 0" }} /></label>
-        <button className="primary-button" disabled={busy}>{busy ? "Submitting…" : "Submit application"}</button>
+        <button className="primary-button" disabled={busy || uploading}>{busy ? "Submitting…" : uploading ? "Checking document…" : "Submit application"}</button>
       </form> : !error && <p role="status">Checking your invitation…</p>}
       {error && <p role="alert" style={{ color: "#b42318" }}>{error}</p>}
     </>}

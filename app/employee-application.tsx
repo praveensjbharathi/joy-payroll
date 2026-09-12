@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { applicationSections, readApplication, safeApplicationImage, type ApplicationData, type ApplicationDocument, type ApplicationRequest } from "../lib/employee-application";
+import { applicableFields, applicationSections, languageFields, readApplication, safeApplicationImage, type ApplicationData, type ApplicationDocument, type ApplicationRequest, type ReferenceOption } from "../lib/employee-application";
+import { ApplicationQuestionnaire, ApplicationUploads } from "./application-questionnaire";
 import { printIsolatedElement } from "../lib/print-document";
 import type { Employee, Vendor } from "./payroll-app";
 
-export function EmployeeApplicationFields({ value, onChange, employeeId, loadDocuments, uploads, onUploadsChange }: { value: ApplicationData; onChange: (data: ApplicationData) => void; employeeId?: string; loadDocuments: ApplicationRequest; uploads: ApplicationDocument[]; onUploadsChange: (docs: ApplicationDocument[]) => void }) {
+export function EmployeeApplicationFields({ value, onChange, employeeId, loadDocuments, uploads, onUploadsChange, references }: { references: ReferenceOption[]; value: ApplicationData; onChange: (data: ApplicationData) => void; employeeId?: string; loadDocuments: ApplicationRequest; uploads: ApplicationDocument[]; onUploadsChange: (docs: ApplicationDocument[]) => void }) {
   const [saved, setSaved] = useState<ApplicationDocument[]>([]);
   const [error, setError] = useState("");
   useEffect(() => { let active = true; if (employeeId) loadDocuments(employeeId).then(d => { if (active) setSaved(d); }).catch(e => { if(active) setError(e.message); }); return () => { active=false; }; }, [employeeId]);
@@ -13,40 +14,9 @@ export function EmployeeApplicationFields({ value, onChange, employeeId, loadDoc
   return <details className="form-span" style={{ margin: "16px 0" }}>
     <summary style={{ fontWeight: 700, cursor: "pointer" }}>Company e-Job Application - additional details</summary>
     <p>Personal, joining, banking and photo details entered above are reused in the application. Additional details are optional. Enter only information supplied by the applicant.</p>
-    {applicationSections.filter(s => s.title !== "Supporting document links").map(section => <fieldset key={section.title} style={{ margin: "12px 0", padding: 16, border: "1px solid #cbd5e1" }}>
-      <legend>{section.title}</legend>
-      {section.title === "Language proficiency" && <p>Enter Read / Write / Speak for each applicable language.</p>}
-      <div className="form-grid">{section.fields.filter(key => key !== "Digital Signature (Type your full name)").map(key => <label key={key}>
-        <span>{key}</span>
-        {key === "Date" ? <input type="date" value={value[key] || ""} onChange={e => update(key, e.target.value)} /> :
-          <textarea rows={2} maxLength={2000} value={value[key] || ""} onChange={e => update(key, e.target.value)} />}
-      </label>)}</div>
-    </fieldset>)}
-    <fieldset style={{ padding:16, border:"1px solid #cbd5e1" }}><legend>Upload supporting documents</legend>
-      <p>PDF, PNG or JPEG. Up to 4 MB per document and 18 MB per save. Files are saved when you click Save changes.</p>
-      {error && <p role="alert">{error}</p>}
-      <div style={{overflowX:"auto"}}><table style={{width:"100%", borderCollapse:"collapse"}}><thead><tr><th>Document</th><th>File / upload</th></tr></thead><tbody>
-        {applicationSections.find(s => s.title === "Supporting document links")!.fields.map(category => {
-          const file = uploads.find(d => d.category === category) || saved.find(d => d.category === category);
-          return <tr key={category}><td style={{padding:10, borderBottom:"1px solid #ddd"}}>{category}</td><td style={{padding:10, borderBottom:"1px solid #ddd"}}>
-            <small>{file?.filename || "No file uploaded"}{uploads.some(d => d.category === category) ? " (ready to save)" : ""}</small>
-            <input aria-label={`Upload ${category}`} type="file" accept="application/pdf,image/png,image/jpeg" onChange={async event => {
-              const next=event.target.files?.[0]; if(!next) return;
-              setError("");
-              try {
-                if(!["application/pdf","image/png","image/jpeg"].includes(next.type) || next.size>4*1024*1024) throw new Error("Choose a PDF, PNG or JPEG up to 4 MB.");
-                if(next.type === "application/pdf") { const {PDFDocument}=await import("pdf-lib"); await PDFDocument.load(await next.arrayBuffer()); }
-                else { const bitmap=await createImageBitmap(next); bitmap.close(); }
-                const dataUrl=await new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result)); reader.onerror=()=>reject(new Error("Unable to read file")); reader.readAsDataURL(next);});
-                const updated=[...uploads.filter(d=>d.category!==category), {category, filename:next.name, dataUrl}];
-                if(JSON.stringify(updated).length>25000000) throw new Error("Please save these files before uploading more (18 MB per save).");
-                onUploadsChange(updated);
-              } catch(e) { setError(e instanceof Error ? e.message : "Unable to load file. Password-protected PDFs are not supported."); }
-            }} />
-          </td></tr>;
-        })}
-      </tbody></table></div>
-    </fieldset>
+    <ApplicationQuestionnaire value={value} onChange={onChange} references={references} />
+    {error && <p role="alert">{error}</p>}
+    <ApplicationUploads documents={uploads} onChange={onUploadsChange} saved={saved} fresher={value["Employment status"] === "Fresher"} />
     <label><span>Upload employee signature photo (PNG / JPEG / WebP, maximum 150 KB)</span>
       <input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
         const file = event.target.files?.[0];
@@ -85,46 +55,42 @@ const applicationCss = `
 `;
 
 export function EmployeeApplicationDocument({ employee, vendor }: { employee?: Employee; vendor?: Vendor }) {
-  const data = readApplication(employee?.applicationJson);
-  const rows = (entries: [string, string | null | undefined][]) => <table><tbody>{entries.map(([label, value]) => <tr key={label}><td>{label}</td><td>{value || "________________"}</td></tr>)}</tbody></table>;
+  const raw = readApplication(employee?.applicationJson);
+  const data = applicableFields({ ...raw, "Marital status": raw["Marital status"] || employee?.maritalStatus || "", "Highest qualification": raw["Highest qualification"] || employee?.highestQualification || "" });
+  const rows = (entries: [string, string | null | undefined][], important = false) => {
+    const visible = entries.filter(([, value]) => !employee || important || Boolean(value?.trim()));
+    return visible.length ? <table><tbody>{visible.map(([label, value]) => <tr key={label}><td>{label}</td><td>{value || "________________"}</td></tr>)}</tbody></table> : null;
+  };
+  const section = (title: string, entries: [string, string | null | undefined][]) => {
+    const table = rows(entries); return table ? <section key={title}><h2>{title}</h2>{table}</section> : null;
+  };
   const signature = safeApplicationImage(data["Signature image"]);
   const personal: [string, string | null | undefined][] = [
-    ["Contact Number", employee?.mobileNumber], ["Family Mobile", employee?.emergencyContactNumber],
+    ["Contact Number", employee?.mobileNumber || data["Mobile number"]], ["Family Mobile", employee?.emergencyContactNumber],
     ["Present Address", [employee?.addressLine, employee?.district, employee?.stateName, employee?.pincode].filter(Boolean).join(", ")],
-    ["Date of Birth", employee?.dateOfBirth], ["Marital Status", employee?.maritalStatus], ["Blood Group", employee?.bloodGroup],
-    ...applicationSections[1].fields.map(key => [key, data[key]] as [string,string]),
+    ["Date of Birth", employee?.dateOfBirth || data["Date of birth"]], ["Gender", data.Gender], ["Marital Status", data["Marital status"]], ["Blood Group", employee?.bloodGroup],
+    ...applicationSections.find(s => s.title === "Personal information")!.fields.filter(k => !["Sibling count", "Children count", "Employment records"].includes(k)).map(key => [key, data[key]] as [string, string]),
   ];
   return <article className="joy-application-document">
     <style>{applicationCss}</style>
-    <header className="application-brand">
-      {safeApplicationImage(vendor?.logoDataUrl) && <img src={vendor!.logoDataUrl!} alt="Company logo" />}
-      <div><h1>{vendor?.legalName || vendor?.name || "JOY CORPORATE SOLUTIONS PRIVATE LIMITED"}</h1><p>e-Job Application Form | www.joyindia.in</p></div>
-    </header>
-    <h2>{employee?.name || "Applicant name: __________________________"}</h2>
-    {rows([["Position Applied For", data["Position Applied For"]], ["Application Date", data.Date], ["Employee Code", employee?.employeeCode], ["Date of Joining", employee?.dateOfJoining]])}
-    <h2>1. Personal information</h2>
-    <div className="application-personal">{rows(personal)}<aside className="application-photo">
-      {safeApplicationImage(employee?.photoDataUrl) ? <img src={employee!.photoDataUrl!} alt="Passport photo" /> : <div style={{ height:"40mm", border:"1px solid #94a3b8", padding:"8mm 2mm" }}>Passport size photo</div>}
-      <p>Employee signature</p>{signature ? <img className="application-signature" src={signature} alt="Employee signature" /> : <p>________________</p>}
-    </aside></div>
-    <h2>2. Language proficiency</h2>{rows(applicationSections[2].fields.map(key => [key.replace("Other Languages Proficiency ", ""), data[key]]))}
-    <h2>3. Family background</h2>
-    {applicationSections.filter(section => section.title.startsWith("Family -")).map(section => {
-      const values = section.fields.map(key => [key.split(" - ")[1], data[key] || (key === "Father - Name" ? employee?.fatherName : key === "Spouse - Name" ? employee?.spouseName : "")] as [string,string | null | undefined]);
-      if (employee && !values.some(([,value]) => value)) return null;
-      return <section key={section.title}><h2>{section.title}</h2>{rows(values)}</section>;
+    <header className="application-brand">{safeApplicationImage(vendor?.logoDataUrl) && <img src={vendor!.logoDataUrl!} alt="Company logo" />}<div><h1>{vendor?.legalName || vendor?.name || "JOY CORPORATE SOLUTIONS PRIVATE LIMITED"}</h1><p>e-Job Application Form | www.joyindia.in</p></div></header>
+    <h2>{employee?.name || data["Full name"] || "Applicant name: __________________________"}</h2>
+    {rows([["Position Applied For", data["Position Applied For"]], ["Application Date", data.Date], ["Employee Code", employee?.employeeCode], ["Date of Joining", employee?.dateOfJoining]], true)}
+    <h2>Personal information</h2><div className="application-personal">{rows(personal)}<aside className="application-photo">{safeApplicationImage(employee?.photoDataUrl) ? <img src={employee!.photoDataUrl!} alt="Passport photo" /> : !employee && <p>Passport size photo</p>}{signature && <><p>Employee signature</p><img className="application-signature" src={signature} alt="Employee signature" /></>}</aside></div>
+    {section("Language proficiency", languageFields(data).map(key => [key.match(/\[(.*)\]/)?.[1] || key, data[key]]))}
+    {applicationSections.filter(s => s.title.startsWith("Family -")).map(s => {
+      if (employee && /^(unmarried|single)$/i.test(data["Marital status"]) && /Spouse|Child/.test(s.title)) return null;
+      return section(s.title, s.fields.map(key => [key.split(" - ")[1], data[key] || (key === "Father - Name" ? employee?.fatherName : key === "Spouse - Name" ? employee?.spouseName : "")]));
     })}
-    <h2>4. Education profile</h2>{rows([["Highest Qualification", employee?.highestQualification], ...applicationSections.find(s => s.title === "Education profile")!.fields.map(key => [key,data[key]] as [string,string])])}
-    <h2>5. Work experience</h2>
-    {applicationSections.filter(s => s.title.startsWith("Previous employment")).map(s => <section key={s.title}><h2>{s.title}</h2>{rows(s.fields.map(key => [key,data[key]]))}</section>)}
-    {rows([["ESI Number", employee?.esiMasked], ["PF / UAN Number", employee?.uanMasked]])}
-    <h2>6. Banking details</h2>{rows([["Bank Name", employee?.bankName], ["Account Number", employee?.bankAccountMasked], ["IFSC Code", employee?.ifscMasked], ["Branch Name", employee?.bankBranch], ["Own House?", data["Do you own House?"]], ["City / Town", data["If Yes, in which City / Town?"]]])}
-    <h2>7. References (non-relatives)</h2>{applicationSections.filter(s => s.title.startsWith("Non-relative reference")).map(s => <section key={s.title}><h2>{s.title}</h2>{rows(s.fields.map(key => [key,data[key]]))}</section>)}
-    <section className="application-declaration"><h2>8. Declaration &amp; signature</h2><p>{data.Declaration || "Declaration: __________________________________________________"}</p><p>Declaration date: {data.Date || "________________"}</p><p>Employee signature:</p>{signature ? <img className="application-signature" src={signature} alt="Declaration signature" /> : <p>____________________________</p>}</section>
-    {applicationSections.filter(s => s.title === "Supporting document links").map(s => {
-      const links = s.fields.filter(key => data[key]);
-      return links.length ? <section key={s.title}><h2>Supporting document links</h2><p>Documents retain their existing access permissions.</p>{rows(links.map(key => [key, data[key]]))}</section> : null;
-    })}
+    {section("Education profile", [["Highest qualification", data["Highest qualification"]], ...applicationSections.find(s => s.title === "Education profile")!.fields.map(key => [key, data[key]] as [string, string])])}
+    {data["Employment status"] && section("Employment status", [["Experience", data["Employment status"]]])}
+    {applicationSections.filter(s => s.title.startsWith("Previous employment")).map(s => section(s.title, s.fields.map(key => [key, data[key]])))}
+    {section("Statutory details", [["ESI Number", employee?.esiMasked], ["PF / UAN Number", employee?.uanMasked]])}
+    {section("Banking details", [["Bank Name", employee?.bankName], ["Account Number", employee?.bankAccountMasked], ["IFSC Code", employee?.ifscMasked], ["Branch Name", employee?.bankBranch]])}
+    {section("House details", [["Own House?", data["Do you own House?"]], ["City / Town", data["If Yes, in which City / Town?"]]])}
+    {applicationSections.filter(s => s.title.startsWith("Reference ")).map(s => section(s.title, s.fields.filter(k => k !== "Reference 1 - Employee ID").map(key => [key, data[key]])))}
+    <section className="application-declaration"><h2>Declaration &amp; signature</h2><p>{data.Declaration || "Declaration: __________________________________________________"}</p><p>Declaration date: {data.Date || "________________"}</p>{data["Digital Signature (Type your full name)"] && <p>Signed by: {data["Digital Signature (Type your full name)"]}</p>}{signature && <img className="application-signature" src={signature} alt="Declaration signature" />}</section>
+    {applicationSections.filter(s => s.title === "Supporting document links").map(s => section(s.title, s.fields.map(key => [key, data[key]])))}
   </article>;
 }
 

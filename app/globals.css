@@ -1068,4 +1068,28 @@ html,body,.app-shell{background:radial-gradient(circle at 90% 0%,rgba(46,130,246
     scrollbar-gutter: auto;
   }
 }
-
+/* Onboarding and application inputs: visible borders, readable text, and labelled sections. */
+.joy-form-section { border: 1px solid #8da9c4; border-radius: 12px; padding: 16px; margin: 20px 0; min-width: 0; color: #142e49; }
+.joy-form-section legend { font-size: 18px; font-weight: 750; padding: 0 8px; }
+.joy-form-tone-0 { background: #edf5ff; }
+.joy-form-tone-1 { background: #eefaf4; }
+.joy-form-tone-2 { background: #fff7e8; }
+.joy-form-tone-3 { background: #f4f0ff; }
+.joy-question-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.joy-questionnaire label, .joy-onboarding-form > label { display: block; font-size: 16px; font-weight: 600; margin: 8px 0; }
+.joy-questionnaire input:not([type=checkbox]), .joy-questionnaire textarea, .joy-questionnaire select, .joy-onboarding-form > label input:not([type=checkbox]) { display: block; box-sizing: border-box; width: 100%; padding: 12px; font-size: 16px; line-height: 1.4; border: 1.5px solid #6686a6; border-radius: 7px; background: white; color: #152e47; margin-top: 6px; min-height: 46px; }
+.joy-questionnaire input:focus-visible, .joy-questionnaire select:focus-visible, .joy-questionnaire textarea:focus-visible { outline: 3px solid #2272b8; outline-offset: 2px; }
+.joy-questionnaire input[type=checkbox] { width: 23px; height: 23px; accent-color: #176bab; }
+.joy-table-scroll { overflow-x: auto; max-width: 100%; }
+.joy-input-table { width: 100%; border-collapse: collapse; font-size: 16px; }
+.joy-input-table td, .joy-input-table th { border: 1px solid #91a9bf; padding: 12px; text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+.joy-input-table thead { background: #d7e9f8; color: #143654; }
+.joy-input-table tbody tr:nth-child(even) { background: #fff; }
+.joy-input-table input[type=file] { display: block; max-width: 100%; font-size: 15px; width: 100%; min-width: 140px; }
+.joy-add-language { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.joy-add-language label { flex: 1; min-width: 180px; }
+@media (max-width: 600px) { .joy-question-grid { grid-template-columns: 1fr; } .joy-form-section { padding: 10px; } .joy-input-table td, .joy-input-table th { padding: 8px; } }
+.joy-referral-revenue { margin-top: 24px; padding: 24px; min-width: 0; }
+.joy-referral-revenue label { display: block; font-size: 16px; font-weight: 600; margin: 8px 0; }
+.joy-referral-revenue input, .joy-referral-revenue select { width: 100%; box-sizing: border-box; display: block; padding: 12px; margin: 8px 0; border: 1px solid #6686a6; background: #f0f7ff; color: #142e49; border-radius: 7px; font-size: 16px; }
+.joy-report-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }

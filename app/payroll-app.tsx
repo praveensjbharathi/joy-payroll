@@ -1,6 +1,7 @@
 "use client";
 import type { NewApplicant } from "./fresh-onboarding";
 import { OnboardingInvite } from "./employee-onboarding";
+import { ReferenceReports, RevenueCalculator } from "./referral-revenue";
 // JOY_PRODUCTION_EXCELLENCE_V1 · bank-only payroll + release quality gates
 // JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1
 /* eslint-disable react/no-unescaped-entities */
@@ -1886,13 +1887,15 @@ export default function PayrollApp({
             />
           ) : null}
           {activeSection === "reports" ? (
-            <ReportsCenter
+            <><ReportsCenter
               data={data}
               run={currentRun}
               items={currentItems}
               vendorId={activeVendorId}
               unitId={activeUnitId}
             />
+            {canView(data.currentUser.permissions, "employees") && <ReferenceReports data={data} run={currentRun} vendorId={activeVendorId} unitId={activeUnitId} />}
+            {data.currentUser.role === "super_admin" && <RevenueCalculator key={currentRun?.id || "none"} endpoint={apiEndpoint} accessToken={accessToken} publishableKey={publishableKey} run={currentRun} />}</>
           ) : null}
           {activeSection === "users" ? (
             <UsersAccessView
@@ -6597,7 +6600,7 @@ function PayrollActionModal({
     employee?.photoDataUrl ?? "",
   );
   const [employeeApplication, setEmployeeApplication] = useState(() => readApplication(employee?.applicationJson ?? (applicant ? JSON.stringify(applicant.application_json) : undefined)));
-  const [applicationUploads, setApplicationUploads] = useState<ApplicationDocument[]>([]);
+  const [applicationUploads, setApplicationUploads] = useState<ApplicationDocument[]>(applicant?.documents || []);
   const activeAccommodationTypes = accommodationTypes.filter(
     (type) =>
       type.vendorId === vendorId &&
@@ -7852,7 +7855,7 @@ function PayrollActionModal({
             </div>
           ) : null}
 
-          {modal.kind === "employee" ? <EmployeeApplicationFields employeeId={employee?.id} loadDocuments={loadApplicationDocuments} uploads={applicationUploads} onUploadsChange={setApplicationUploads} value={employeeApplication} onChange={setEmployeeApplication} /> : null}
+          {modal.kind === "employee" ? <EmployeeApplicationFields references={employees.filter(e => e.employmentType === "direct" && e.status === "active" && e.id !== employee?.id).map(e => ({ id: e.id, employeeCode: e.employeeCode, name: e.name }))} employeeId={employee?.id} loadDocuments={loadApplicationDocuments} uploads={applicationUploads} onUploadsChange={setApplicationUploads} value={employeeApplication} onChange={setEmployeeApplication} /> : null}
           {modal.kind === "accommodation-type" ? (
             <div className="form-grid">
               <label className="form-span">

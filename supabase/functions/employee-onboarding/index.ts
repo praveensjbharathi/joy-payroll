@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import nodemailer from "npm:nodemailer@6.9.16";
-import { canInvite, parseObject, tokenHash, validInvite, validatedFields } from "./validation.ts";
+import { canInvite, parseObject, tokenHash, validInvite, validatedFields, validatedDocuments, referenceOptions, applyReference, requestText } from "./validation.ts";
+import { applicableFields } from "../../../lib/employee-application.ts";
 
 import { handleFresh } from "./fresh.ts";
 
@@ -16,13 +17,13 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return json({ error: "POST required" }, 405);
   try {
-    const text = await req.text();
-    if (text.length > 250000) return json({ error: "Application is too large" }, 413);
+    let text: string;
+    try { text = await requestText(req); } catch { return json({ error: "Application is too large. Maximum 18 MB of documents." }, 413); }
     let body: Record<string, any>;
     try { body = JSON.parse(text); } catch { return json({ error: "Invalid request" }, 400); }
-    if (!body || typeof body !== "object" || !["create", "read", "submit", "list"].includes(body.action) || (body.employeeId !== undefined && (typeof body.employeeId !== "string" || body.employeeId.length > 100))) return json({ error: "Invalid request" }, 400);
+    if (!body || typeof body !== "object" || !["create", "read", "submit", "list", "documents"].includes(body.action) || (body.employeeId !== undefined && (typeof body.employeeId !== "string" || body.employeeId.length > 100))) return json({ error: "Invalid request" }, 400);
     let actor: Record<string, any> | null = null;
-    if (body.action === "create" || body.action === "list") {
+    if (["create", "list", "documents"].includes(body.action)) {
       const jwt = (req.headers.get("authorization") || "").replace(/^Bearer /, "");
       if (!jwt) return json({ error: "Sign in to invite employees" }, 401);
       const { data, error } = await admin.auth.getUser(jwt);
@@ -31,6 +32,7 @@ Deno.serve(async (req: Request) => {
       if (profile.error || !profile.data) return json({ error: "Employee management access required" }, 403);
       actor = profile.data;
     } else if (typeof body.token !== "string" || !/^[a-f0-9]{64}$/.test(body.token)) return json({ error: "Invalid or expired invitation. Ask HR for a new link." }, 403);
+    if (body.action === "documents" && !String(body.employeeId || "").startsWith("INV-")) return json({ error: "Select an applicant invitation" }, 400);
     if (body.newEmployee === true || body.action === "list" || String(body.employeeId || "").startsWith("INV-")) return await handleFresh({ admin, body, actor, origin, origins, json, nodemailer });
     const result = await admin.from("employees").select("id,name,status,vendor_id,client_unit_id,email_address,application_json").eq("id", body.employeeId).maybeSingle();
     if (result.error) throw new Error("Employee lookup failed");
@@ -78,11 +80,15 @@ Deno.serve(async (req: Request) => {
       return json({ link, expires, sent: sendEmail, recipient: sendEmail ? employee.email_address : undefined });
     }
     if (!validInvite(metadata, await tokenHash(body.token))) return json({ error: "Invalid, expired or already submitted invitation. Ask HR for a new link." }, 403);
-    if (body.action === "read") return json({ name: employee.name, expires: metadata.expires });
+    if (body.action === "read") return json({ name: employee.name, expires: metadata.expires, references: await referenceOptions(admin, employee.id) });
     let fields: Record<string, string>;
-    try { fields = validatedFields(body.fields); } catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid application" }, 400); }
+    let documents;
+    try { fields = await applyReference(admin, validatedFields(body.fields), employee.id); documents = validatedDocuments(body.documents).filter(d => fields["Employment status"] !== "Fresher" || !d.category.startsWith("Previous Employment proofs")); } catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid application" }, 400); }
     // Only application questionnaire fields are accepted; payroll, bank and identity master columns never come from this request.
-    if (!await save({ ...application, ...fields, [META]: { ...metadata, hash: null, submitted: new Date().toISOString() } })) return json({ error: "This application changed or was already submitted. Contact HR before retrying." }, 409);
+    const next = { ...applicableFields({ ...application, ...fields } as Record<string, string>), [META]: { ...metadata, hash: null, submitted: new Date().toISOString() } };
+    const saved = await admin.rpc("submit_existing_onboarding", { p_employee_id: employee.id, p_expected_application: employee.application_json, p_application: JSON.stringify(next), p_documents: documents });
+    if (saved.error) throw saved.error;
+    if (!saved.data) return json({ error: "This application changed or was already submitted. Contact HR before retrying." }, 409);
     await admin.from("audit_events").insert({ action: "employee-onboarding-submitted", entity_type: "employee", entity_id: employee.id, actor_email: "onboarding-applicant", summary: "Employee submitted application using a one-time invitation" });
     return json({ submitted: true });
   } catch {

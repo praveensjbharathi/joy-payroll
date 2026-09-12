@@ -27,6 +27,8 @@ jobs:
         run: npm run fix:production
       - name: Verify requested production requirements
         run: node --test tests/production-excellence.test.mjs
+      - name: Verify onboarding documents, conditional forms, references and revenue permissions
+        run: node --import tsx --test tests/employee-onboarding*.test.mjs tests/employee-application.test.mjs tests/fresh-onboarding.test.mjs tests/onboarding-revenue-regressions.test.mjs
       - name: Run production-safe calculation and import regressions
         run: node --import tsx --test tests/excel-import.test.mjs tests/payroll-enhancements.test.mjs
       - name: Prepare Supabase production API from verified source
