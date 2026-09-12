@@ -790,7 +790,8 @@ if (recovery.includes("accommodationTypeId === roomRecoveryScope"))
 if (
   !recovery.includes("Draft room-share preview") &&
   !recovery.includes("Draft room share") &&
-  !recovery.includes("Draft room-share")
+  !recovery.includes("Draft room-share") &&
+  !recovery.includes("gasShare")
 )
   throw new Error("Employee room-share component detail was not added");
 
