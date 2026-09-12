@@ -69,23 +69,45 @@ export function HostelMaster({
       !t.name.toLowerCase().includes("local/local"),
   );
   const [typeId, setTypeId] = useState(activeTypes[0]?.id ?? "");
-  const typeHostels = hostels.filter(
-    (h) => h.vendorId === vendorId && h.accommodationTypeId === typeId,
+  const selectedType = activeTypes.find((t) => t.id === typeId);
+  const normalizeAccommodationName = (value: string) =>
+    value.trim().toLowerCase().replace(/\s+/g, " ");
+  const isJoySharedAccommodation = (value: string) => {
+    const name = normalizeAccommodationName(value);
+    return name.includes("joy") && (name.includes("hostel") || name.includes("room"));
+  };
+  const joyShared = Boolean(
+    selectedType && isJoySharedAccommodation(selectedType.name),
+  );
+  const equivalentTypeIds = joyShared
+    ? types
+        .filter((t) => t.status === "active" && isJoySharedAccommodation(t.name))
+        .map((t) => t.id)
+    : [typeId];
+  const typeHostels = hostels.filter((h) =>
+    joyShared
+      ? Boolean(
+          h.accommodationTypeId &&
+            equivalentTypeIds.includes(h.accommodationTypeId),
+        )
+      : h.vendorId === vendorId && h.accommodationTypeId === typeId,
   );
   const [hostelId, setHostelId] = useState("");
   const [allocationEmployeeId, setAllocationEmployeeId] = useState("");
   const [allocationRoomId, setAllocationRoomId] = useState("");
   const [allocationRent, setAllocationRent] = useState(0);
   const selected = typeHostels.find((h) => h.id === hostelId) ?? typeHostels[0];
-  const selectedTypeName = activeTypes.find((t) => t.id === typeId)?.name ?? "";
+  const selectedTypeName = selectedType?.name ?? "";
   const isOutsideRoom = selectedTypeName.toLowerCase().includes("outside");
-  const placeLabel = isOutsideRoom ? "Local area" : "Hostel";
+  const placeLabel = isOutsideRoom ? "Area" : "Hostel";
   const [entryType, setEntryType] = useState<EntryType>("eb");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [scope, setScope] = useState<"hostel" | "overall">("hostel");
   const [report, setReport] = useState<"readings" | "expenses">("readings");
-  const eligibleRooms = rooms.filter(
-      (r) => r.vendorId === vendorId && r.accommodationTypeId === typeId,
+  const eligibleRooms = rooms.filter((r) =>
+      joyShared
+        ? equivalentTypeIds.includes(r.accommodationTypeId)
+        : r.vendorId === vendorId && r.accommodationTypeId === typeId,
     ),
     hostelRooms = eligibleRooms.filter((r) => r.hostelId === selected?.id),
     periodExpenses = expenses.filter(
@@ -103,7 +125,7 @@ export function HostelMaster({
   const scoped = readings
     .filter((r) =>
       scope === "overall"
-        ? hostels.some((h) => h.id === r.hostelId && h.vendorId === vendorId)
+        ? typeHostels.some((h) => h.id === r.hostelId)
         : r.hostelId === selected?.id,
     )
     .sort((a, b) => b.readingDate.localeCompare(a.readingDate));
@@ -126,12 +148,15 @@ export function HostelMaster({
     (employee) =>
       employee.status === "active" &&
       !employee.roomId &&
-      employee.accommodationType === selectedTypeName &&
+      (joyShared
+        ? isJoySharedAccommodation(employee.accommodationType)
+        : employee.accommodationType === selectedTypeName) &&
       mappedUnitIds.includes(employee.clientUnitId),
   );
   async function createHostel(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
+    if (!typeId) return;
     if (
       await onAction("save-hostel", `${placeLabel} created`, {
         vendorId,
@@ -143,8 +168,10 @@ export function HostelMaster({
         clientScope: f.getAll("clientScope"),
         remarks: f.get("remarks"),
       })
-    )
+    ) {
       e.currentTarget.reset();
+      setHostelId("");
+    }
   }
   async function createRoom(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -173,8 +200,8 @@ export function HostelMaster({
     const f = new FormData(e.currentTarget);
     await onAction("save-hostel", `${placeLabel} updated`, {
       id: selected.id,
-      vendorId,
-      accommodationTypeId: typeId,
+      vendorId: selected.vendorId,
+      accommodationTypeId: selected.accommodationTypeId ?? typeId,
       name: f.get("name"),
       address: f.get("address"),
       inchargeName: f.get("inchargeName"),
@@ -255,44 +282,40 @@ export function HostelMaster({
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <span className="eyebrow">Step 1 · Accommodation type</span>
-            <h2>Select the accommodation category first</h2>
+            <span className="eyebrow">Step 1 · Operational Master accommodation type / room category / room category</span>
+            <h2>Select Accommodation Type / Room Category from Operational Masters</h2>
           </div>
         </div>
-        <div className="accommodation-type-grid">
-          {activeTypes.map((t) => (
-            <button
-              type="button"
-              key={t.id}
-              className={`accommodation-card accommodation-filter-card ${typeId === t.id ? "accommodation-filter-selected" : ""}`}
-              onClick={() => {
-                setTypeId(t.id);
+        <div className="form-grid">
+          <label className="form-span">
+            <span>Accommodation Type / Room Category *</span>
+            <select
+              value={typeId}
+              onChange={(event) => {
+                setTypeId(event.target.value);
                 setHostelId("");
               }}
+              required
             >
-              <span className="accommodation-icon">{t.name[0]}</span>
-              <div>
-                <span>{t.name}</span>
-                <strong>
-                  {hostels.filter((h) => h.accommodationTypeId === t.id).length}{" "}
-                  {t.name.toLowerCase().includes("outside")
-                    ? "areas"
-                    : "hostels"}
-                </strong>
-                <small>
-                  {rooms.filter((r) => r.accommodationTypeId === t.id).length}{" "}
-                  rooms
-                </small>
-              </div>
-            </button>
-          ))}
+              <option value="">Select accommodation type / room category</option>
+              {activeTypes.map((type) => (
+                <option key={type.id} value={type.id}>{type.name}</option>
+              ))}
+            </select>
+            <small className="muted-label">Loaded directly from Operational Masters</small>
+          </label>
         </div>
       </section>
       {typeId ? (
         <section className="panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">Step 2 · {placeLabel} master</span>
+              <span className="eyebrow">Step 2 · {isOutsideRoom ? "Area name" : "Hostel"} master</span>
+              {joyShared ? (
+                <small className="muted-label">
+                  Joy Group shared hostel · usable by Joy Manpower Service and Joy Corporate Solutions client units
+                </small>
+              ) : null}
               <h2>
                 Stored {isOutsideRoom ? "local areas" : "hostels"} under{" "}
                 {activeTypes.find((t) => t.id === typeId)?.name}
@@ -318,7 +341,7 @@ export function HostelMaster({
           {canManage ? (
             <form className="form-grid" onSubmit={createHostel}>
               <label>
-                <span>New {placeLabel.toLowerCase()} name *</span>
+                <span>New {isOutsideRoom ? "area name" : "hostel name"} *</span>
                 <input name="name" required />
               </label>
               <label>
@@ -359,7 +382,7 @@ export function HostelMaster({
                 <input name="remarks" />
               </label>
               <button className="primary-button form-span" disabled={isActing}>
-                Create {placeLabel.toLowerCase()}
+                Create {isOutsideRoom ? "area name" : "hostel"}
               </button>
             </form>
           ) : null}
@@ -384,7 +407,7 @@ export function HostelMaster({
                   </button>
                 ) : null}
               </div>
-              <form className="form-grid" onSubmit={updateHostel}>
+              <form key={selected.id} className="form-grid" onSubmit={updateHostel}>
                 <label><span>Name *</span><input name="name" defaultValue={selected.name} required disabled={!canManage} /></label>
                 <label><span>Address / location</span><input name="address" defaultValue={selected.address ?? ""} disabled={!canManage} /></label>
                 <label><span>{isOutsideRoom ? "Area contact / owner" : "Hostel in-charge"}</span><input name="inchargeName" defaultValue={selected.inchargeName ?? ""} disabled={!canManage} /></label>
@@ -797,3 +820,4 @@ export function HostelMaster({
     </div>
   );
 }
+
