@@ -199,6 +199,17 @@ export const clientUnits = sqliteTable("client_units", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const revenueMonthPlans = sqliteTable("revenue_month_plans", {
+  id: text("id").primaryKey(),
+  month: text("month").notNull(),
+  clientUnitId: text("client_unit_id").notNull().references(() => clientUnits.id),
+  configJson: text("config_json").notNull(),
+  revision: integer("revision").notNull().default(1),
+  confirmedAt: text("confirmed_at"),
+  updatedAt: text("updated_at").notNull(),
+  updatedBy: text("updated_by").notNull(),
+}, table => [uniqueIndex("revenue_month_unit_unique").on(table.month, table.clientUnitId)]);
+
 export const applicationDocuments = sqliteTable("application_documents", {
   id: text("id").primaryKey(),
   employeeId: text("employee_id").notNull().references(() => employees.id),

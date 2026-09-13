@@ -31,6 +31,8 @@ jobs:
         run: node --import tsx --test tests/employee-onboarding*.test.mjs tests/employee-application.test.mjs tests/fresh-onboarding.test.mjs tests/onboarding-revenue-regressions.test.mjs
       - name: Run production-safe calculation and import regressions
         run: node --import tsx --test tests/excel-import.test.mjs tests/payroll-enhancements.test.mjs
+      - name: Verify monthly revenue calendars, projections, recruitment and access controls
+        run: node --import tsx --test tests/revenue-projection.test.mjs
       - name: Prepare Supabase production API from verified source
         run: node scripts/build-supabase-api.mjs
       - name: Type-check Supabase production build

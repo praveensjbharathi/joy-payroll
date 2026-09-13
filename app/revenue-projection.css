@@ -1,0 +1,100 @@
+.topbar-selectors[hidden] { display: none !important; }
+.joy-revenue-page { display: grid; gap: 20px; min-width: 0; font-size: 16px; line-height: 1.55; }
+.joy-revenue-page .panel { padding: 24px; min-width: 0; }
+.joy-revenue-page h2 { margin: 0 0 10px; font-size: 23px; line-height: 1.3; }
+.joy-revenue-page h3 { margin: 12px 0; font-size: 19px; }
+.joy-revenue-page p { margin: 8px 0 16px; color: #465770; }
+.joy-revenue-page fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.rp-intro { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.rp-kicker { display: block; color: #24639b; letter-spacing: .08em; font-size: 12px; font-weight: 750; margin-bottom: 10px; }
+.rp-badge { white-space: nowrap; padding: 8px 12px; border-radius: 8px; background: #e9f5fb; color: #235475; font-size: 13px; font-weight: 700; }
+.rp-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; margin: 20px 0; }
+.joy-revenue-page label { display: flex; flex-direction: column; gap: 7px; color: #24334d; font-weight: 650; font-size: 15px; min-width: 0; }
+.joy-revenue-page input:not([type="checkbox"]), .joy-revenue-page select { width: 100%; min-width: 0; min-height: 46px; border: 1px solid #aac5dd; border-radius: 8px; background: #eef6ff; color: #132c4a; padding: 10px 12px; font-size: 16px; box-sizing: border-box; }
+.joy-revenue-page input:focus, .joy-revenue-page select:focus { outline: 3px solid #b7d9ff; outline-offset: 1px; border-color: #1769ae; }
+.joy-revenue-page label small, .rp-small { color: #5b6980; font-weight: 400; font-size: 13px; line-height: 1.5; }
+.rp-toolbar, .rp-toolbar > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
+.rp-toolbar { margin: 14px 0; }
+.rp-tabs { padding: 5px; border-radius: 12px; background: #eff3f8; }
+.rp-tab { border: 0; background: transparent; color: #40506a; font-size: 15px; font-weight: 650; min-height: 44px; padding: 10px 16px; border-radius: 9px; cursor: pointer; }
+.rp-tab.active { color: #fff; background: #184d7b; box-shadow: 0 2px 5px #17355220; }
+.joy-revenue-page .secondary-button, .joy-revenue-page .primary-button { white-space: normal; min-height: 44px; font-size: 14px; line-height: 1.4; }
+.rp-notice { background: #fff7e7; border: 1px solid #e4c78b; border-radius: 12px; padding: 18px 22px; color: #624319; }
+.rp-notice.error { color: #8a2631; background: #fff1f1; border-color: #e0a7aa; }
+.rp-notice ul { margin: 8px 0 16px; padding-left: 22px; }
+.rp-notice li { margin: 5px 0; }
+.rp-setup-status { display: flex; flex-direction: column; justify-content: center; gap: 5px; background: #eff6fa; padding: 12px 18px; border-radius: 10px; }
+.rp-setup-status strong { color: #184d7b; }
+.rp-setup-status small { color: #5b6980; }
+.rp-calendar { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 14px; max-height: 620px; overflow: auto; padding: 6px; margin: 16px 0 28px; border: 1px solid #d3e0e8; border-radius: 12px; }
+.rp-day { padding: 16px; border-radius: 10px; display: grid; gap: 10px; border: 1px solid #b7d6c7; background: #f0faf5; }
+.rp-day > strong { font-size: 17px; color: #174b35; }
+.rp-day.paid { background: #fff7e7; border-color: #e4c78b; }
+.rp-day.closed { background: #f1f2f7; border-color: #cbd0dd; }
+.rp-day input:not([type="checkbox"]), .rp-day select { background: #ffffffd9; min-height: 40px; padding: 8px; }
+.joy-revenue-page .rp-check-row { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: start; }
+.joy-revenue-page .rp-check-row label, .joy-revenue-page .rp-confirm label { display: flex; flex-direction: row; align-items: start; gap: 9px; font-size: 14px; }
+.joy-revenue-page input[type="checkbox"] { width: 20px; height: 20px; min-width: 20px; margin: 1px 0 0; accent-color: #195f93; }
+.rp-rates { padding: 20px; background: #f4f0fb; border-radius: 12px; border: 1px solid #dad0ee; }
+.rp-rates input:not([type="checkbox"]), .rp-rates select { background: #faf8ff; border-color: #beb0d9; }
+.rp-confirm { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 18px; border-radius: 10px; border: 1px solid #a4c2d3; background: #eaf5fb; }
+.rp-confirm label { flex: 1 1 400px; }
+.rp-confirm span { color: #775716; font-size: 13px; }
+.rp-error { color: #9d2538 !important; font-weight: 650; }
+.rp-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.rp-stat { padding: 18px; border-radius: 12px; background: #eef8f2; border: 1px solid #c3ddcc; display: flex; flex-direction: column; gap: 8px; }
+.rp-stat span { color: #435b50; font-size: 14px; font-weight: 650; }
+.rp-stat strong { color: #164e35; font-size: clamp(20px, 2.2vw, 29px); line-height: 1.3; overflow-wrap: anywhere; }
+.rp-stat.blue { background: #ecf5ff; border-color: #b7d1ef; }
+.rp-stat.blue strong { color: #1a5487; }
+.rp-stat.amber { background: #fff6e5; border-color: #e9cea0; }
+.rp-stat.amber strong { color: #81510d; }
+.rp-stat.violet { background: #f3eeff; border-color: #cec0ed; }
+.rp-stat.violet strong { color: #54328a; }
+.rp-target { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; padding: 18px 0; }
+.rp-target label { flex: 1 1 300px; }
+.rp-target progress { height: 16px; width: 100%; accent-color: #286e9c; }
+.rp-table-scroll { overflow-x: auto; max-width: 100%; }
+.joy-revenue-page table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.5; }
+.joy-revenue-page th, .joy-revenue-page td { padding: 12px 14px; border: 1px solid #d2dce7; text-align: right; color: #233650; }
+.joy-revenue-page th { background: #e6edf7; color: #234566; font-weight: 750; white-space: normal; }
+.joy-revenue-page td:first-child, .joy-revenue-page th:first-child { text-align: left; min-width: 120px; }
+.joy-revenue-page td { background: #fff; }
+.joy-revenue-page tr:nth-child(even) td { background: #f5f8fc; }
+.joy-revenue-page .rp-actual { background: #eef9f2 !important; color: #205a37; }
+.joy-revenue-page .rp-pending { background: #fff7e8 !important; color: #80551c; }
+.joy-revenue-page .rp-future { background: #eef5ff !important; color: #225990; }
+.rp-print-report { display: grid; gap: 20px; min-width: 0; }
+.rp-export > span { color: #65738a; font-size: 13px; }
+.rp-scenario { margin-top: 24px; padding-top: 15px; border-top: 1px solid #c2d5e2; }
+.rp-calendar-details { margin-top: 20px; }
+.rp-calendar-details summary { cursor: pointer; color: #245984; font-weight: 700; }
+@media (max-width: 750px) {
+  .joy-revenue-page .panel { padding: 17px; }
+  .rp-intro { display: block; }
+  .rp-badge { display: inline-block; margin-bottom: 10px; }
+  .rp-field-grid { grid-template-columns: minmax(0, 1fr); }
+  .rp-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .rp-stat { padding: 12px; }
+  .rp-stat strong { font-size: 20px; }
+  .rp-tabs { width: 100%; }
+  .rp-tab { flex: 1 1 120px; padding: 8px; }
+  .rp-rates { padding: 14px; }
+  .rp-calendar { max-height: 560px; grid-template-columns: minmax(0, 1fr); }
+  .rp-toolbar > div { justify-content: flex-start; }
+  .joy-revenue-page .rp-notice { padding: 15px; }
+}
+@media print {
+  .rp-print-report { display: block !important; font-size: 10pt; }
+  .rp-print-report .panel { padding: 4mm 0 !important; border: 0 !important; box-shadow: none !important; }
+  .rp-print-report h2, .rp-print-report h3 { break-after: avoid; }
+  .rp-print-report table { border-collapse: collapse; width: 100%; font-size: 10pt !important; }
+  .rp-print-report th, .rp-print-report td { padding: 2mm; border: 1px solid #b7c7d8; overflow-wrap: anywhere; }
+  .rp-print-report th { background: #e6edf7; }
+  .rp-print-report thead { display: table-header-group; }
+  .rp-print-report tr { break-inside: avoid; }
+  .rp-print-report .rp-table-scroll { overflow: visible !important; }
+  .rp-print-report .rp-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); break-inside: avoid; }
+  .rp-print-report .rp-stat strong { font-size: 15pt; }
+  .rp-print-report .rp-calendar-details > * { display: block !important; }
+}

@@ -2,6 +2,7 @@
 import type { NewApplicant } from "./fresh-onboarding";
 import { OnboardingInvite } from "./employee-onboarding";
 import { ReferenceReports, RevenueCalculator } from "./referral-revenue";
+import { RevenueProjectionPage } from "./revenue-projection";
 // JOY_PRODUCTION_EXCELLENCE_V1 · bank-only payroll + release quality gates
 // JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1
 /* eslint-disable react/no-unescaped-entities */
@@ -58,6 +59,7 @@ type Section =
   | "masters"
   | "operations"
   | "reports"
+  | "revenue"
   | "users"
   | "settings";
 
@@ -659,6 +661,7 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "masters", label: "Operational Masters", icon: "calendar" },
   { id: "operations", label: "Vehicle Monitoring", icon: "building" },
   { id: "reports", label: "Reports", icon: "file" },
+  { id: "revenue", label: "Revenue Projection", icon: "calculator" },
   { id: "users", label: "Users & Access", icon: "users" },
   { id: "settings", label: "Rules & Settings", icon: "settings" },
 ];
@@ -676,6 +679,7 @@ const sectionPermission: Record<Section, AccessModule> = {
   masters: "masters",
   operations: "operations",
   reports: "dashboard",
+  revenue: "dashboard",
   users: "users",
   settings: "settings",
 };
@@ -684,6 +688,11 @@ const sectionTitles: Record<
   Section,
   { eyebrow: string; title: string; description: string }
 > = {
+  revenue: {
+    eyebrow: "Super Admin · Revenue and recruitment planning",
+    title: "Revenue Projection",
+    description: "Daily actuals, calendar-month forecasts and manpower planning by group company and client.",
+  },
   dashboard: {
     eyebrow: "Workforce and payroll control centre",
     title: "Manpower & payroll dashboard",
@@ -1019,7 +1028,7 @@ export default function PayrollApp({
   const title = sectionTitles[activeSection];
   const visibleNavItems = data
     ? navItems.filter((item) =>
-        canView(data.currentUser.permissions, sectionPermission[item.id]),
+        (item.id !== "revenue" || data.currentUser.role === "super_admin") && canView(data.currentUser.permissions, sectionPermission[item.id]),
       )
     : [];
   const mayView = (section: Section) =>
@@ -1337,7 +1346,7 @@ export default function PayrollApp({
           >
             <Icon name="menu" />
           </button>
-          <div className="topbar-selectors">
+          <div className="topbar-selectors" hidden={activeSection === "revenue"}>
             <label>
               <span>Group of company</span>
               <select
@@ -1439,7 +1448,7 @@ export default function PayrollApp({
               {(mayManage("attendance") ||
                 mayManage("payroll") ||
                 mayManage("employees")) &&
-              !["users", "vendors", "masters", "settings"].includes(
+              !["users", "vendors", "masters", "settings", "revenue"].includes(
                 activeSection,
               ) ? (
                 <button
@@ -1452,7 +1461,7 @@ export default function PayrollApp({
                 </button>
               ) : null}
               {mayManage("payroll") &&
-              !["users", "vendors", "masters", "settings"].includes(
+              !["users", "vendors", "masters", "settings", "revenue"].includes(
                 activeSection,
               ) ? (
                 <button
@@ -1885,6 +1894,9 @@ export default function PayrollApp({
               isActing={isActing}
               onAction={performAction}
             />
+          ) : null}
+          {activeSection === "revenue" && data.currentUser.role === "super_admin" ? (
+            <RevenueProjectionPage role={data.currentUser.role} endpoint={apiEndpoint} accessToken={accessToken} publishableKey={publishableKey} exportExcel={downloadXlsx} />
           ) : null}
           {activeSection === "reports" ? (
             <><ReportsCenter
