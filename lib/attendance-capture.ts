@@ -1,0 +1,170 @@
+/** Attendance capture uses Asia/Kolkata wall time; punches are stored as UTC instants. */
+export const CAPTURE_OFFSET = 330;
+export type Direction = "in" | "out";
+export type CapturePunch = {
+  id: string; employeeId: string; clientUnitId: string; punchedAt: string; direction: Direction;
+  source: string; shiftCode: string | null; status: string; deviceId?: string | null;
+  deviceUserId?: string | null; remarks?: string | null; attendanceDate?: string | null;
+};
+export type CaptureShift = {
+  name: string; startTime: string; endTime: string; breakMinutes: number; requiredWorkMinutes: number;
+  lateGraceMinutes: number; lateDeductionMinutes: number; earlyGraceMinutes: number;
+  earlyDeductionMinutes: number; otMode: string; fixedOtHours: number;
+};
+export type PunchGroup = { employeeId: string; date: string; punches: CapturePunch[]; issues: string[] };
+export function captureDate(instant: string | number = Date.now()) {
+  return new Date(new Date(instant).getTime() + CAPTURE_OFFSET * 60000).toISOString().slice(0, 10);
+}
+export function captureTime(instant: string) {
+  return new Date(Date.parse(instant) + CAPTURE_OFFSET * 60000).toISOString().slice(11, 16);
+}
+export function validDate(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw new Error("Use a valid date in YYYY-MM-DD format.");
+  return value;
+}
+export function addDate(date: string, days: number) {
+  return new Date(Date.parse(validDate(date)) + days * 86400000).toISOString().slice(0, 10);
+}
+export function localInstant(value: string, offset = "+05:30"): string {
+  if (!/^[+-](?:0\d|1[0-4]):[0-5]\d$/.test(offset) || (offset.slice(1, 3) === "14" && offset.slice(4) !== "00")) throw new Error("Choose a valid UTC offset.");
+  const local = value.trim().replace(" ", "T");
+  if (!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(local)) throw new Error("Timestamp must use YYYY-MM-DD HH:mm:ss.");
+  validDate(local.slice(0, 10));
+  return new Date(`${local.length === 16 ? local + ":00" : local}${offset}`).toISOString();
+}
+export function punchInstant(value: unknown, now = Date.now()): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/.test(value)) throw new Error("Punch time needs an ISO timestamp with its UTC offset.");
+  validDate(value.slice(0, 10));
+  const instant = Date.parse(value);
+  if (!Number.isFinite(instant) || instant > now + 5 * 60000 || instant < now - 90 * 86400000) throw new Error("Punch time must be within the last 90 days and no more than 5 minutes ahead.");
+  return new Date(instant).toISOString();
+}
+export function parseEmployeeQr(value: unknown): { employeeId: string; employeeCode?: string } {
+  if (typeof value !== "string" || value.length > 4096) throw new Error("Scan a Joy Payroll employee ID-card QR.");
+  let data: unknown;
+  try { data = JSON.parse(value); } catch { throw new Error("Scan a Joy Payroll employee ID-card QR."); }
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid employee QR.");
+  const row = data as Record<string, unknown>;
+  if (typeof row.employeeId !== "string" || !row.employeeId.trim() || row.employeeId.length > 200 || (row.employeeCode !== undefined && typeof row.employeeCode !== "string")) throw new Error("Invalid employee QR.");
+  return { employeeId: row.employeeId, ...(typeof row.employeeCode === "string" ? { employeeCode: row.employeeCode } : {}) };
+}
+export function qrEmployee<T extends { id: string; employeeCode: string; clientUnitId: string; status: string }>(qr: unknown, employees: T[], unitId: string): T {
+  const identity = parseEmployeeQr(qr);
+  const employee = employees.find(e => e.id === identity.employeeId);
+  if (!employee || employee.clientUnitId !== unitId || employee.status !== "active" || (identity.employeeCode !== undefined && employee.employeeCode !== identity.employeeCode)) throw new Error("The QR does not match an active employee in this client unit.");
+  return employee;
+}
+export function attendanceAccess(profile: { role: string; status: string; attendance: string; clientScope: string[]; unitScope: string[] }, unit: { id: string; vendorId: string }, manage: boolean) {
+  if (profile.status !== "active" || profile.role === "hostel_incharge") return false;
+  if (profile.role === "super_admin") return true;
+  if (!["hr_team", "field_hr", "payroll_team"].includes(profile.role) || !["view", "manage"].includes(profile.attendance) || (manage && profile.attendance !== "manage") || !profile.clientScope.includes(unit.vendorId)) return false;
+  return profile.role === "payroll_team" || profile.unitScope.includes(unit.id);
+}
+const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+export function groupPunches(punches: CapturePunch[], shifts: CaptureShift[]): PunchGroup[] {
+  const groups = new Map<string, PunchGroup>(), open = new Map<string, CapturePunch>();
+  const get = (employeeId: string, date: string) => {
+    const key = `${employeeId}|${date}`;
+    if (!groups.has(key)) groups.set(key, { employeeId, date, punches: [], issues: [] });
+    return groups.get(key)!;
+  };
+  const dayFor = (p: CapturePunch) => {
+    if (p.attendanceDate) return p.attendanceDate;
+    const shift = shifts.find(s => s.name === p.shiftCode), day = captureDate(p.punchedAt), time = minutes(captureTime(p.punchedAt));
+    return shift && minutes(shift.endTime) <= minutes(shift.startTime) && time < minutes(shift.endTime) ? addDate(day, -1) : day;
+  };
+  for (const punch of [...punches].filter(p => p.status === "pending").sort((a, b) => a.punchedAt.localeCompare(b.punchedAt) || a.id.localeCompare(b.id))) {
+    const prior = open.get(punch.employeeId);
+    // An old missing OUT must not consume the next day's legitimate OUT.
+    if (prior && Date.parse(punch.punchedAt) - Date.parse(prior.punchedAt) > 24 * 3600000) {
+      get(prior.employeeId, dayFor(prior)).issues.push("Missing OUT punch"); open.delete(punch.employeeId);
+    }
+    const active = open.get(punch.employeeId), group = get(punch.employeeId, active ? dayFor(active) : dayFor(punch));
+    group.punches.push(punch);
+    if (punch.direction === "in") {
+      if (active) group.issues.push("Repeated IN: review or ignore the duplicate");
+      else open.set(punch.employeeId, punch);
+    } else {
+      if (!active) group.issues.push("OUT without a matching IN");
+      else if (punch.punchedAt <= active.punchedAt) group.issues.push("OUT must be later than IN");
+      open.delete(punch.employeeId);
+    }
+  }
+  for (const pending of open.values()) get(pending.employeeId, dayFor(pending)).issues.push("Missing OUT punch");
+  return [...groups.values()].map(g => ({ ...g, issues: [...new Set(g.issues)] })).sort((a, b) => b.date.localeCompare(a.date) || a.employeeId.localeCompare(b.employeeId));
+}
+export function reviewPunches(group: PunchGroup, shift: CaptureShift) {
+  if (group.issues.length || !group.punches.length || group.punches.length % 2) throw new Error(group.issues.join("; ") || "A complete IN / OUT pair is required.");
+  if (!/^([01]\d|2[0-3]):[0-5]\d/.test(shift.startTime) || !/^([01]\d|2[0-3]):[0-5]\d/.test(shift.endTime) || shift.requiredWorkMinutes <= 0) throw new Error("Configure valid shift hours in Operational Masters.");
+  const sorted = [...group.punches].sort((a, b) => a.punchedAt.localeCompare(b.punchedAt));
+  let paired = 0, gaps = 0;
+  for (let i = 0; i < sorted.length; i += 2) {
+    if (sorted[i].direction !== "in" || sorted[i + 1].direction !== "out") throw new Error("Review unmatched punches first.");
+    const duration = (Date.parse(sorted[i + 1].punchedAt) - Date.parse(sorted[i].punchedAt)) / 60000;
+    if (duration <= 0) throw new Error("OUT must be later than IN.");
+    paired += duration;
+    if (i > 0) gaps += (Date.parse(sorted[i].punchedAt) - Date.parse(sorted[i - 1].punchedAt)) / 60000;
+  }
+  const first = sorted[0], last = sorted[sorted.length - 1];
+  if (Date.parse(last.punchedAt) - Date.parse(first.punchedAt) > 24 * 3600000) throw new Error("A workday cannot exceed 24 hours. Correct the punches first.");
+  const workedMinutes = Math.max(0, paired - Math.max(0, shift.breakMinutes - gaps));
+  const shiftStart = Date.parse(localInstant(`${group.date}T${shift.startTime.slice(0, 5)}`));
+  const shiftEnd = Date.parse(localInstant(`${minutes(shift.endTime) <= minutes(shift.startTime) ? addDate(group.date, 1) : group.date}T${shift.endTime.slice(0, 5)}`));
+  const deductions = Math.max(0, shift.requiredWorkMinutes - workedMinutes)
+    + ((Date.parse(first.punchedAt) - shiftStart) / 60000 > shift.lateGraceMinutes ? shift.lateDeductionMinutes : 0)
+    + ((shiftEnd - Date.parse(last.punchedAt)) / 60000 > shift.earlyGraceMinutes ? shift.earlyDeductionMinutes : 0);
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return {
+    punchIn: captureTime(first.punchedAt), punchOut: captureTime(last.punchedAt),
+    workedHours: round(workedMinutes / 60), deductionHours: round(deductions / 60),
+    suggestedOt: round(shift.otMode === "fixed" ? (workedMinutes >= shift.requiredWorkMinutes ? shift.fixedOtHours : 0) : Math.max(0, workedMinutes - shift.requiredWorkMinutes) / 60),
+    suggestedStatus: workedMinutes >= shift.requiredWorkMinutes ? "P" : workedMinutes >= shift.requiredWorkMinutes / 2 ? "HD" : "A",
+    overnight: captureDate(first.punchedAt) !== captureDate(last.punchedAt),
+  };
+}
+export type ImportPunch = { deviceUserId: string; punchedAt: string; direction: Direction | "auto"; eventId?: string };
+export function parsePunchCsv(text: string, encoding: "auto" | "words" | "zero-one" | "one-two" = "auto", offset = "+05:30"): ImportPunch[] {
+  if (text.length > 250000) throw new Error("Import at most 500 punches per file.");
+  // RFC 4180 cells, including quoted commas and doubled quotes.
+  const rows: string[][] = []; let row: string[] = [], cell = "", quoted = false;
+  for (let i = 0; i <= text.length; i++) {
+    const c = text[i] ?? "\n";
+    if (c === '"') { if (quoted && text[i + 1] === '"') { cell += '"'; i++; } else quoted = !quoted; }
+    else if (!quoted && (c === "," || c === "\n")) { row.push(cell.replace(/\r$/, "").trim()); cell = ""; if (c === "\n") { if (row.some(Boolean)) rows.push(row); row = []; } }
+    else cell += c;
+  }
+  if (quoted) throw new Error("The CSV contains an unclosed quoted field.");
+  const header = rows.shift()?.map(c => c.replace(/^\uFEFF/, "").toLowerCase()) || [];
+  const columns = ["device_user_id", "punched_at", "direction"].map(h => header.indexOf(h));
+  if (columns.slice(0,2).some(i => i < 0) || (encoding !== "auto" && columns[2] < 0)) throw new Error("CSV needs device_user_id, punched_at and direction columns. Download the template.");
+  if (!rows.length || rows.length > 500) throw new Error("Import between 1 and 500 punch rows.");
+  return rows.map((r, index) => {
+    try {
+      const deviceUserId = r[columns[0]]?.trim();
+      if (!deviceUserId || deviceUserId.length > 100) throw new Error("Device user ID is required (up to 100 characters).");
+      const rawDirection = r[columns[2]]?.toLowerCase();
+      const direction = encoding === "auto" ? "auto" : encoding === "zero-one" ? ({ "0": "in", "1": "out" } as const)[rawDirection as "0" | "1"] : encoding === "one-two" ? ({ "1": "in", "2": "out" } as const)[rawDirection as "1" | "2"] : rawDirection;
+      if (direction !== "auto" && direction !== "in" && direction !== "out") throw new Error("Direction does not match the selected IN / OUT encoding.");
+      const timestamp = r[columns[1]] || "";
+      const punchedAt = /(?:Z|[+-]\d\d:\d\d)$/.test(timestamp) ? timestamp : localInstant(timestamp, offset);
+      const eventId = header.includes("event_id") ? r[header.indexOf("event_id")] : "";
+      return { deviceUserId, punchedAt, direction, ...(eventId ? { eventId } : {}) };
+    } catch (e) { throw new Error(`Row ${index + 2}: ${e instanceof Error ? e.message : "Invalid punch"}`); }
+  });
+}
+
+export function nearestEmployeeShift(employee: { defaultShift: string; shiftPattern?: string; applicableShiftsJson?: string }, shifts: CaptureShift[], instant: string) {
+  let applicable: string[]=[];
+  try { const parsed=JSON.parse(employee.applicableShiftsJson||"[]"); if(Array.isArray(parsed)) applicable=parsed.filter(v=>typeof v==="string"); } catch { /* default shift still applies */ }
+  const eligible=shifts.filter(s=>s.name===employee.defaultShift||(employee.shiftPattern==="rotational"&&applicable.includes(s.name)));
+  const time=minutes(captureTime(instant)),distance=(shift:CaptureShift)=>{const d=Math.abs(time-minutes(shift.startTime));return Math.min(d,1440-d);};
+  const result=eligible.sort((a,b)=>distance(a)-distance(b)||(a.name===employee.defaultShift?-1:b.name===employee.defaultShift?1:a.name.localeCompare(b.name)))[0];
+  if(!result) throw new Error("Configure an active eligible shift in the employee master before capturing attendance.");
+  return result;
+}
+export function automaticPunch(previous: {punchedAt:string;direction:Direction;shiftCode:string|null}|null, instant:string) {
+  const elapsed=previous?Date.parse(instant)-Date.parse(previous.punchedAt):Infinity;
+  if(elapsed<0) throw new Error("This punch is older than an existing punch. HR must review it as a missed-punch correction.");
+  if(elapsed<10*60000) return {ignored:true,direction:previous!.direction,lockedUntil:new Date(Date.parse(previous!.punchedAt)+10*60000).toISOString()};
+  return {ignored:false,direction:(previous?.direction==="in"&&elapsed<=24*3600000?"out":"in") as Direction,lockedUntil:new Date(Date.parse(instant)+10*60000).toISOString()};
+}

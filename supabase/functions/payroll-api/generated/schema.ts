@@ -768,3 +768,38 @@ export const auditEvents = pgTable("audit_events", {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Attendance device secrets and raw punches are exposed only through scoped server handlers.
+export const attendanceDevices = pgTable("attendance_devices", {
+  id: text("id").primaryKey(), clientUnitId: text("client_unit_id").notNull().references(() => clientUnits.id),
+  name: text("name").notNull(), model: text("model"), status: text("status").notNull().default("active"),
+  tokenHash: text("token_hash").notNull(), createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, t => [index("attendance_devices_unit_idx").on(t.clientUnitId)]);
+export const attendanceDeviceMappings = pgTable("attendance_device_mappings", {
+  id: text("id").primaryKey(), deviceId: text("device_id").notNull().references(() => attendanceDevices.id),
+  deviceUserId: text("device_user_id").notNull(), employeeId: text("employee_id").notNull().references(() => employees.id),
+  shiftCode: text("shift_code").notNull(), status: text("status").notNull().default("active"),
+  createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, t => [uniqueIndex("attendance_device_mappings_device_id_device_user_id_key").on(t.deviceId,t.deviceUserId),index("attendance_device_mappings_employee_idx").on(t.employeeId)]);
+export const attendancePunches = pgTable("attendance_punches", {
+  id: text("id").primaryKey(), clientUnitId: text("client_unit_id").notNull().references(() => clientUnits.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id), deviceId: text("device_id").references(() => attendanceDevices.id),
+  deviceUserId: text("device_user_id"), punchedAt: text("punched_at").notNull(), direction: text("direction").notNull(),
+  source: text("source").notNull(), eventKey: text("event_key").notNull().unique(), externalEventId: text("external_event_id"),
+  shiftCode: text("shift_code").notNull(), status: text("status").notNull().default("pending"), attendanceDate: text("attendance_date"),
+  approvalId: text("approval_id"), remarks: text("remarks"), createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull(),
+  reviewedBy: text("reviewed_by"), reviewedAt: text("reviewed_at"),
+}, t => [index("attendance_punches_unit_time_idx").on(t.clientUnitId,t.punchedAt),index("attendance_punches_employee_time_idx").on(t.employeeId,t.punchedAt),index("attendance_punches_device_idx").on(t.deviceId)]);
+
+export const clientAttendanceRecords = pgTable("client_attendance_records", {
+  id:text("id").primaryKey(),runId:text("run_id").notNull().references(()=>payrollRuns.id,{onDelete:"cascade"}),
+  employeeId:text("employee_id").notNull().references(()=>employees.id),attendanceDate:text("attendance_date").notNull(),
+  statusCode:text("status_code").notNull(),shiftCode:text("shift_code").notNull(),overtimeHours:doublePrecision("overtime_hours").notNull().default(0),
+  sourceFile:text("source_file"),updatedBy:text("updated_by"),updatedAt:text("updated_at").notNull(),
+},t=>[uniqueIndex("client_attendance_records_run_id_employee_id_attendance_date_key").on(t.runId,t.employeeId,t.attendanceDate),index("client_attendance_records_employee_idx").on(t.employeeId)]);
+export const payrollAttendanceConfirmations = pgTable("payroll_attendance_confirmations", {
+  runId:text("run_id").primaryKey().references(()=>payrollRuns.id,{onDelete:"cascade"}),source:text("source").notNull().default("system"),
+  status:text("status").notNull().default("pending"),notes:text("notes"),confirmedBy:text("confirmed_by"),confirmedAt:text("confirmed_at"),
+  clientSalaryImportedAt:text("client_salary_imported_at"),clientFile:text("client_file"),
+});
