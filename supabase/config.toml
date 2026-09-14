@@ -16,10 +16,3 @@ entrypoint = "./functions/salary-slip-mailer/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/employee-onboarding/index.ts"
-
-# Terminal/gateway API authenticates the per-device hashed key internally.
-[functions.attendance-device]
-enabled = true
-verify_jwt = false
-import_map = "./functions/attendance-device/deno.json"
-entrypoint = "./functions/attendance-device/index.ts"

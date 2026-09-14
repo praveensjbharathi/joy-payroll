@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Joy Payroll</string>
+    <string name="dashboard_title">Dashboard</string>
+    <string name="payroll_title">Payroll Register</string>
+    <string name="employees_title">Employees</string>
+    <string name="hostels_title">Hostels</string>
+    <string name="recoveries_title">Recoveries</string>
+    <string name="operations_title">Operations</string>
+    <string name="id_card_title">Employee ID</string>
+</resources>

@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import { CaptureError, handleCapture } from "../_shared/capture-service.ts";
 import { GET, POST } from "./generated/route.ts";
 import type { AuthenticatedUser } from "./supabase-runtime.ts";
 
@@ -92,23 +91,6 @@ export default {
           401,
           origin,
         );
-      }
-
-      if (request.method === "POST" && new URL(request.url).searchParams.get("capture") === "1") {
-        try {
-          const text = await request.text();
-          if (text.length > 300000) throw new CaptureError("Attendance request is too large.", 413);
-          const payload = JSON.parse(text) as Record<string, unknown>;
-          const result = await handleCapture(admin, identity.email, payload);
-          if (typeof result.refreshPayrollRunId === "string") {
-            const recalculated = await POST(new Request(request.url, { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({action:"recalculate",runId:result.refreshPayrollRunId,responseMode:"delta"}) }), identity);
-            if (recalculated.ok) result.appUpdate = await recalculated.json();
-            else result.warning = "Attendance source confirmed. Payroll recalculation needs attention; use Recalculate in Payroll Run before approval.";
-          }
-          return Response.json(result, {headers:responseHeaders(origin)});
-        } catch (error) {
-          return jsonError(error instanceof Error ? error.message : "Invalid attendance request.", error instanceof CaptureError ? error.status : 400, origin);
-        }
       }
 
       const applicationResponse =

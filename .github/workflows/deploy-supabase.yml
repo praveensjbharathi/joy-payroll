@@ -44,7 +44,3 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy salary-slip-mailer --project-ref fsiinadrkhsfzuheckbp --use-api
-      - name: Deploy biometric attendance receiver
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: supabase functions deploy attendance-device --project-ref fsiinadrkhsfzuheckbp --use-api

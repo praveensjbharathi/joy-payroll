@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import { sites } from "./build/sites-vite-plugin";
+// sites plugin stub for non-ChatGPT sites
+const sites = () => ({ name: "sites-stub" });
 
 const isSelfHostedCloudflare = process.env.JOY_DEPLOY_TARGET === "cloudflare";
 

@@ -1,0 +1,8 @@
+{
+  "name": "Joy Payroll",
+  "description": "Workforce and vendor payroll management app with employee master, hostel accommodation, recoveries, and 41-column register.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

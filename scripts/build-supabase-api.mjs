@@ -129,11 +129,7 @@ const banner =
 route = replaceRequired(route, 'from "../../../lib/revenue-calculator";', 'from "./revenue-calculator.ts";', "the Super Admin revenue calculator");
 route = replaceRequired(route, 'from "../../../lib/revenue-projection";', 'from "./revenue-projection.ts";', "the calendar-month revenue projection");
 
-route = replaceRequired(route, 'from "../../../lib/mutation-updates";', 'from "./mutation-updates.ts";', "targeted mutation refreshes");
-
 await Promise.all([
-  readFile(join(projectRoot, "lib/mutation-updates.ts"), "utf8").then(source => writeFile(join(generatedDirectory, "mutation-updates.ts"), banner + source)),
-  readFile(join(projectRoot, "lib/attendance-capture.ts"), "utf8").then(source => writeFile(join(generatedDirectory, "attendance-capture.ts"), banner + source)),
   readFile(join(projectRoot, "lib/revenue-projection.ts"), "utf8").then(source => writeFile(join(generatedDirectory, "revenue-projection.ts"), banner + source)),
   readFile(join(projectRoot, "lib/revenue-calculator.ts"), "utf8").then(source => writeFile(join(generatedDirectory, "revenue-calculator.ts"), banner + source)),
   writeFile(join(generatedDirectory, "schema.ts"), banner + schema),

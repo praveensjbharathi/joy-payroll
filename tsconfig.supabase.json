@@ -14,8 +14,6 @@
     "supabase-frontend/**/*.ts",
     "supabase-frontend/**/*.tsx",
     "supabase/functions/payroll-api/**/*.ts",
-    "supabase/functions/_shared/**/*.ts",
-    "supabase/functions/attendance-device/**/*.ts",
     "vite.supabase.config.ts"
   ],
   "exclude": ["node_modules"]

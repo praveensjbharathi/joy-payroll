@@ -2,8 +2,6 @@
 import type { NewApplicant } from "./fresh-onboarding";
 import { OnboardingInvite } from "./employee-onboarding";
 import { ReferenceReports, RevenueCalculator } from "./referral-revenue";
-import { AttendanceCapturePage, MonthEndAttendance } from "./attendance-capture";
-import { mergeAppUpdate } from "../lib/mutation-updates";
 import { RevenueProjectionPage } from "./revenue-projection";
 // JOY_PRODUCTION_EXCELLENCE_V1 · bank-only payroll + release quality gates
 // JOY_BANK_PAYMENT_BATCH_ENHANCEMENTS_V1
@@ -52,7 +50,6 @@ type Section =
   | "dashboard"
   | "payroll"
   | "attendance"
-  | "capture"
   | "employees"
   | "accommodation"
   | "recoveries"
@@ -257,7 +254,6 @@ export type PayrollRun = {
   issueCount: number;
   approvedBy: string | null;
   approvedAt: string | null;
-  updatedAt: string;
 };
 
 export type PayrollItem = {
@@ -650,13 +646,12 @@ type ActiveModal =
     }
   | { kind: "salary"; item: PayrollItem }
   | { kind: "accommodation"; employee?: Employee; charge?: AccommodationCharge }
-  | { kind: "import"; clientAttendance?: boolean };
+  | { kind: "import" };
 
 const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "dashboard", label: "Overview", icon: "grid" },
   { id: "payroll", label: "Payroll Run", icon: "calculator" },
   { id: "attendance", label: "Attendance", icon: "calendar" },
-  { id: "capture", label: "Attendance Capture", icon: "calendar" },
   { id: "employees", label: "Employees", icon: "users" },
   { id: "accommodation", label: "Accommodation", icon: "home" },
   { id: "recoveries", label: "Recoveries", icon: "calculator" },
@@ -675,7 +670,6 @@ const sectionPermission: Record<Section, AccessModule> = {
   dashboard: "dashboard",
   payroll: "payroll",
   attendance: "attendance",
-  capture: "attendance",
   employees: "employees",
   accommodation: "accommodation",
   recoveries: "accommodation",
@@ -694,7 +688,6 @@ const sectionTitles: Record<
   Section,
   { eyebrow: string; title: string; description: string }
 > = {
-  capture: { eyebrow: "QR and biometric attendance", title: "Attendance Capture", description: "Scan employee cards, connect biometric punches and review shift attendance and overtime." },
   revenue: {
     eyebrow: "Super Admin · Revenue and recruitment planning",
     title: "Revenue Projection",
@@ -1035,7 +1028,7 @@ export default function PayrollApp({
   const title = sectionTitles[activeSection];
   const visibleNavItems = data
     ? navItems.filter((item) =>
-        (item.id !== "capture" || data.currentUser.role !== "hostel_incharge") && (item.id !== "revenue" || data.currentUser.role === "super_admin") && canView(data.currentUser.permissions, sectionPermission[item.id]),
+        (item.id !== "revenue" || data.currentUser.role === "super_admin") && canView(data.currentUser.permissions, sectionPermission[item.id]),
       )
     : [];
   const mayView = (section: Section) =>
@@ -1091,13 +1084,11 @@ export default function PayrollApp({
           vendorId: activeVendorId,
           unitId: omitPayrollContext ? undefined : activeUnitId,
           ...details,
-          responseMode: "delta",
         }),
       });
-      const responsePayload = (await response.json()) as AppData & { error?: string; delta?: boolean };
-      const payload = data ? mergeAppUpdate(data, responsePayload) : responsePayload;
+      const payload = (await response.json()) as AppData & { error?: string };
       if (!response.ok)
-        throw new Error(responsePayload.error ?? "Action could not be completed");
+        throw new Error(payload.error ?? "Action could not be completed");
       setData(payload);
       const selectedRun = payload.runs.find(
         (run) => run.id === payload.selectedRunId,
@@ -1391,7 +1382,7 @@ export default function PayrollApp({
                 ))}
               </select>
             </label>
-            {unitRuns.length && activeSection !== "capture" ? (
+            {unitRuns.length ? (
               <>
                 <span className="selector-divider period-divider" />
                 <label className="period-selector">
@@ -1457,7 +1448,7 @@ export default function PayrollApp({
               {(mayManage("attendance") ||
                 mayManage("payroll") ||
                 mayManage("employees")) &&
-              !["users", "vendors", "masters", "settings", "revenue", "capture"].includes(
+              !["users", "vendors", "masters", "settings", "revenue"].includes(
                 activeSection,
               ) ? (
                 <button
@@ -1470,7 +1461,7 @@ export default function PayrollApp({
                 </button>
               ) : null}
               {mayManage("payroll") &&
-              !["users", "vendors", "masters", "settings", "revenue", "capture"].includes(
+              !["users", "vendors", "masters", "settings", "revenue"].includes(
                 activeSection,
               ) ? (
                 <button
@@ -1546,7 +1537,6 @@ export default function PayrollApp({
           ) : null}
           {activeSection === "payroll" && currentRun ? (
             <>
-              <MonthEndAttendance key={`${currentRun.id}|${currentRun.updatedAt}`} runId={currentRun.id} processingMode={currentRun.processingMode} locked={currentRun.status === "approved" || hasDownloadedPaymentBatch} unitId={activeUnitId} role={data.currentUser.role} canManage={mayManage("payroll")} endpoint={apiEndpoint} accessToken={accessToken} publishableKey={publishableKey} onImport={() => setModal({kind:"import",clientAttendance:true})} onUpdate={update => setData(current => current ? mergeAppUpdate(current, update) : current)} />
               <PayrollPeriodEditor
                 key={currentRun.id}
                 run={currentRun}
@@ -1904,9 +1894,6 @@ export default function PayrollApp({
               isActing={isActing}
               onAction={performAction}
             />
-          ) : null}
-          {activeSection === "capture" && mayView("capture") && data.currentUser.role !== "hostel_incharge" ? (
-            <AttendanceCapturePage unitId={activeUnitId} role={data.currentUser.role} canManage={mayManage("attendance")} endpoint={apiEndpoint} accessToken={accessToken} publishableKey={publishableKey} />
           ) : null}
           {activeSection === "revenue" && data.currentUser.role === "super_admin" ? (
             <RevenueProjectionPage role={data.currentUser.role} endpoint={apiEndpoint} accessToken={accessToken} publishableKey={publishableKey} exportExcel={downloadXlsx} />
@@ -6542,8 +6529,6 @@ function PayrollActionModal({
   ) => Promise<boolean>;
 }) {
   const [importPeriod, setImportPeriod] = useState(currentPeriod);
-  const [clientAttendanceImport, setClientAttendanceImport] = useState(modal.kind === "import" && Boolean(modal.clientAttendance));
-  const [importFilename, setImportFilename] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<WorkbookImport | null>(null);
   const [parseError, setParseError] = useState("");
@@ -6919,7 +6904,7 @@ function PayrollActionModal({
       await onAction(
         "import-workbook",
         `Imported ${parsed.employees.length} employees and ${parsed.attendance.length} attendance entries`,
-        { ...parsed, payPeriod: importPeriod, clientAttendance: clientAttendanceImport && parsed.sourceType === "attendance", sourceFile: importFilename },
+        { ...parsed, payPeriod: importPeriod },
       );
   }
 
@@ -8670,8 +8655,6 @@ function PayrollActionModal({
 
           {modal.kind === "import" ? (
             <div className="import-form">
-              <label className="capture-check"><input type="checkbox" checked={clientAttendanceImport} onChange={event => setClientAttendanceImport(event.target.checked)}/>Factory month-end attendance: keep this upload separately for comparison and final salary-source confirmation.</label>
-              {clientAttendanceImport && <p className="form-note">Daily client attendance is staged without replacing system records. Salary-register uploads remain in salary-import mode. Open Payroll Run → Month-end attendance to review and confirm the source.</p>}
               <label>
                 <span>Import into payroll month *</span>
                 <input
@@ -8692,7 +8675,7 @@ function PayrollActionModal({
                   accept=".xlsx,.csv,.txt"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
-                    if (file) { setImportFilename(file.name); void inspectFile(file, importPeriod); }
+                    if (file) void inspectFile(file, importPeriod);
                   }}
                 />
                 <Icon name="file" size={25} />
